@@ -1,206 +1,195 @@
 use anyhow::Result;
 use bytes::Bytes;
-use duckdb::{Connection, params};
+use duckdb::{params, Connection};
+use greplog_core::gen::IngestBatch;
+use greplog_core::redact::{redact_string, RedactionMode};
+use prost::Message;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio::time::{interval, Duration};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
-/// Single-threaded DuckDB writer.
 pub struct Writer {
-    conn: Connection,
+    db: Arc<Mutex<Connection>>,
 }
 
 impl Writer {
     pub fn new(db_path: PathBuf) -> Result<Self> {
-        // Ensure parent directory exists
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        let db = Connection::open(&db_path)?;
 
-        let conn = Connection::open(&db_path)?;
-
-        // Create tables
-        conn.execute_batch(
+        db.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS logs (
-                seq          BIGINT,
-                service_name VARCHAR,
-                message      VARCHAR,
-                level        VARCHAR,
-                timestamp_ns BIGINT,
-                logger_name  VARCHAR,
-                file         VARCHAR,
-                line         INTEGER,
-                correlation_id VARCHAR,
-                exception_type VARCHAR,
-                exception_message VARCHAR,
-                attributes   VARCHAR,
-                stack_trace  VARCHAR,
-                ingested_at  TIMESTAMP DEFAULT now()
+                id VARCHAR PRIMARY KEY,
+                service VARCHAR NOT NULL,
+                timestamp TIMESTAMP NOT NULL,
+                level VARCHAR,
+                message VARCHAR,
+                attributes JSON
             );
-
             CREATE TABLE IF NOT EXISTS spans (
-                seq           BIGINT,
-                service_name  VARCHAR,
-                name          VARCHAR,
-                start_time_ns BIGINT,
-                end_time_ns   BIGINT,
+                id VARCHAR PRIMARY KEY,
                 correlation_id VARCHAR,
-                parent_correlation_id VARCHAR,
-                route         VARCHAR,
-                method        VARCHAR,
-                status_code   INTEGER,
-                error         VARCHAR,
-                kind          INTEGER,
-                attributes    VARCHAR,
-                ingested_at   TIMESTAMP DEFAULT now()
+                service VARCHAR NOT NULL,
+                name VARCHAR,
+                start_time TIMESTAMP NOT NULL,
+                end_time TIMESTAMP NOT NULL,
+                attributes JSON
             );
-
             CREATE TABLE IF NOT EXISTS metrics (
-                seq           BIGINT,
-                service_name  VARCHAR,
-                name          VARCHAR,
-                value         DOUBLE,
-                timestamp_ns  BIGINT,
-                type          INTEGER,
-                labels        VARCHAR,
-                bucket_values VARCHAR,
-                ingested_at   TIMESTAMP DEFAULT now()
+                id VARCHAR PRIMARY KEY,
+                service VARCHAR NOT NULL,
+                name VARCHAR NOT NULL,
+                timestamp TIMESTAMP NOT NULL,
+                value DOUBLE NOT NULL,
+                labels JSON
             );
             ",
         )?;
 
-        // Enable WAL for concurrent reads
-        conn.execute_batch("PRAGMA wal_autocheckpoint=1000;")?;
-
-        info!("DuckDB store initialized at {:?}", db_path);
-        Ok(Self { conn })
+        info!("Store writer initialized at {:?}", db_path);
+        Ok(Self {
+            db: Arc::new(Mutex::new(db)),
+        })
     }
 
-    /// Spawn the writer loop on a dedicated thread (not async — DuckDB is sync).
     pub fn spawn(
-        mut self,
-        mut rx: mpsc::Receiver<Bytes>,
+        self,
+        mut batch_rx: mpsc::Receiver<Bytes>,
         flush_interval_secs: u64,
     ) -> tokio::task::JoinHandle<()> {
-        tokio::task::spawn_blocking(move || {
-            let mut seq: i64 = 0;
-            let mut ticker = tokio::runtime::Handle::current();
+        let db = self.db.clone();
+        tokio::spawn(async move {
+            let mut pending_batches: Vec<IngestBatch> = Vec::new();
+            let flush_interval = Duration::from_secs(flush_interval_secs);
+            let mut flush_ticker = tokio::time::interval(flush_interval);
 
             loop {
-                // Process all available batches, then flush
-                let mut flushed = false;
-
-                while let Ok(buf) = rx.try_recv() {
-                    flushed = true;
-                    if let Err(e) = self.insert_batch(&buf, seq) {
-                        error!("Failed to insert batch: {}", e);
-                    }
-                    seq += 1;
-                }
-
-                if flushed {
-                    info!("Flushed batch to DuckDB");
-                }
-
-                // Block until next message or timeout
-                let dur = Duration::from_secs(flush_interval_secs);
-                let deadline = ticker.block_on(async {
-                    tokio::time::sleep(dur);
-                });
-
-                // Try receiving with timeout via select
-                match ticker.block_on(async {
-                    tokio::select! {
-                        msg = rx.recv() => msg,
-                        _ = tokio::time::sleep(dur) => None,
-                    }
-                }) {
-                    Some(buf) => {
-                        if let Err(e) = self.insert_batch(&buf, seq) {
-                            error!("Failed to insert batch: {}", e);
+                tokio::select! {
+                    _ = flush_ticker.tick() => {
+                        if !pending_batches.is_empty() {
+                            let batches = std::mem::take(&mut pending_batches);
+                            let db_ref = db.clone();
+                            if let Err(e) = tokio::task::spawn_blocking(move || {
+                                flush_batches(&db_ref, &batches)
+                            }).await.unwrap_or_else(|e| Err(anyhow::anyhow!("Join error: {}", e))) {
+                                error!("Flush failed: {}", e);
+                            }
                         }
-                        seq += 1;
                     }
-                    None => {
-                        // Timeout — flush and compact
-                        if let Err(e) = self.conn.execute_batch("CHECKPOINT;") {
-                            error!("Checkpoint failed: {}", e);
+                    msg = batch_rx.recv() => {
+                        match msg {
+                            Some(bytes) => {
+                                match IngestBatch::decode(bytes) {
+                                    Ok(batch) => pending_batches.push(batch),
+                                    Err(e) => error!("Failed to decode IngestBatch: {}", e),
+                                }
+                            }
+                            None => {
+                                info!("Writer channel closed, flushing remaining and exiting");
+                                if !pending_batches.is_empty() {
+                                    let db_ref = db.clone();
+                                    let batches = std::mem::take(&mut pending_batches);
+                                    if let Err(e) = tokio::task::spawn_blocking(move || {
+                                        flush_batches(&db_ref, &batches)
+                                    }).await.unwrap_or_else(|e| Err(anyhow::anyhow!("Join error: {}", e))) {
+                                        error!("Final flush failed: {}", e);
+                                    }
+                                }
+                                break;
+                            }
                         }
                     }
                 }
             }
         })
     }
+}
 
-    fn insert_batch(&self, buf: &[u8], seq: i64) -> Result<()> {
-        use greplog_core::gen;
+fn flush_batches(db: &Arc<Mutex<Connection>>, batches: &[IngestBatch]) -> Result<()> {
+    debug!("Flushing {} batches to store", batches.len());
+    let mut conn = db.lock().map_err(|e| anyhow::anyhow!("DB lock poisoned: {}", e))?;
+    let tx = conn.transaction()?;
 
-        let batch = gen::IngestBatch::decode(buf)?;
+    let mut log_stmt = tx.prepare_cached(
+        "INSERT OR IGNORE INTO logs (id, service, timestamp, level, message, attributes)
+         VALUES (?, ?, to_timestamp(? / 1000000000.0), ?, ?, ?)",
+    )?;
+    let mut span_stmt = tx.prepare_cached(
+        "INSERT OR IGNORE INTO spans (id, correlation_id, service, name, start_time, end_time, attributes)
+         VALUES (?, ?, ?, ?, to_timestamp(? / 1000000000.0), to_timestamp(? / 1000000000.0), ?)",
+    )?;
+    let mut metric_stmt = tx.prepare_cached(
+        "INSERT OR IGNORE INTO metrics (id, service, name, timestamp, value, labels)
+         VALUES (?, ?, ?, to_timestamp(? / 1000000000.0), ?, ?)",
+    )?;
+
+    for batch in batches {
+        let service = &batch.service_name;
 
         for log in &batch.logs {
-            self.conn.execute(
-                "INSERT INTO logs (seq, service_name, message, level, timestamp_ns, logger_name, file, line, correlation_id, exception_type, exception_message, attributes, stack_trace)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-                params![
-                    seq,
-                    batch.service_name,
-                    log.message,
-                    log.level,
-                    log.timestamp_ns,
-                    log.logger_name,
-                    log.file,
-                    log.line,
-                    log.correlation_id,
-                    log.exception_type,
-                    log.exception_message,
-                    serde_json::to_string(&log.attributes)?,
-                    serde_json::to_string(&log.stack_trace)?,
-                ],
-            )?;
+            let mut attrs = log.attributes.clone();
+            redact_map(&mut attrs);
+            let attrs_json = serde_json::to_string(&attrs).unwrap_or_default();
+            let id = uuid::Uuid::new_v4().to_string();
+            log_stmt.execute(params![
+                id,
+                service,
+                log.timestamp_ns,
+                log.level,
+                log.message,
+                attrs_json
+            ])?;
         }
 
         for span in &batch.spans {
-            self.conn.execute(
-                "INSERT INTO spans (seq, service_name, name, start_time_ns, end_time_ns, correlation_id, parent_correlation_id, route, method, status_code, error, kind, attributes)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-                params![
-                    seq,
-                    batch.service_name,
-                    span.name,
-                    span.start_time_ns,
-                    span.end_time_ns,
-                    span.correlation_id,
-                    span.parent_correlation_id,
-                    span.route,
-                    span.method,
-                    span.status_code,
-                    span.error,
-                    span.kind,
-                    serde_json::to_string(&span.attributes)?,
-                ],
-            )?;
+            let mut attrs = span.attributes.clone();
+            redact_map(&mut attrs);
+            let attrs_json = serde_json::to_string(&attrs).unwrap_or_default();
+            let id = uuid::Uuid::new_v4().to_string();
+            span_stmt.execute(params![
+                id,
+                span.correlation_id,
+                service,
+                span.name,
+                span.start_time_ns,
+                span.end_time_ns,
+                attrs_json
+            ])?;
         }
 
         for metric in &batch.metrics {
-            self.conn.execute(
-                "INSERT INTO metrics (seq, service_name, name, value, timestamp_ns, type, labels, bucket_values)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    seq,
-                    batch.service_name,
-                    metric.name,
-                    metric.value,
-                    metric.timestamp_ns,
-                    metric.r#type,
-                    serde_json::to_string(&metric.labels)?,
-                    serde_json::to_string(&metric.bucket_values)?,
-                ],
-            )?;
+            let mut labels = metric.labels.clone();
+            redact_map(&mut labels);
+            let labels_json = serde_json::to_string(&labels).unwrap_or_default();
+            let id = uuid::Uuid::new_v4().to_string();
+            metric_stmt.execute(params![
+                id,
+                service,
+                metric.name,
+                metric.timestamp_ns,
+                metric.value,
+                labels_json
+            ])?;
         }
+    }
 
-        Ok(())
+    drop(log_stmt);
+    drop(span_stmt);
+    drop(metric_stmt);
+    tx.commit()?;
+    Ok(())
+}
+
+/// Redact sensitive keys in a protobuf map<string, string>.
+fn redact_map(map: &mut std::collections::HashMap<String, String>) {
+    for (key, value) in map.iter_mut() {
+        let k = key.to_lowercase();
+        if k.contains("password") || k.contains("token") || k.contains("secret") {
+            *value = redact_string(value, RedactionMode::Full);
+        } else if k.contains("email") {
+            *value = redact_string(value, RedactionMode::Partial);
+        }
     }
 }

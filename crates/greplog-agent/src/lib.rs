@@ -1,33 +1,30 @@
 use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing::info;
 
+pub mod detect;
 mod ingest;
-mod server;
+pub mod query;
+pub mod server;
 mod store;
 
 pub use store::Writer;
 
-/// Agent configuration.
 #[derive(Debug, Clone, clap::Parser)]
 pub struct Config {
-    /// Workspace root directory (defaults to cwd).
     #[arg(long, default_value = ".")]
     pub workspace: PathBuf,
 
-    /// TCP fallback port.
     #[arg(long, default_value_t = 4318)]
     pub tcp_port: u16,
 
-    /// Dashboard UI port.
     #[arg(long, default_value_t = 4317)]
     pub ui_port: u16,
 
-    /// Flush interval in seconds.
     #[arg(long, default_value_t = 2)]
     pub flush_interval_secs: u64,
 
-    /// UDS socket path (relative to workspace).
     #[arg(long, default_value = ".greplog/greplog.sock")]
     pub socket_path: PathBuf,
 }
@@ -46,31 +43,49 @@ impl Config {
     }
 }
 
-/// Start the agent: ingest → store → server.
 pub async fn run(config: Config) -> Result<()> {
     let config = Arc::new(config);
 
-    // Create workspace directories
     tokio::fs::create_dir_all(config.socket_dir()).await?;
 
-    // Channel: ingest workers → single writer
     let (batch_tx, batch_rx) = tokio::sync::mpsc::channel::<bytes::Bytes>(1024);
 
-    // Store writer
     let writer = store::Writer::new(config.db_path())?;
     let writer_handle = writer.spawn(batch_rx, config.flush_interval_secs);
 
-    // Ingest listeners
     let ingest_handle = ingest::IngestServer::new(batch_tx).spawn(&config);
 
-    // Health / status HTTP
-    let server_handle = server::HttpServer::new().spawn(config.clone());
+    let query_engine = query::QueryEngine::new(config.db_path())?;
 
-    // Wait for any to exit (they run until Ctrl+C)
+    let server_state = server::AppState {
+        config: config.clone(),
+        query_engine,
+    };
+    let server_handle = server::HttpServer::new().spawn(server_state);
+
+    let socket_path = config.abs_socket_path();
+
     tokio::select! {
-        _ = writer_handle => {},
-        _ = ingest_handle => {},
-        _ = server_handle => {},
+        _ = writer_handle => {
+            info!("Writer exited");
+        },
+        _ = ingest_handle => {
+            info!("Ingest exited");
+        },
+        _ = server_handle => {
+            info!("HTTP server exited");
+        },
+        _ = tokio::signal::ctrl_c() => {
+            info!("Received Ctrl+C, shutting down gracefully");
+        },
+    }
+
+    if socket_path.exists() {
+        if let Err(e) = tokio::fs::remove_file(&socket_path).await {
+            tracing::warn!("Failed to clean up socket {:?}: {}", socket_path, e);
+        } else {
+            info!("Cleaned up socket {:?}", socket_path);
+        }
     }
 
     Ok(())

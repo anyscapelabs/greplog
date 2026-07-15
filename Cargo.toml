@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/greplog-core",
     "crates/greplog-agent",
+    "crates/greplog-cli",
 ]
 
 [workspace.package]
