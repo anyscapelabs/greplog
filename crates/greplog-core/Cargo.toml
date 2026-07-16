@@ -8,6 +8,7 @@ prost = "0.13"
 prost-types = "0.13"
 anyhow = "1"
 tracing = "0.1"
+arrow = "58"
 
 [build-dependencies]
 prost-build = "0.13"

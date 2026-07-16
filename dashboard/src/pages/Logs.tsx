@@ -1,26 +1,45 @@
 import { useState } from 'react'
-import { LuRefreshCw, LuCircleDot, LuChevronDown, LuPanelLeftClose, LuPanelLeftOpen, LuServer, LuFilter, LuX } from 'react-icons/lu'
+import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen, LuServer, LuFilter, LuX } from 'react-icons/lu'
 import FilterSidebar from '../components/FilterSidebar.tsx'
 import LogVolumeChart from '../components/LogVolumeChart.tsx'
 import ErrorsChart from '../components/ErrorsChart.tsx'
 import StatusCodesChart from '../components/StatusCodesChart.tsx'
 import LogsTable from '../components/LogsTable.tsx'
+import Dropdown from '../components/Dropdown.tsx'
 
 const timeRanges = ['Last 15 min', 'Last 1 hour', 'Last 6 hours', 'Last 24 hours', 'Last 7 days', 'Custom']
+
+const chartMetrics = [
+  { label: 'Count', value: 'count' },
+  { label: 'Rate', value: 'rate' },
+  { label: 'Avg', value: 'avg' },
+  { label: 'P95', value: 'p95' },
+  { label: 'P99', value: 'p99' },
+]
+
+const chartGroupBy = [
+  { label: 'nothing', value: 'nothing' },
+  { label: 'service', value: 'service' },
+  { label: 'level', value: 'level' },
+  { label: 'status_code', value: 'status_code' },
+]
 
 export default function Logs() {
   const [spinning, setSpinning] = useState(false)
   const [live, setLive] = useState(false)
   const [timeRange, setTimeRange] = useState('Last 15 min')
-  const [timeOpen, setTimeOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(true)
   const [autoRefresh, setAutoRefresh] = useState('Off')
-  const [refreshOpen, setRefreshOpen] = useState(false)
   const services = ['All Services', 'web', 'api', 'db', 'worker']
   const [service, setService] = useState('All Services')
-  const [serviceOpen, setServiceOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [chips, setChips] = useState<string[]>([])
+  const [chart1Metric, setChart1Metric] = useState('count')
+  const [chart1Group, setChart1Group] = useState('nothing')
+  const [chart2Metric, setChart2Metric] = useState('count')
+  const [chart2Group, setChart2Group] = useState('nothing')
+  const [chart3Metric, setChart3Metric] = useState('count')
+  const [chart3Group, setChart3Group] = useState('nothing')
 
   function handleQueryKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter' && query.trim()) {
@@ -94,34 +113,13 @@ export default function Logs() {
               {filterOpen ? <LuPanelLeftClose className="size-4" /> : <LuPanelLeftOpen className="size-4" />}
             </button>
             <div className="h-5 w-px mx-2" style={{ backgroundColor: 'var(--border-primary)' }} />
-            <div className="relative">
-              <button
-                className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-primary hover:bg-gray-100 transition-colors"
-                onClick={() => setServiceOpen(!serviceOpen)}
-              >
-                <LuServer className="size-3.5" style={{ color: 'var(--text-secondary)' }} />
-                <span>{service}</span>
-                <LuChevronDown className="size-3.5" style={{ color: 'var(--text-secondary)' }} />
-              </button>
-              {serviceOpen && (
-                <div
-                  className="absolute top-full left-0 mt-1 py-1 min-w-32 rounded border bg-white shadow-md z-50"
-                  style={{ borderColor: 'var(--border-primary)' }}
-                >
-                  {services.map((s) => (
-                    <button
-                      key={s}
-                      className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
-                        s === service ? 'text-text-primary bg-gray-100 font-medium' : 'text-text-primary hover:bg-gray-50'
-                      }`}
-                      onClick={() => { setService(s); setServiceOpen(false) }}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <Dropdown
+              trigger={<><LuServer className="size-3.5" style={{ color: 'var(--text-secondary)' }} /><span>{service}</span></>}
+              items={services.map((s) => ({ label: s, value: s }))}
+              value={service}
+              onChange={setService}
+              minWidth="min-w-32"
+            />
             <div className="h-5 w-px mx-2" style={{ backgroundColor: 'var(--border-primary)' }} />
             <div className="flex-1 flex items-center gap-1.5 px-3 overflow-hidden">
               <LuFilter className="size-3.5 shrink-0" style={{ color: 'var(--text-secondary)' }} />
@@ -149,72 +147,24 @@ export default function Logs() {
               </div>
             </div>
             <div className="ml-auto flex items-center gap-2 pr-4">
-              <div className="relative">
-                <button
-                  className="flex items-center gap-1.5 px-2 py-1 text-sm hover:bg-gray-100 transition-colors"
-                  style={{
-                    borderColor: 'var(--border-primary)',
-                    borderWidth: 1,
-                  }}
-                  onClick={() => setRefreshOpen(!refreshOpen)}
-                >
-                  <span className="text-text-primary text-sm">Auto refresh</span>
-                  {autoRefresh !== 'Off' && (
-                    <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-gray-100 rounded">
-                      {autoRefresh}
-                    </span>
-                  )}
-                </button>
-                {refreshOpen && (
-                  <div
-                    className="absolute top-full right-0 mt-1 py-1 min-w-16 rounded border bg-white shadow-md z-50"
-                    style={{ borderColor: 'var(--border-primary)' }}
-                  >
-                    {['Off', '10s', '30s', '1m', '5m'].map((opt) => (
-                      <button
-                        key={opt}
-                        className={`w-full text-left px-3 py-1 text-xs transition-colors ${
-                          opt === autoRefresh ? 'text-text-primary bg-gray-100 font-medium' : 'text-text-primary hover:bg-gray-50'
-                        }`}
-                        onClick={() => { setAutoRefresh(opt); setRefreshOpen(false) }}
-                      >
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="relative">
-                <button
-                  className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-primary hover:bg-gray-100 transition-colors"
-                  style={{
-                    borderColor: 'var(--border-primary)',
-                    borderWidth: 1,
-                  }}
-                  onClick={() => setTimeOpen(!timeOpen)}
-                >
-                  <span>{timeRange}</span>
-                  <LuChevronDown className="size-3.5" style={{ color: 'var(--text-secondary)' }} />
-                </button>
-                {timeOpen && (
-                  <div
-                    className="absolute top-full right-0 mt-1 py-1 min-w-40 rounded border bg-white shadow-md z-50"
-                    style={{ borderColor: 'var(--border-primary)' }}
-                  >
-                    {timeRanges.map((range) => (
-                      <button
-                        key={range}
-                        className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
-                          range === timeRange ? 'text-text-primary bg-gray-100 font-medium' : 'text-text-primary hover:bg-gray-50'
-                        }`}
-                        onClick={() => { setTimeRange(range); setTimeOpen(false) }}
-                      >
-                        {range}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <Dropdown
+                trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-gray-100 rounded">{autoRefresh}</span>}</>}
+                items={['Off', '10s', '30s', '1m', '5m'].map((opt) => ({ label: opt, value: opt }))}
+                value={autoRefresh}
+                onChange={setAutoRefresh}
+                align="right"
+                minWidth="min-w-16"
+                hasBorder
+              />
+              <Dropdown
+                trigger={<span>{timeRange}</span>}
+                items={timeRanges.map((r) => ({ label: r, value: r }))}
+                value={timeRange}
+                onChange={setTimeRange}
+                align="right"
+                minWidth="min-w-40"
+                hasBorder
+              />
             </div>
           </div>
           <div className="flex gap-1.5 px-2 pt-2">
@@ -222,12 +172,24 @@ export default function Logs() {
               <div className="flex items-center gap-3 px-2 pt-2 border-b pb-2" style={{ borderColor: 'var(--border-primary)' }}>
                 <span className="text-sm font-semibold text-text-primary">Total Requests</span>
                 <div className="flex items-center gap-2">
-                  <button className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors">
-                    Count <LuChevronDown className="size-3" />
-                  </button>
-                  <button className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors">
-                    Grouped by nothing <LuChevronDown className="size-3" />
-                  </button>
+                  <Dropdown
+                    trigger={<span className="text-xs text-text-secondary">{chartMetrics.find(m => m.value === chart1Metric)?.label}</span>}
+                    items={chartMetrics}
+                    value={chart1Metric}
+                    onChange={setChart1Metric}
+                    minWidth="min-w-20"
+                    showChevron
+                    triggerClassName="text-xs text-text-secondary hover:text-text-primary"
+                  />
+                  <Dropdown
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {chartGroupBy.find(g => g.value === chart1Group)?.label}</span>}
+                    items={chartGroupBy}
+                    value={chart1Group}
+                    onChange={setChart1Group}
+                    minWidth="min-w-36"
+                    showChevron
+                    triggerClassName="text-xs text-text-secondary hover:text-text-primary"
+                  />
                 </div>
               </div>
               <div className="flex-1 p-1">
@@ -238,12 +200,24 @@ export default function Logs() {
               <div className="flex items-center gap-3 px-2 pt-2 border-b pb-2" style={{ borderColor: 'var(--border-primary)' }}>
                 <span className="text-sm font-semibold text-text-primary">Errors</span>
                 <div className="flex items-center gap-2">
-                  <button className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors">
-                    Count <LuChevronDown className="size-3" />
-                  </button>
-                  <button className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors">
-                    Grouped by nothing <LuChevronDown className="size-3" />
-                  </button>
+                  <Dropdown
+                    trigger={<span className="text-xs text-text-secondary">{chartMetrics.find(m => m.value === chart2Metric)?.label}</span>}
+                    items={chartMetrics}
+                    value={chart2Metric}
+                    onChange={setChart2Metric}
+                    minWidth="min-w-20"
+                    showChevron
+                    triggerClassName="text-xs text-text-secondary hover:text-text-primary"
+                  />
+                  <Dropdown
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {chartGroupBy.find(g => g.value === chart2Group)?.label}</span>}
+                    items={chartGroupBy}
+                    value={chart2Group}
+                    onChange={setChart2Group}
+                    minWidth="min-w-36"
+                    showChevron
+                    triggerClassName="text-xs text-text-secondary hover:text-text-primary"
+                  />
                 </div>
               </div>
               <div className="flex-1 p-1">
@@ -254,12 +228,24 @@ export default function Logs() {
               <div className="flex items-center gap-3 px-2 pt-2 border-b pb-2" style={{ borderColor: 'var(--border-primary)' }}>
                 <span className="text-sm font-semibold text-text-primary">Status Codes</span>
                 <div className="flex items-center gap-2">
-                  <button className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors">
-                    Count <LuChevronDown className="size-3" />
-                  </button>
-                  <button className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary transition-colors">
-                    Grouped by nothing <LuChevronDown className="size-3" />
-                  </button>
+                  <Dropdown
+                    trigger={<span className="text-xs text-text-secondary">{chartMetrics.find(m => m.value === chart3Metric)?.label}</span>}
+                    items={chartMetrics}
+                    value={chart3Metric}
+                    onChange={setChart3Metric}
+                    minWidth="min-w-20"
+                    showChevron
+                    triggerClassName="text-xs text-text-secondary hover:text-text-primary"
+                  />
+                  <Dropdown
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {chartGroupBy.find(g => g.value === chart3Group)?.label}</span>}
+                    items={chartGroupBy}
+                    value={chart3Group}
+                    onChange={setChart3Group}
+                    minWidth="min-w-36"
+                    showChevron
+                    triggerClassName="text-xs text-text-secondary hover:text-text-primary"
+                  />
                 </div>
               </div>
               <div className="flex-1 p-1">
