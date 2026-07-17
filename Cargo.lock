@@ -1003,6 +1003,7 @@ dependencies = [
  "axum",
  "bytes",
  "clap",
+ "crc32fast",
  "duckdb",
  "greplog-core",
  "prost",

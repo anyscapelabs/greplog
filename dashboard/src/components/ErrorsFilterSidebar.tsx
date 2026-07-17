@@ -43,6 +43,7 @@ function FilterSection({
   onToggle,
   checked,
   onCheck,
+  initialLimit = 5,
 }: {
   title: string
   items: { id: string; label: string; count: number; color?: string }[]
@@ -50,7 +51,12 @@ function FilterSection({
   onToggle: () => void
   checked: Record<string, boolean>
   onCheck: (id: string) => void
+  initialLimit?: number
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const visibleItems = expanded ? items : items.slice(0, initialLimit)
+  const hasMore = items.length > initialLimit
+
   return (
     <>
       <button
@@ -62,7 +68,7 @@ function FilterSection({
       </button>
       {open && (
         <div className="px-3 pb-2 flex flex-col gap-0.5">
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <label
               key={item.id}
               className="flex items-center gap-2 px-1 py-1 rounded hover:bg-gray-50 cursor-pointer transition-colors"
@@ -77,7 +83,15 @@ function FilterSection({
               <span className="ml-auto text-sm" style={{ color: 'var(--text-secondary)' }}>{item.count}</span>
             </label>
           ))}
-          <button className="text-sm text-left px-1 py-1 hover:opacity-80 transition-opacity" style={{ color: 'var(--accent)' }}>View more</button>
+          {hasMore && (
+            <button
+              className="text-sm text-left px-1 py-1 hover:opacity-80 transition-opacity"
+              style={{ color: 'var(--accent)' }}
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? 'Show less' : 'View more'}
+            </button>
+          )}
         </div>
       )}
       <div className="border-b" style={{ borderColor: 'var(--border-primary)' }} />
