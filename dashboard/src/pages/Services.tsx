@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import Drawer from '../components/Drawer.tsx'
 import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen } from 'react-icons/lu'
 import ServiceCard from '../components/ServiceCard.tsx'
 import ServicesFilterSidebar from '../components/ServicesFilterSidebar.tsx'
@@ -44,10 +45,34 @@ export default function Services() {
   const [live, setLive] = useState(false)
   const [timeRange, setTimeRange] = useState('Last 15 min')
   const [filterOpen, setFilterOpen] = useState(true)
+  const [drawerService, setDrawerService] = useState<any>(null)
   const [autoRefresh, setAutoRefresh] = useState('Off')
   const [requestsMetric, setRequestsMetric] = useState('count')
   const [errorRateMetric, setErrorRateMetric] = useState('rate')
   const [latencyMetric, setLatencyMetric] = useState('avg')
+  const [checked, setChecked] = useState<Record<string, boolean>>({})
+
+  function handleCheck(id: string) {
+    setChecked((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  const filteredServices = useMemo(() => {
+    const checkedServiceIds = Object.entries(checked)
+      .filter(([, v]) => v)
+      .map(([k]) => k)
+    const healthServiceMap: Record<string, string[]> = {
+      healthy: ['api', 'web'],
+      degraded: ['db'],
+      down: ['worker'],
+    }
+    const fromHealth = checkedServiceIds
+      .filter(id => ['healthy', 'degraded', 'down'].includes(id))
+      .flatMap(id => healthServiceMap[id] || [])
+    const fromServices = checkedServiceIds.filter(id => !['healthy', 'degraded', 'down'].includes(id))
+    const allChecked = [...new Set([...fromHealth, ...fromServices])]
+    if (allChecked.length === 0) return undefined
+    return allChecked
+  }, [checked])
 
   return (
     <div className="flex flex-col h-full">
@@ -93,8 +118,8 @@ export default function Services() {
         </div>
       </div>
       <div className="flex flex-1 min-h-0">
-        {filterOpen && <ServicesFilterSidebar />}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {filterOpen && <ServicesFilterSidebar checked={checked} onCheck={handleCheck} />}
+        <div className="flex-1 flex flex-col min-w-0">
           <div
             className="flex items-center h-10 border-b shrink-0"
             style={{
@@ -164,9 +189,40 @@ export default function Services() {
               <AvgLatencyByServiceChart metric={latencyMetric} />
             </AnalyticsChartPanel>
           </div>
-          <ServicesTable />
+          <ServicesTable filteredServices={filteredServices} onView={setDrawerService} />
         </div>
       </div>
+      <Drawer open={!!drawerService} onClose={() => setDrawerService(null)} title={drawerService ? `Service: ${drawerService.service}` : ''}>
+        {drawerService && (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-2">
+              <span className="size-2.5 rounded-full" style={{ backgroundColor: drawerService.status === 'healthy' ? 'var(--success)' : drawerService.status === 'degraded' ? 'var(--warn)' : 'var(--error)' }} />
+              <span className="text-sm font-medium text-text-primary">{drawerService.service}</span>
+              <span className="text-xs ml-auto" style={{ color: drawerService.status === 'healthy' ? 'var(--success)' : drawerService.status === 'degraded' ? 'var(--warn)' : 'var(--error)' }}>
+                {drawerService.status === 'healthy' ? 'Healthy' : drawerService.status === 'degraded' ? 'Degraded' : 'Down'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded border p-3" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Uptime</span>
+                <p className="text-lg font-bold text-text-primary">{drawerService.uptime}</p>
+              </div>
+              <div className="rounded border p-3" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Requests</span>
+                <p className="text-lg font-bold text-text-primary">{drawerService.requests}</p>
+              </div>
+              <div className="rounded border p-3" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Error Rate</span>
+                <p className="text-lg font-bold text-text-primary">{drawerService.errorRate}</p>
+              </div>
+              <div className="rounded border p-3" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Avg Latency</span>
+                <p className="text-lg font-bold text-text-primary">{drawerService.avgLatency}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </Drawer>
     </div>
   )
 }

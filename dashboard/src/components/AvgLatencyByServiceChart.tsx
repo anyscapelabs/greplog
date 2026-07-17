@@ -14,15 +14,14 @@ const dataMap: Record<string, number[]> = {
   p99: [180, 210, 930, 3600],
 }
 
-const getColor = (val: number) => {
-  if (val > 500) return '#dc2626'
-  if (val > 100) return '#d97706'
-  return '#f59e0b'
-}
-
 export default function AvgLatencyByServiceChart({ metric }: AvgLatencyByServiceChartProps) {
   const data = dataMap[metric] || dataMap.avg
   const colors = useChartTheme()
+  const getColor = (val: number) => {
+    if (val > 500) return colors.red
+    if (val > 100) return colors.orange
+    return '#f59e0b'
+  }
 
   const option = {
     tooltip: {

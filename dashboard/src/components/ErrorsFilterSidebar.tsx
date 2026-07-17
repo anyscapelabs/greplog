@@ -99,21 +99,21 @@ function FilterSection({
   )
 }
 
-export default function ErrorsFilterSidebar() {
+interface ErrorsFilterSidebarProps {
+  checked: Record<string, boolean>
+  onCheck: (id: string) => void
+}
+
+export default function ErrorsFilterSidebar({ checked, onCheck }: ErrorsFilterSidebarProps) {
   const [openStates, setOpenStates] = useState<Record<string, boolean>>({
     service: true,
     type: true,
     level: false,
     status: false,
   })
-  const [checked, setChecked] = useState<Record<string, boolean>>({})
 
   function toggle(section: string) {
     setOpenStates((prev) => ({ ...prev, [section]: !prev[section] }))
-  }
-
-  function check(id: string) {
-    setChecked((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
   return (
@@ -154,7 +154,7 @@ export default function ErrorsFilterSidebar() {
           open={openStates.service}
           onToggle={() => toggle('service')}
           checked={checked}
-          onCheck={check}
+          onCheck={onCheck}
         />
 
         <FilterSection
@@ -163,7 +163,7 @@ export default function ErrorsFilterSidebar() {
           open={openStates.type}
           onToggle={() => toggle('type')}
           checked={checked}
-          onCheck={check}
+          onCheck={onCheck}
         />
 
         <FilterSection
@@ -172,7 +172,7 @@ export default function ErrorsFilterSidebar() {
           open={openStates.level}
           onToggle={() => toggle('level')}
           checked={checked}
-          onCheck={check}
+          onCheck={onCheck}
         />
 
         <FilterSection
@@ -181,7 +181,7 @@ export default function ErrorsFilterSidebar() {
           open={openStates.status}
           onToggle={() => toggle('status')}
           checked={checked}
-          onCheck={check}
+          onCheck={onCheck}
         />
       </div>
     </div>

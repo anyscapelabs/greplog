@@ -1,18 +1,18 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { LuChevronDown, LuChevronUp, LuCircleCheck, LuDownload, LuColumns2, LuRows3, LuClock, LuSignal, LuServer, LuMessageSquareText, LuTag, LuTimer, LuCode, LuLink, LuFile } from 'react-icons/lu'
+import { LuChevronDown, LuChevronUp, LuCircleCheck, LuDownload, LuClock, LuSignal, LuServer, LuMessageSquareText, LuTag, LuTimer, LuCode, LuLink, LuFile } from 'react-icons/lu'
 import Dropdown from './Dropdown.tsx'
 
 const columns = [
   { key: 'timestamp', label: 'timestamp', icon: LuClock, width: 'w-[180px]' },
   { key: 'level', label: 'level', icon: LuSignal, width: 'w-[100px]' },
   { key: 'service', label: 'service_name', icon: LuServer, width: 'w-[150px]' },
+  { key: 'statusCode', label: 'status_code', icon: LuCode, width: 'w-[130px]' },
   { key: 'message', label: 'message', icon: LuMessageSquareText, width: 'w-[360px]' },
+  { key: 'response', label: 'response', icon: LuTimer, width: 'w-[130px]' },
   { key: 'logger', label: 'logger_name', icon: LuTag, width: 'w-[150px]' },
   { key: 'correlationId', label: 'correlation_id', icon: LuLink, width: 'w-[150px]' },
   { key: 'file', label: 'file', icon: LuFile, width: 'w-[180px]' },
-  { key: 'response', label: 'response', icon: LuTimer, width: 'w-[130px]' },
-  { key: 'statusCode', label: 'status_code', icon: LuCode, width: 'w-[130px]' },
 ]
 
 const levels = ['info', 'warn', 'error', 'debug'] as const
@@ -39,19 +39,46 @@ const mockData = Array.from({ length: 50000 }, (_, i) => ({
   statusCode: [200, 201, 301, 400, 401, 403, 404, 500, 502, 503][i % 10],
 }))
 
-export default function LogsTable() {
+interface LogsTableProps {
+  filteredServices?: string[]
+  onView?: (row: any) => void
+}
+
+export default function LogsTable({ filteredServices, onView }: LogsTableProps) {
   const [totalRows] = useState(1234)
   const [totalLogs] = useState(5678)
   const [seconds] = useState(0.3)
   const limits = ['500', '1k', '5k', '10k']
   const [limit, setLimit] = useState('500')
-  const [columnsLayout, setColumnsLayout] = useState(true)
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const cardRef = useRef<HTMLDivElement>(null)
 
+  const data = filteredServices
+    ? mockData.filter((row) => filteredServices.includes(row.service))
+    : mockData
+
+  const sortedData = useMemo(() => {
+    if (!sortColumn) return data
+    return [...data].sort((a, b) => {
+      const aVal = a[sortColumn as keyof typeof a]
+      const bVal = b[sortColumn as keyof typeof b]
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal
+      }
+      const aStr = String(aVal)
+      const bStr = String(bVal)
+      if (aStr < bStr) return sortDirection === 'asc' ? -1 : 1
+      if (aStr > bStr) return sortDirection === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [data, sortColumn, sortDirection])
+
+  const parsedLimit = limit === 'All' ? sortedData.length : parseInt(limit.replace('k', '000'))
+  const displayData = sortedData.slice(0, parsedLimit)
+
   const virtualizer = useVirtualizer({
-    count: mockData.length,
+    count: displayData.length,
     estimateSize: () => 28,
     getScrollElement: () => cardRef.current,
     overscan: 30,
@@ -67,6 +94,21 @@ export default function LogsTable() {
       setSortColumn(null)
       setSortDirection('asc')
     }
+  }
+
+  function exportToCSV() {
+    const headers = columns.map(c => c.label)
+    const rows = displayData.map(row =>
+      columns.map(c => String(row[c.key as keyof typeof row] ?? '')).join(',')
+    )
+    const csv = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'logs-export.csv'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -92,26 +134,16 @@ export default function LogsTable() {
           </div>
           <div className="h-4 w-px shrink-0" style={{ backgroundColor: 'var(--border-primary)' }} />
           <div className="px-3 py-1.5 shrink-0">
-            <button className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-secondary rounded hover:bg-[var(--hover-bg)] transition-colors">
+            <button onClick={exportToCSV} className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-secondary rounded hover:bg-[var(--hover-bg)] transition-colors">
               <LuDownload className="size-3.5" />
               Export
-            </button>
-          </div>
-          <div className="h-4 w-px shrink-0" style={{ backgroundColor: 'var(--border-primary)' }} />
-          <div className="px-3 py-1.5 shrink-0">
-            <button
-              className="flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors"
-              onClick={() => setColumnsLayout(!columnsLayout)}
-              title={columnsLayout ? 'Switch to rows' : 'Switch to columns'}
-            >
-              {columnsLayout ? <LuColumns2 className="size-3.5 text-text-secondary" /> : <LuRows3 className="size-3.5 text-text-secondary" />}
             </button>
           </div>
         </div>
         <div ref={cardRef} className="flex-1 overflow-auto min-h-0 relative">
           <div className="min-w-fit flex flex-col">
             <div className="flex items-center h-8 border-b text-sm font-medium shrink-0 sticky top-0 z-10" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'color-mix(in srgb, var(--bg-primary) 40%, var(--bg-secondary))' }}>
-            <div className="w-[60px] shrink-0 h-full border-r" style={{ borderColor: 'var(--border-primary)' }}></div>
+            <div className="w-[60px] shrink-0 h-full border-r border-l" style={{ borderColor: 'var(--border-primary)' }}></div>
             {columns.map((col, i) => {
               const Icon = col.icon
               const isLast = i === columns.length - 1
@@ -119,13 +151,13 @@ export default function LogsTable() {
               return (
                 <button
                   key={col.key}
-                  className={`flex items-center gap-1.5 ${col.width} shrink-0 px-3 h-full hover:bg-[var(--hover-bg)] transition-colors cursor-pointer ${!isLast ? 'border-r' : ''}`}
+                  className={`flex items-center gap-2 ${col.width} shrink-0 px-4 h-full hover:bg-[var(--hover-bg)] transition-colors cursor-pointer ${!isLast ? 'border-r' : ''}`}
                   style={{ borderColor: 'var(--border-primary)' }}
                   onClick={() => handleSort(col.key)}
                 >
                   <Icon className="size-3.5 shrink-0" style={{ color: 'var(--text-secondary)' }} />
                   <span className="text-text-primary">{col.label}</span>
-                  <span className="ml-auto flex items-center">
+                    <span className="ml-1 flex items-center">
                     {isActive && sortDirection === 'asc' ? (
                       <LuChevronUp className="size-3" style={{ color: 'var(--text-secondary)' }} />
                     ) : (
@@ -138,7 +170,7 @@ export default function LogsTable() {
           </div>
           <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative', width: '100%' }}>
             {virtualizer.getVirtualItems().map((virtualItem) => {
-              const row = mockData[virtualItem.index]
+              const row = displayData[virtualItem.index]
               const levelColor = row.level === 'error' ? 'var(--error)' : row.level === 'warn' ? 'var(--warn)' : row.level === 'info' ? 'var(--info)' : 'var(--text-secondary)'
               const statusColor = row.statusCode >= 500 ? 'var(--error)' : row.statusCode >= 400 ? 'var(--warn)' : row.statusCode >= 300 ? 'var(--info)' : 'var(--success)'
               return (
@@ -155,18 +187,18 @@ export default function LogsTable() {
                   }}
                   className="flex items-center border-b text-xs hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono"
                 >
-                  <div className="w-[60px] shrink-0 h-full border-r flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>
-                    <button className="text-xs text-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer" onClick={() => {}}>View</button>
+                  <div className="w-[60px] shrink-0 h-full border-r border-l flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>
+                    <button className="text-xs text-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer" onClick={() => onView?.(row)}>View</button>
                   </div>
                   <div className="w-[180px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.timestamp}</div>
                   <div className="w-[100px] shrink-0 px-3 font-medium truncate border-r h-full flex items-center" style={{ color: levelColor, borderColor: 'var(--border-primary)' }}>{row.level}</div>
                   <div className="w-[150px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.service}</div>
+                  <div className="w-[130px] shrink-0 px-3 font-medium border-r h-full flex items-center" style={{ color: statusColor, borderColor: 'var(--border-primary)' }}>{row.statusCode}</div>
                   <div className="w-[360px] shrink-0 px-3 text-text-primary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.message}</div>
+                  <div className="w-[130px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.response}</div>
                   <div className="w-[150px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.logger}</div>
                   <div className="w-[150px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.correlationId}</div>
                   <div className="w-[180px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.file}</div>
-                  <div className="w-[130px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.response}</div>
-                  <div className="w-[130px] shrink-0 px-3 font-medium border-r h-full flex items-center" style={{ color: statusColor, borderColor: 'var(--border-primary)' }}>{row.statusCode}</div>
                 </div>
               )
             })}

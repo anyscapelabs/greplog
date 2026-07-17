@@ -98,21 +98,21 @@ function FilterSection({
   )
 }
 
-export default function FilterSidebar() {
+interface FilterSidebarProps {
+  checked: Record<string, boolean>
+  onCheck: (id: string) => void
+}
+
+export default function FilterSidebar({ checked, onCheck }: FilterSidebarProps) {
   const [openStates, setOpenStates] = useState<Record<string, boolean>>({
     status: true,
     codes: false,
     level: true,
     service: false,
   })
-  const [checked, setChecked] = useState<Record<string, boolean>>({})
 
   function toggle(section: string) {
     setOpenStates((prev) => ({ ...prev, [section]: !prev[section] }))
-  }
-
-  function check(id: string) {
-    setChecked((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
   return (
@@ -153,7 +153,7 @@ export default function FilterSidebar() {
           open={openStates.status}
           onToggle={() => toggle('status')}
           checked={checked}
-          onCheck={check}
+          onCheck={onCheck}
         />
 
         <FilterSection
@@ -162,7 +162,7 @@ export default function FilterSidebar() {
           open={openStates.codes}
           onToggle={() => toggle('codes')}
           checked={checked}
-          onCheck={check}
+          onCheck={onCheck}
         />
 
         <FilterSection
@@ -171,7 +171,7 @@ export default function FilterSidebar() {
           open={openStates.level}
           onToggle={() => toggle('level')}
           checked={checked}
-          onCheck={check}
+          onCheck={onCheck}
         />
 
         <FilterSection
@@ -180,7 +180,7 @@ export default function FilterSidebar() {
           open={openStates.service}
           onToggle={() => toggle('service')}
           checked={checked}
-          onCheck={check}
+          onCheck={onCheck}
         />
       </div>
     </div>

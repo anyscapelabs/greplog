@@ -84,20 +84,20 @@ function FilterSection({
   )
 }
 
-export default function ServicesFilterSidebar() {
+interface ServicesFilterSidebarProps {
+  checked: Record<string, boolean>
+  onCheck: (id: string) => void
+}
+
+export default function ServicesFilterSidebar({ checked, onCheck }: ServicesFilterSidebarProps) {
   const [openStates, setOpenStates] = useState<Record<string, boolean>>({
     health_status: true,
     service_name: false,
     environment: false,
   })
-  const [checked, setChecked] = useState<Record<string, boolean>>({})
 
   function toggle(section: string) {
     setOpenStates((prev) => ({ ...prev, [section]: !prev[section] }))
-  }
-
-  function check(id: string) {
-    setChecked((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
   return (
@@ -138,7 +138,7 @@ export default function ServicesFilterSidebar() {
           open={openStates.health_status}
           onToggle={() => toggle('health_status')}
           checked={checked}
-          onCheck={check}
+          onCheck={onCheck}
         />
 
         <FilterSection
@@ -147,7 +147,7 @@ export default function ServicesFilterSidebar() {
           open={openStates.service_name}
           onToggle={() => toggle('service_name')}
           checked={checked}
-          onCheck={check}
+          onCheck={onCheck}
         />
 
         <FilterSection
@@ -156,7 +156,7 @@ export default function ServicesFilterSidebar() {
           open={openStates.environment}
           onToggle={() => toggle('environment')}
           checked={checked}
-          onCheck={check}
+          onCheck={onCheck}
           initialLimit={10}
         />
       </div>

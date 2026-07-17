@@ -6,7 +6,6 @@ interface RequestsByServiceChartProps {
 }
 
 const serviceNames = ['api', 'web', 'db', 'worker']
-const serviceColors = ['#3b82f6', '#22c55e', '#d97706', '#ef4444']
 
 const countData = [1200000, 890000, 450000, 120000]
 const rateData = [2500, 1850, 940, 250]
@@ -14,6 +13,7 @@ const rateData = [2500, 1850, 940, 250]
 export default function RequestsByServiceChart({ metric }: RequestsByServiceChartProps) {
   const data = metric === 'count' ? countData : rateData
   const colors = useChartTheme()
+  const serviceColors = [colors.blue, colors.green, colors.orange, colors.red]
 
   const option = {
     tooltip: {

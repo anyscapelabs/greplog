@@ -31,6 +31,10 @@
   --chart-grid: #e5e7eb;
   --chart-grid-strong: #f3f4f6;
   --chart-label: #6b7280;
+  --chart-blue: #3b82f6;
+  --chart-green: #22c55e;
+  --chart-orange: #d97706;
+  --chart-red: #ef4444;
 }
 
 .dark {
@@ -59,6 +63,10 @@
   --chart-grid: #21262d;
   --chart-grid-strong: #21262d;
   --chart-label: #8b949e;
+  --chart-blue: #58a6ff;
+  --chart-green: #3fb950;
+  --chart-orange: #d29922;
+  --chart-red: #f85149;
 }
 
 *::-webkit-scrollbar-thumb {

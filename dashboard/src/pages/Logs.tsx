@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen, LuServer, LuFilter, LuX } from 'react-icons/lu'
 import FilterSidebar from '../components/FilterSidebar.tsx'
 import LogVolumeChart from '../components/LogVolumeChart.tsx'
@@ -49,6 +49,20 @@ export default function Logs() {
   const [chart2Group, setChart2Group] = useState('nothing')
   const [chart3Metric, setChart3Metric] = useState('count')
   const [chart3Group, setChart3Group] = useState('nothing')
+  const [checked, setChecked] = useState<Record<string, boolean>>({})
+
+  function handleCheck(id: string) {
+    setChecked((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  const filteredServices = useMemo(() => {
+    const checkedIds = Object.entries(checked)
+      .filter(([, v]) => v)
+      .map(([k]) => k)
+    const serviceIds = checkedIds.filter(id => ['web', 'api', 'db', 'worker'].includes(id))
+    if (serviceIds.length === 0) return undefined
+    return serviceIds
+  }, [checked])
 
   function handleQueryKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter' && query.trim()) {
@@ -105,8 +119,8 @@ export default function Logs() {
         </div>
       </div>
       <div className="flex flex-1 min-h-0">
-        {filterOpen && <FilterSidebar />}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {filterOpen && <FilterSidebar checked={checked} onCheck={handleCheck} />}
+        <div className="flex-1 flex flex-col min-w-0">
           <div
             className="flex items-center h-10 border-b shrink-0"
             style={{
@@ -202,7 +216,7 @@ export default function Logs() {
                 </div>
               </div>
               <div className="flex-1 p-1">
-                <LogVolumeChart />
+                <LogVolumeChart metric={chart1Metric} groupBy={chart1Group} />
               </div>
             </div>
             <div className="flex-1 h-64 rounded border flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
@@ -230,7 +244,7 @@ export default function Logs() {
                 </div>
               </div>
               <div className="flex-1 p-1">
-                <ErrorsChart />
+                <ErrorsChart metric={chart2Metric} groupBy={chart2Group} />
               </div>
             </div>
             <div className="flex-1 h-64 rounded border flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
@@ -258,11 +272,11 @@ export default function Logs() {
                 </div>
               </div>
               <div className="flex-1 p-1">
-                <StatusCodesChart />
+                <StatusCodesChart metric={chart3Metric} groupBy={chart3Group} />
               </div>
             </div>
           </div>
-          <LogsTable />
+          <LogsTable filteredServices={filteredServices} />
         </div>
       </div>
     </div>
