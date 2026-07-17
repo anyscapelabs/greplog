@@ -24,11 +24,11 @@ export default function SearchInput({
         {chips.map((chip) => (
           <span
             key={chip}
-            className="flex items-center gap-1 px-2 py-0.5 text-xs text-text-primary bg-gray-100 rounded-full whitespace-nowrap shrink-0"
+            className="flex items-center gap-1 px-2 py-0.5 text-xs text-text-primary bg-[var(--bg-primary)] rounded-full whitespace-nowrap shrink-0"
           >
             {chip}
             <button
-              className="size-3.5 flex items-center justify-center rounded-full hover:bg-gray-200 transition-colors"
+              className="size-3.5 flex items-center justify-center rounded-full hover:bg-[var(--hover-bg-strong)] transition-colors"
               onClick={() => onRemoveChip(chip)}
             >
               <LuX className="size-2.5" />

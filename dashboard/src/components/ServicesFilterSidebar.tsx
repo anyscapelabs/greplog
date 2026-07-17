@@ -1,38 +1,21 @@
 import { useState } from 'react'
 import { LuSearch, LuChevronDown, LuChevronRight } from 'react-icons/lu'
 
-const statusGroups = [
-  { id: 'success', label: 'Success', count: 1243 },
-  { id: 'redirect', label: 'Redirect', count: 89 },
-  { id: 'client_error', label: 'Client Error', count: 342 },
-  { id: 'server_error', label: 'Server Error', count: 27 },
-]
-
-const statusCodes = [
-  { id: '200', label: '200', count: 892 },
-  { id: '201', label: '201', count: 351 },
-  { id: '301', label: '301', count: 45 },
-  { id: '400', label: '400', count: 156 },
-  { id: '401', label: '401', count: 89 },
-  { id: '403', label: '403', count: 42 },
-  { id: '404', label: '404', count: 55 },
-  { id: '500', label: '500', count: 19 },
-  { id: '502', label: '502', count: 5 },
-  { id: '503', label: '503', count: 3 },
-]
-
-const logLevels = [
-  { id: 'error', label: 'Error', count: 27, color: 'var(--error)' },
-  { id: 'warn', label: 'Warn', count: 156, color: 'var(--warn)' },
-  { id: 'info', label: 'Info', count: 1243, color: 'var(--info)' },
-  { id: 'debug', label: 'Debug', count: 3456, color: 'var(--text-secondary)' },
+const healthStatuses = [
+  { id: 'healthy', label: 'Healthy', count: 2, color: 'var(--success)' },
+  { id: 'degraded', label: 'Degraded', count: 1, color: 'var(--warn)' },
+  { id: 'down', label: 'Down', count: 1, color: 'var(--error)' },
 ]
 
 const services = [
-  { id: 'web', label: 'web', count: 2341 },
-  { id: 'api', label: 'api', count: 1567 },
+  { id: 'api', label: 'api', count: 2341 },
+  { id: 'web', label: 'web', count: 1567 },
   { id: 'db', label: 'db', count: 892 },
   { id: 'worker', label: 'worker', count: 423 },
+]
+
+const environments = [
+  { id: 'production', label: 'production', count: 4 },
 ]
 
 function FilterSection({
@@ -78,7 +61,10 @@ function FilterSection({
                 onChange={() => onCheck(item.id)}
                 className="size-3.5 rounded border-[var(--border-primary)]"
               />
-              <span className="text-sm" style={{ color: item.color ?? 'var(--text-primary)' }}>{item.label}</span>
+              <span className="flex items-center gap-1.5 text-sm" style={{ color: item.color ?? 'var(--text-primary)' }}>
+                {item.color && <span className="size-2 rounded-full" style={{ backgroundColor: item.color }} />}
+                {item.label}
+              </span>
               <span className="ml-auto text-sm" style={{ color: 'var(--text-secondary)' }}>{item.count}</span>
             </label>
           ))}
@@ -98,12 +84,11 @@ function FilterSection({
   )
 }
 
-export default function FilterSidebar() {
+export default function ServicesFilterSidebar() {
   const [openStates, setOpenStates] = useState<Record<string, boolean>>({
-    status: true,
-    codes: false,
-    level: true,
-    service: false,
+    health_status: true,
+    service_name: false,
+    environment: false,
   })
   const [checked, setChecked] = useState<Record<string, boolean>>({})
 
@@ -148,28 +133,10 @@ export default function FilterSidebar() {
 
       <div className="flex-1 overflow-y-auto">
         <FilterSection
-          title="response_status"
-          items={statusGroups}
-          open={openStates.status}
-          onToggle={() => toggle('status')}
-          checked={checked}
-          onCheck={check}
-        />
-
-        <FilterSection
-          title="status_code"
-          items={statusCodes}
-          open={openStates.codes}
-          onToggle={() => toggle('codes')}
-          checked={checked}
-          onCheck={check}
-        />
-
-        <FilterSection
-          title="log_level"
-          items={logLevels}
-          open={openStates.level}
-          onToggle={() => toggle('level')}
+          title="health_status"
+          items={healthStatuses}
+          open={openStates.health_status}
+          onToggle={() => toggle('health_status')}
           checked={checked}
           onCheck={check}
         />
@@ -177,10 +144,20 @@ export default function FilterSidebar() {
         <FilterSection
           title="service_name"
           items={services}
-          open={openStates.service}
-          onToggle={() => toggle('service')}
+          open={openStates.service_name}
+          onToggle={() => toggle('service_name')}
           checked={checked}
           onCheck={check}
+        />
+
+        <FilterSection
+          title="environment"
+          items={environments}
+          open={openStates.environment}
+          onToggle={() => toggle('environment')}
+          checked={checked}
+          onCheck={check}
+          initialLimit={10}
         />
       </div>
     </div>

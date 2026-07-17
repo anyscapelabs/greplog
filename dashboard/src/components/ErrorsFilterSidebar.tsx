@@ -60,7 +60,7 @@ function FilterSection({
   return (
     <>
       <button
-        className="flex items-center justify-between px-3 py-2 text-sm hover:bg-gray-50 transition-colors"
+        className="flex items-center justify-between px-3 py-2 text-sm hover:bg-[var(--hover-bg-subtle)] transition-colors"
         onClick={onToggle}
       >
         <span style={{ color: 'var(--text-primary)' }}>{title}</span>
@@ -71,13 +71,13 @@ function FilterSection({
           {visibleItems.map((item) => (
             <label
               key={item.id}
-              className="flex items-center gap-2 px-1 py-1 rounded hover:bg-gray-50 cursor-pointer transition-colors"
+              className="flex items-center gap-2 px-1 py-1 rounded hover:bg-[var(--hover-bg-subtle)] cursor-pointer transition-colors"
             >
               <input
                 type="checkbox"
                 checked={checked[item.id] ?? false}
                 onChange={() => onCheck(item.id)}
-                className="size-3.5 rounded border-gray-300"
+                className="size-3.5 rounded border-[var(--border-primary)]"
               />
               <span className="text-sm" style={{ color: item.color ?? 'var(--text-primary)' }}>{item.label}</span>
               <span className="ml-auto text-sm" style={{ color: 'var(--text-secondary)' }}>{item.count}</span>

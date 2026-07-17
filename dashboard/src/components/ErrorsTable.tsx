@@ -43,8 +43,6 @@ export default function ErrorsTable() {
   const [seconds] = useState(0.3)
   const limits = ['500', '1k', '5k', '10k']
   const [limit, setLimit] = useState('500')
-  const views = ['Compact', 'Default', 'Detailed']
-  const [view, setView] = useState('Compact')
   const [columnsLayout, setColumnsLayout] = useState(true)
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
@@ -52,7 +50,6 @@ export default function ErrorsTable() {
 
   const virtualizer = useVirtualizer({
     count: mockData.length,
-    getItemHeight: () => 28,
     estimateSize: () => 28,
     getScrollElement: () => cardRef.current,
     overscan: 30,
@@ -92,19 +89,8 @@ export default function ErrorsTable() {
             />
           </div>
           <div className="h-4 w-px shrink-0" style={{ backgroundColor: 'var(--border-primary)' }} />
-          <div className="flex items-center gap-1.5 px-3 py-1.5 w-[150px] shrink-0">
-            <span className="text-sm text-text-secondary">Views:</span>
-            <Dropdown
-              trigger={<span>{view}</span>}
-              items={views.map((opt) => ({ label: opt, value: opt }))}
-              value={view}
-              onChange={setView}
-              minWidth="min-w-24"
-            />
-          </div>
-          <div className="h-4 w-px shrink-0" style={{ backgroundColor: 'var(--border-primary)' }} />
           <div className="px-3 py-1.5 shrink-0">
-            <button className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-secondary rounded hover:bg-gray-100 transition-colors">
+            <button className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-secondary rounded hover:bg-[var(--hover-bg)] transition-colors">
               <LuDownload className="size-3.5" />
               Export
             </button>
@@ -112,7 +98,7 @@ export default function ErrorsTable() {
           <div className="h-4 w-px shrink-0" style={{ backgroundColor: 'var(--border-primary)' }} />
           <div className="px-3 py-1.5 shrink-0">
             <button
-              className="flex items-center justify-center size-7 rounded hover:bg-gray-100 transition-colors"
+              className="flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors"
               onClick={() => setColumnsLayout(!columnsLayout)}
               title={columnsLayout ? 'Switch to rows' : 'Switch to columns'}
             >
@@ -131,7 +117,7 @@ export default function ErrorsTable() {
               return (
                 <button
                   key={col.key}
-                  className={`flex items-center gap-1.5 ${col.width} shrink-0 px-3 h-full hover:bg-black/5 transition-colors cursor-pointer ${!isLast ? 'border-r' : ''}`}
+                  className={`flex items-center gap-1.5 ${col.width} shrink-0 px-3 h-full hover:bg-[var(--hover-bg)] transition-colors cursor-pointer ${!isLast ? 'border-r' : ''}`}
                   style={{ borderColor: 'var(--border-primary)' }}
                   onClick={() => handleSort(col.key)}
                 >
@@ -164,10 +150,10 @@ export default function ErrorsTable() {
                     transform: `translateY(${virtualItem.start}px)`,
                     borderColor: 'var(--border-primary)',
                   }}
-                  className="flex items-center border-b text-xs hover:bg-black/[0.02] transition-colors font-mono"
+                  className="flex items-center border-b text-xs hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono"
                 >
                   <div className="w-[60px] shrink-0 h-full border-r flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>
-                    <button className="text-xs text-blue-500 hover:text-blue-700 transition-colors cursor-pointer" onClick={() => {}}>View</button>
+                    <button className="text-xs text-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer" onClick={() => {}}>View</button>
                   </div>
                   <div className="w-[180px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.timestamp}</div>
                   <div className="w-[160px] shrink-0 px-3 font-medium truncate border-r h-full flex items-center" style={{ color: 'var(--error)', borderColor: 'var(--border-primary)' }}>{row.errorCode}</div>

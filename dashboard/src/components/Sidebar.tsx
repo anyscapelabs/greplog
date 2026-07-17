@@ -1,22 +1,21 @@
 import { NavLink } from 'react-router-dom'
 import { CgSidebar } from 'react-icons/cg'
-import { LuSearch, LuBug } from 'react-icons/lu'
+import { LuSearch, LuBug, LuSun, LuMoon } from 'react-icons/lu'
 import LogsIcon from '../icons/LogsIcon.tsx'
 import AnalyticsIcon from '../icons/AnalyticsIcon.tsx'
-import ViewsIcon from '../icons/ViewsIcon.tsx'
 import ServicesIcon from '../icons/ServicesIcon.tsx'
-import TracesIcon from '../icons/TracesIcon.tsx'
+import { useTheme } from '../context/ThemeContext.tsx'
 
 const primaryTabs = [
   { to: '/logs', icon: LogsIcon, label: 'Logs' },
   { to: '/analytics', icon: AnalyticsIcon, label: 'Analytics' },
   { to: '/errors', icon: LuBug, label: 'Errors' },
-  { to: '/views', icon: ViewsIcon, label: 'Views' },
   { to: '/services', icon: ServicesIcon, label: 'Services' },
-  { to: '/traces', icon: TracesIcon, label: 'Traces' },
 ]
 
 export default function Sidebar() {
+  const { theme, toggleTheme } = useTheme()
+
   return (
     <div
       className="flex flex-col border-r"
@@ -27,7 +26,7 @@ export default function Sidebar() {
       }}
     >
       <div className="flex justify-end p-3">
-        <button className="flex items-center justify-center p-2 hover:bg-gray-100 transition-colors" style={{ color: 'var(--text-primary)' }}>
+        <button className="flex items-center justify-center p-2 hover:bg-[var(--hover-bg)] transition-colors" style={{ color: 'var(--text-primary)' }}>
           <CgSidebar className="size-5" />
         </button>
       </div>
@@ -48,17 +47,17 @@ export default function Sidebar() {
           />
         </div>
       </div>
-      <nav className="flex flex-col gap-0.5 px-3">
+      <nav className="flex flex-col gap-0.5 px-3 flex-1">
         {primaryTabs.map((tab) => (
           <NavLink
             key={tab.to}
             to={tab.to}
             className={({ isActive }) =>
                `flex items-center gap-2.5 px-2 py-1.5 text-sm font-medium transition-colors ${
-                isActive
-                  ? 'text-blue-600 bg-blue-50'
-                  : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-              }`
+               isActive
+                 ? 'text-[var(--accent)] bg-[var(--accent)]/10'
+                 : 'text-text-secondary hover:text-text-primary hover:bg-[var(--hover-bg)]'
+             }`
             }
           >
             <tab.icon className="size-5" />
@@ -66,6 +65,15 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
+      <div className="px-3 pb-3">
+        <button
+          onClick={toggleTheme}
+          className="flex items-center gap-2.5 w-full px-2 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-[var(--hover-bg)] transition-colors rounded"
+        >
+          {theme === 'dark' ? <LuSun className="size-5" /> : <LuMoon className="size-5" />}
+          <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+        </button>
+      </div>
     </div>
   )
 }

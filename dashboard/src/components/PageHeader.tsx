@@ -73,7 +73,7 @@ export default function PageHeader({
         <div className="ml-auto flex items-center gap-2">
           {extraActions}
           <button
-            className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-primary hover:bg-gray-100 transition-colors"
+            className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-primary hover:bg-[var(--hover-bg)] transition-colors"
             style={{
               borderColor: 'var(--border-primary)',
               borderWidth: 1,
@@ -89,7 +89,7 @@ export default function PageHeader({
           {showLive && (
             <button
               className={`flex items-center gap-1.5 px-2 py-1 text-sm transition-colors ${
-                live ? 'text-white bg-success border-success' : 'text-text-primary hover:bg-gray-100'
+                live ? 'text-white bg-success border-success' : 'text-text-primary hover:bg-[var(--hover-bg)]'
               }`}
               style={{
                 borderColor: live ? undefined : 'var(--border-primary)',
@@ -112,7 +112,7 @@ export default function PageHeader({
       >
         {showFilterToggle && (
           <button
-            className="flex items-center justify-center p-1.5 text-text-primary hover:bg-gray-100 transition-colors ml-1"
+            className="flex items-center justify-center p-1.5 text-text-primary hover:bg-[var(--hover-bg)] transition-colors ml-1"
             onClick={onFilterToggle}
             title={filterOpen ? 'Close filters' : 'Open filters'}
           >
@@ -144,7 +144,7 @@ export default function PageHeader({
             />
             <div className="ml-auto flex items-center gap-2 pr-4">
               <Dropdown
-                trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-gray-100 rounded">{autoRefresh}</span>}</>}
+                trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-[var(--bg-primary)] rounded">{autoRefresh}</span>}</>}
                 items={autoRefreshOptions.map((opt) => ({ label: opt, value: opt }))}
                 value={autoRefresh}
                 onChange={onAutoRefreshChange}

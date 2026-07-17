@@ -1,4 +1,5 @@
 import ReactECharts from 'echarts-for-react'
+import { useChartTheme } from '../utils/useChartTheme.ts'
 
 export default function ErrorRateChart() {
   const times = Array.from({ length: 60 }, (_, i) => {
@@ -8,6 +9,7 @@ export default function ErrorRateChart() {
   })
 
   const data = Array.from({ length: 60 }, () => Math.random() * 8 + 0.5)
+  const colors = useChartTheme()
 
   const option = {
     tooltip: { trigger: 'axis' },
@@ -17,13 +19,13 @@ export default function ErrorRateChart() {
       data: times,
       axisLine: { show: false },
       axisTick: { show: false },
-      axisLabel: { fontSize: 10, color: '#6b7280', hideOverlap: true },
+      axisLabel: { fontSize: 10, color: colors.label, hideOverlap: true },
     },
     yAxis: {
       type: 'value',
-      splitLine: { lineStyle: { color: '#f3f4f6', width: 1 } },
+      splitLine: { lineStyle: { color: colors.gridStrong, width: 1 } },
       axisLine: { show: false },
-      axisLabel: { fontSize: 10, color: '#6b7280' },
+      axisLabel: { fontSize: 10, color: colors.label },
     },
     series: [
       {

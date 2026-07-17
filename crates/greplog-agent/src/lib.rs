@@ -6,6 +6,7 @@ use tracing::info;
 pub mod detect;
 mod ingest;
 pub mod query;
+pub mod query_engine;
 pub mod server;
 mod store;
 

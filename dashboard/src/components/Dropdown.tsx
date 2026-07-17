@@ -47,7 +47,7 @@ export default function Dropdown({
   return (
     <div className="relative" ref={ref}>
       <button
-        className={`flex items-center gap-1.5 transition-colors ${triggerClassName || 'px-2 py-1 text-sm text-text-primary hover:bg-gray-100'}`}
+        className={`flex items-center gap-1.5 transition-colors ${triggerClassName || 'px-2 py-1 text-sm text-text-primary hover:bg-[var(--hover-bg)]'}`}
         style={hasBorder ? { borderColor: 'var(--border-primary)', borderWidth: 1 } : undefined}
         onClick={() => setOpen(!open)}
       >
@@ -56,7 +56,7 @@ export default function Dropdown({
       </button>
       {open && (
         <div
-          className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} mt-1 py-1 ${minWidth} rounded border bg-white shadow-md z-[100]`}
+          className={`absolute top-full ${align === 'right' ? 'right-0' : 'left-0'} mt-1 py-1 ${minWidth} rounded border bg-[var(--bg-secondary)] shadow-md z-[100]`}
           style={{ borderColor: 'var(--border-primary)' }}
         >
           {items.map((item) => (
@@ -64,8 +64,8 @@ export default function Dropdown({
               key={item.value}
               className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
                 item.value === value
-                  ? 'text-text-primary bg-gray-100 font-medium'
-                  : 'text-text-primary hover:bg-gray-50'
+                  ? 'text-text-primary bg-black/[0.06] font-medium'
+                  : 'text-text-primary hover:bg-[var(--hover-bg-subtle)]'
               }`}
               onClick={() => {
                 onChange?.(item.value)

@@ -1,6 +1,8 @@
 import ReactECharts from 'echarts-for-react'
+import { useChartTheme } from '../utils/useChartTheme.ts'
 
 export default function StatusCodesChart() {
+  const colors = useChartTheme()
   const option = {
     tooltip: {
       trigger: 'item',
@@ -14,7 +16,7 @@ export default function StatusCodesChart() {
       itemHeight: 8,
       textStyle: {
         fontSize: 11,
-        color: '#6b7280'
+        color: colors.label
       }
     },
     series: [

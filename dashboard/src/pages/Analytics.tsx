@@ -40,11 +40,9 @@ const ingestionOptions = [
   { label: 'Volume', value: 'volume' },
 ]
 
-const chartAggOptions = [
-  { label: 'Sum', value: 'sum' },
-  { label: 'Average', value: 'avg' },
-  { label: 'Count', value: 'count' },
+const rateCountOptions = [
   { label: 'Rate', value: 'rate' },
+  { label: 'Count', value: 'count' },
 ]
 
 const latencyOptions = [
@@ -67,9 +65,9 @@ export default function Analytics() {
   const [service, setService] = useState('All Services')
   const [autoRefresh, setAutoRefresh] = useState('Off')
   const [ingestionMetric, setIngestionMetric] = useState('sum')
-  const [errorRateMetric, setErrorRateMetric] = useState('avg')
+  const [errorRateMetric, setErrorRateMetric] = useState('rate')
   const [latencyView, setLatencyView] = useState('p50_p90_p99')
-  const [statusCodeMetric, setStatusCodeMetric] = useState('sum')
+  const [statusCodeMetric, setStatusCodeMetric] = useState('rate')
   const [noisySort, setNoisySort] = useState('logs')
 
   return (
@@ -87,7 +85,7 @@ export default function Analytics() {
         </span>
         <div className="ml-auto flex items-center gap-2">
           <button
-            className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-primary hover:bg-gray-100 transition-colors"
+            className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-primary hover:bg-[var(--hover-bg)] transition-colors"
             style={{ borderColor: 'var(--border-primary)', borderWidth: 1 }}
             onClick={() => {
               setSpinning(true)
@@ -107,7 +105,7 @@ export default function Analytics() {
             hasBorder
           />
           <Dropdown
-            trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-gray-100 rounded">{autoRefresh}</span>}</>}
+            trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-[var(--bg-primary)] rounded">{autoRefresh}</span>}</>}
             items={['Off', '10s', '30s', '1m', '5m'].map((opt) => ({ label: opt, value: opt }))}
             value={autoRefresh}
             onChange={setAutoRefresh}
@@ -145,7 +143,7 @@ export default function Analytics() {
         <div className="grid grid-cols-2 gap-0.5 mt-0.5">
           <AnalyticsChartPanel
             title="Error Rate Over Time"
-            dropdownItems={chartAggOptions}
+            dropdownItems={rateCountOptions}
             dropdownValue={errorRateMetric}
             onDropdownChange={setErrorRateMetric}
           >
@@ -166,7 +164,7 @@ export default function Analytics() {
           </AnalyticsChartPanel>
           <AnalyticsChartPanel
             title="Status Codes"
-            dropdownItems={chartAggOptions}
+            dropdownItems={rateCountOptions}
             dropdownValue={statusCodeMetric}
             onDropdownChange={setStatusCodeMetric}
           >

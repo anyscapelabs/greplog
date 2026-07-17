@@ -4,13 +4,10 @@ use arrow::array::*;
 use arrow::record_batch::RecordBatch;
 use greplog_core::arrow_schema;
 use greplog_core::gen::IngestBatch;
-use parquet::arrow::ArrowWriter;
-use parquet::file::properties::WriterProperties;
-use std::fs::{self, File, OpenOptions};
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tracing::debug;
 
 const DATA_DIR: &str = "data";
 
@@ -306,33 +303,7 @@ fn build_metric_batch(rows: &[MetricRow]) -> Result<RecordBatch> {
 }
 
 fn write_parquet(dir: &Path, batch: &RecordBatch) -> Result<()> {
-    fs::create_dir_all(dir)?;
-
-    let unique_id = uuid::Uuid::new_v4().to_string();
-    let tmp_path = dir.join(format!("part-{}.parquet.tmp", unique_id));
-    let final_path = dir.join(format!("part-{}.parquet", unique_id));
-
-    {
-        let file = File::create(&tmp_path)?;
-        let schema = batch.schema();
-        let props = WriterProperties::builder().build();
-        let mut writer = ArrowWriter::try_new(file, schema, Some(props))?;
-        writer.write(batch)?;
-        writer.close()?;
-    }
-
-    {
-        let file = OpenOptions::new().read(true).open(&tmp_path)?;
-        file.sync_all()?;
-    }
-
-    fs::rename(&tmp_path, &final_path)?;
-
-    if let Ok(dir_file) = OpenOptions::new().read(true).open(dir) {
-        dir_file.sync_all()?;
-    }
-
-    debug!("Wrote {}", final_path.display());
+    crate::store::io::write_parquet_atomic(dir, batch)?;
     Ok(())
 }
 
@@ -380,6 +351,8 @@ mod tests {
     use greplog_core::gen::{LogEvent, Metric, Span};
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use std::collections::HashMap;
+    use std::fs::File;
+    use std::path::PathBuf;
     use std::sync::atomic::AtomicBool;
     use std::time::Duration;
 

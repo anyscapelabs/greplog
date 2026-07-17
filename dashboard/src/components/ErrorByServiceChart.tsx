@@ -1,6 +1,8 @@
 import ReactECharts from 'echarts-for-react'
+import { useChartTheme } from '../utils/useChartTheme.ts'
 
 export default function ErrorByServiceChart() {
+  const colors = useChartTheme()
   const option = {
     tooltip: {
       trigger: 'item',
@@ -12,7 +14,7 @@ export default function ErrorByServiceChart() {
       icon: 'circle',
       itemWidth: 8,
       itemHeight: 8,
-      textStyle: { fontSize: 11, color: '#6b7280' },
+      textStyle: { fontSize: 11, color: colors.label },
     },
     series: [
       {

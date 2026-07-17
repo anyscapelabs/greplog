@@ -12,14 +12,24 @@ const timeRanges = ['Last 15 min', 'Last 1 hour', 'Last 6 hours', 'Last 24 hours
 const chartMetrics = [
   { label: 'Count', value: 'count' },
   { label: 'Rate', value: 'rate' },
-  { label: 'Avg', value: 'avg' },
-  { label: 'P95', value: 'p95' },
-  { label: 'P99', value: 'p99' },
 ]
 
-const chartGroupBy = [
+const errorCountGroupBy = [
   { label: 'nothing', value: 'nothing' },
   { label: 'service', value: 'service' },
+  { label: 'level', value: 'level' },
+  { label: 'status_code', value: 'status_code' },
+]
+
+const errorRateGroupBy = [
+  { label: 'nothing', value: 'nothing' },
+  { label: 'service', value: 'service' },
+  { label: 'level', value: 'level' },
+  { label: 'status_code', value: 'status_code' },
+]
+
+const errorByServiceGroupBy = [
+  { label: 'nothing', value: 'nothing' },
   { label: 'level', value: 'level' },
   { label: 'status_code', value: 'status_code' },
 ]
@@ -67,7 +77,7 @@ export default function Errors() {
         </span>
         <div className="ml-auto flex items-center gap-2">
           <button
-            className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-primary hover:bg-gray-100 transition-colors"
+            className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-primary hover:bg-[var(--hover-bg)] transition-colors"
             style={{
               borderColor: 'var(--border-primary)',
               borderWidth: 1,
@@ -82,7 +92,7 @@ export default function Errors() {
           </button>
           <button
             className={`flex items-center gap-1.5 px-2 py-1 text-sm transition-colors ${
-              live ? 'text-white bg-success border-success' : 'text-text-primary hover:bg-gray-100'
+              live ? 'text-white bg-success border-success' : 'text-text-primary hover:bg-[var(--hover-bg)]'
             }`}
             style={{
               borderColor: live ? undefined : 'var(--border-primary)',
@@ -106,7 +116,7 @@ export default function Errors() {
             }}
           >
             <button
-              className="flex items-center justify-center p-1.5 text-text-primary hover:bg-gray-100 transition-colors ml-1"
+              className="flex items-center justify-center p-1.5 text-text-primary hover:bg-[var(--hover-bg)] transition-colors ml-1"
               onClick={() => setFilterOpen(!filterOpen)}
               title={filterOpen ? 'Close filters' : 'Open filters'}
             >
@@ -127,10 +137,10 @@ export default function Errors() {
                 {chips.map((chip) => (
                   <span
                     key={chip}
-                    className="flex items-center gap-1 px-2 py-0.5 text-xs text-text-primary bg-gray-100 rounded-full whitespace-nowrap shrink-0"
+                    className="flex items-center gap-1 px-2 py-0.5 text-xs text-text-primary bg-[var(--bg-primary)] rounded-full whitespace-nowrap shrink-0"
                   >
                     {chip}
-                    <button className="size-3.5 flex items-center justify-center rounded-full hover:bg-gray-200 transition-colors" onClick={() => removeChip(chip)}>
+                    <button className="size-3.5 flex items-center justify-center rounded-full hover:bg-[var(--hover-bg-strong)] transition-colors" onClick={() => removeChip(chip)}>
                       <LuX className="size-2.5" />
                     </button>
                   </span>
@@ -148,7 +158,7 @@ export default function Errors() {
             </div>
             <div className="ml-auto flex items-center gap-2 pr-4">
               <Dropdown
-                trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-gray-100 rounded">{autoRefresh}</span>}</>}
+                trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-[var(--bg-primary)] rounded">{autoRefresh}</span>}</>}
                 items={['Off', '10s', '30s', '1m', '5m'].map((opt) => ({ label: opt, value: opt }))}
                 value={autoRefresh}
                 onChange={setAutoRefresh}
@@ -182,8 +192,8 @@ export default function Errors() {
                     triggerClassName="text-xs text-text-secondary hover:text-text-primary"
                   />
                   <Dropdown
-                    trigger={<span className="text-xs text-text-secondary">Grouped by {chartGroupBy.find(g => g.value === chart1Group)?.label}</span>}
-                    items={chartGroupBy}
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {errorCountGroupBy.find(g => g.value === chart1Group)?.label}</span>}
+                    items={errorCountGroupBy}
                     value={chart1Group}
                     onChange={setChart1Group}
                     minWidth="min-w-36"
@@ -210,8 +220,8 @@ export default function Errors() {
                     triggerClassName="text-xs text-text-secondary hover:text-text-primary"
                   />
                   <Dropdown
-                    trigger={<span className="text-xs text-text-secondary">Grouped by {chartGroupBy.find(g => g.value === chart2Group)?.label}</span>}
-                    items={chartGroupBy}
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {errorRateGroupBy.find(g => g.value === chart2Group)?.label}</span>}
+                    items={errorRateGroupBy}
                     value={chart2Group}
                     onChange={setChart2Group}
                     minWidth="min-w-36"
@@ -238,8 +248,8 @@ export default function Errors() {
                     triggerClassName="text-xs text-text-secondary hover:text-text-primary"
                   />
                   <Dropdown
-                    trigger={<span className="text-xs text-text-secondary">Grouped by {chartGroupBy.find(g => g.value === chart3Group)?.label}</span>}
-                    items={chartGroupBy}
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {errorByServiceGroupBy.find(g => g.value === chart3Group)?.label}</span>}
+                    items={errorByServiceGroupBy}
                     value={chart3Group}
                     onChange={setChart3Group}
                     minWidth="min-w-36"

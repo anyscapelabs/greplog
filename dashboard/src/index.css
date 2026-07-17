@@ -24,6 +24,41 @@
   --warn: #d97706;
   --error: #dc2626;
   --info: #2563eb;
+  --hover-bg-subtle: rgba(0,0,0,0.04);
+  --hover-bg: rgba(0,0,0,0.06);
+  --hover-bg-medium: rgba(0,0,0,0.08);
+  --hover-bg-strong: rgba(0,0,0,0.1);
+  --chart-grid: #e5e7eb;
+  --chart-grid-strong: #f3f4f6;
+  --chart-label: #6b7280;
+}
+
+.dark {
+  --sidebar-bg: #161b22;
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --border-primary: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --accent: #58a6ff;
+  --success: #3fb950;
+  --warn: #d29922;
+  --error: #f85149;
+  --info: #58a6ff;
+  --color-text-primary: #e6edf3;
+  --color-text-secondary: #8b949e;
+  --color-accent: #58a6ff;
+  --color-success: #3fb950;
+  --color-warn: #d29922;
+  --color-error: #f85149;
+  --color-info: #58a6ff;
+  --hover-bg-subtle: rgba(255,255,255,0.04);
+  --hover-bg: rgba(255,255,255,0.06);
+  --hover-bg-medium: rgba(255,255,255,0.08);
+  --hover-bg-strong: rgba(255,255,255,0.1);
+  --chart-grid: #21262d;
+  --chart-grid-strong: #21262d;
+  --chart-label: #8b949e;
 }
 
 *::-webkit-scrollbar-thumb {
