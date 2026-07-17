@@ -21,7 +21,6 @@ struct WalInner {
     current_path: PathBuf,
     current_seq: u64,
     current_size: u64,
-    pending_writes: bool,
 }
 
 /// A write-ahead log that appends framed records to sequential segment files.
@@ -41,6 +40,7 @@ pub struct WalWriter {
     dir: PathBuf,
     inner: Arc<Mutex<WalInner>>,
     max_segment_size: u64,
+    pending_writes: Arc<AtomicBool>,
     next_seq: u64,
     stop_flag: Arc<AtomicBool>,
     sync_thread: Option<JoinHandle<()>>,
@@ -74,7 +74,6 @@ impl WalWriter {
             current_path: file_path,
             current_seq: next_seq,
             current_size,
-            pending_writes: false,
         }));
 
         debug!(
@@ -82,30 +81,37 @@ impl WalWriter {
             next_seq, fsync_interval, max_segment_size
         );
 
+        let pending_writes = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::new(AtomicBool::new(false));
+
+        let sync_pending = pending_writes.clone();
         let sync_stop = stop_flag.clone();
         let sync_inner = inner.clone();
 
         let sync_handle = thread::Builder::new()
             .name("greplog-wal-fsync".into())
             .spawn(move || loop {
-                // Park with timeout so we can be interrupted immediately on shutdown.
                 thread::park_timeout(fsync_interval);
 
-                if sync_stop.load(Ordering::Relaxed) {
+                if sync_stop.load(Ordering::SeqCst) {
                     break;
                 }
 
-                let mut guard = match sync_inner.lock() {
-                    Ok(g) => g,
-                    Err(_) => break,
-                };
+                if sync_pending.load(Ordering::SeqCst) {
+                    let mut guard = match sync_inner.lock() {
+                        Ok(g) => g,
+                        Err(_) => break,
+                    };
 
-                if guard.pending_writes {
                     if let Some(ref mut file) = guard.current_file {
-                        let _ = file.sync_all();
+                        if let Err(e) = file.sync_all() {
+                            tracing::error!("WAL fsync failed: {}", e);
+                            // Keep pending_writes set so it retries on the next tick.
+                            continue;
+                        }
                     }
-                    guard.pending_writes = false;
+
+                    sync_pending.store(false, Ordering::SeqCst);
                 }
             })?;
 
@@ -113,6 +119,7 @@ impl WalWriter {
             dir: wal_dir,
             inner,
             max_segment_size,
+            pending_writes,
             next_seq: next_seq + 1,
             stop_flag,
             sync_thread: Some(sync_handle),
@@ -126,6 +133,11 @@ impl WalWriter {
     ///
     /// If the active segment has reached the size threshold, rotates to a new
     /// segment before appending.
+    ///
+    /// **Blocking I/O:** performs blocking file writes. Callers running inside
+    /// an async/tokio context MUST invoke this via `spawn_blocking` (or an
+    /// equivalent dedicated blocking-safe path) — calling it directly from an
+    /// async task will block that task's tokio worker thread on disk I/O.
     pub fn append(&mut self, batch: &IngestBatch) -> Result<()> {
         let payload = batch.encode_to_vec();
         let crc = crc32(&payload);
@@ -150,7 +162,7 @@ impl WalWriter {
         };
         file.write_all(&buf)?;
         inner.current_size += frame_len as u64;
-        inner.pending_writes = true;
+        self.pending_writes.store(true, Ordering::SeqCst);
 
         Ok(())
     }
@@ -192,7 +204,7 @@ impl WalWriter {
         if let Some(ref mut file) = inner.current_file {
             file.sync_all()?;
         }
-        inner.pending_writes = false;
+        self.pending_writes.store(false, Ordering::SeqCst);
         Ok(())
     }
 
@@ -204,6 +216,36 @@ impl WalWriter {
     }
 
     /// Flush (final sync), stop the background sync thread, and close the WAL.
+    /// Delete all WAL segments with sequence number strictly less than `up_to`.
+    /// The current active segment is never deleted.
+    pub fn delete_segments_up_to(&self, up_to: u64) -> Result<()> {
+        let current = self.current_seq();
+        let entries = match fs::read_dir(&self.dir) {
+            Ok(e) => e,
+            Err(_) => return Ok(()),
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            let name = match entry.file_name().to_str() {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+            if !name.ends_with(".wal") {
+                continue;
+            }
+            if let Ok(seq) = name.trim_end_matches(".wal").parse::<u64>() {
+                if seq < up_to && seq != current {
+                    let _ = fs::remove_file(entry.path());
+                    debug!("Deleted WAL segment {}", seq);
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn close(mut self) -> Result<()> {
         self.flush_fsync()?;
         self.stop_flag.store(true, Ordering::Relaxed);
@@ -540,6 +582,16 @@ mod tests {
         assert_eq!(replayed[0].0.batch_seq, 1i64);
         assert_eq!(replayed[1].0.batch_seq, 2i64);
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Explicit close() then drop — must not panic or double-join the sync thread.
+    #[test]
+    fn test_close_then_drop() {
+        let dir = temp_dir("close_then_drop");
+        let mut wal = WalWriter::open(&dir).expect("open WAL");
+        wal.append(&make_batch(1)).expect("append");
+        wal.close().expect("close"); // consumes wal, no Drop runs afterward
         let _ = fs::remove_dir_all(&dir);
     }
 

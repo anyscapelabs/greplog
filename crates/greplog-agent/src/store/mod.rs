@@ -10,6 +10,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
+pub mod flush;
 pub mod wal;
 
 pub struct Writer {

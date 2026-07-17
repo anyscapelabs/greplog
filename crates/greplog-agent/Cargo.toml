@@ -28,7 +28,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 anyhow = "1"
+arrow = "58"
 clap = { version = "4", features = ["derive"] }
 crc32fast = "1"
+parquet = "58"
 sysinfo = "0.33"
 uuid = { version = "1.23.5", features = ["v4"] }
