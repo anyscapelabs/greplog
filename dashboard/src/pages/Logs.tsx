@@ -5,6 +5,7 @@ import LogVolumeChart from '../components/LogVolumeChart.tsx'
 import ErrorsChart from '../components/ErrorsChart.tsx'
 import StatusCodesChart from '../components/StatusCodesChart.tsx'
 import LogsTable from '../components/LogsTable.tsx'
+import LogsDrawer from '../components/LogsDrawer.tsx'
 import Dropdown from '../components/Dropdown.tsx'
 
 const timeRanges = ['Last 15 min', 'Last 1 hour', 'Last 6 hours', 'Last 24 hours', 'Last 7 days', 'Custom']
@@ -50,6 +51,7 @@ export default function Logs() {
   const [chart3Metric, setChart3Metric] = useState('count')
   const [chart3Group, setChart3Group] = useState('nothing')
   const [checked, setChecked] = useState<Record<string, boolean>>({})
+  const [drawerLog, setDrawerLog] = useState<any>(null)
 
   function handleCheck(id: string) {
     setChecked((prev) => ({ ...prev, [id]: !prev[id] }))
@@ -276,9 +278,10 @@ export default function Logs() {
               </div>
             </div>
           </div>
-          <LogsTable filteredServices={filteredServices} />
+          <LogsTable filteredServices={filteredServices} onView={setDrawerLog} />
         </div>
       </div>
+      <LogsDrawer open={!!drawerLog} onClose={() => setDrawerLog(null)} log={drawerLog} />
     </div>
   )
 }

@@ -94,6 +94,7 @@ export default function ServicesTable({ filteredServices, onView }: ServicesTabl
     <div
       key={row.id}
       className="flex items-center border-b text-sm py-1 hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono"
+      style={{ borderColor: 'var(--border-primary)' }}
     >
       <div className="w-[60px] shrink-0 h-full border-r border-l flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>
         <button className="text-sm text-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer" onClick={() => onView?.(row)}>View</button>

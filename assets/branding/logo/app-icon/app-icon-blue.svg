@@ -2,14 +2,14 @@
 <!-- Created with Inkscape (http://www.inkscape.org/) -->
 
 <svg
-   width="16mm"
-   height="16mm"
-   viewBox="0 0 16 16"
+   width="32.131001mm"
+   height="32mm"
+   viewBox="0 0 32.131001 32"
    version="1.1"
    id="svg5"
    inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
    sodipodi:docname="drawing.svg"
-   inkscape:export-filename="Desktop/greplog-assets/app-icon-blue.svg"
+   inkscape:export-filename="Desktop/greplog-assets/app-icon-black.svg"
    inkscape:export-xdpi="96"
    inkscape:export-ydpi="96"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
@@ -44,17 +44,17 @@
      id="layer1"
      transform="translate(-42.55399,134.04396)">
     <rect
-       style="opacity:1;fill:#0000ff;fill-opacity:1;stroke-width:0.132022"
+       style="opacity:1;fill:#0000ff;fill-opacity:1;stroke-width:0.264583"
        id="rect9178"
-       width="16"
+       width="32.131001"
        x="42.553993"
        y="-134.04396"
-       height="16"
-       ry="8" />
+       height="32"
+       ry="3.6209834" />
     <g
        id="g9049"
        style="fill:#ffffff"
-       transform="matrix(0.12055255,0,0,0.13266286,42.287289,-111.00361)">
+       transform="matrix(0.31935915,0,0,0.35596661,35.543052,-77.006878)">
       <rect
          style="fill:#ffffff;fill-opacity:1;stroke-width:0.228413"
          id="rect788"

@@ -5,6 +5,7 @@ import ErrorCountChart from '../components/ErrorCountChart.tsx'
 import ErrorRateChart from '../components/ErrorRateChart.tsx'
 import ErrorByServiceChart from '../components/ErrorByServiceChart.tsx'
 import ErrorsTable from '../components/ErrorsTable.tsx'
+import ErrorsDrawer from '../components/ErrorsDrawer.tsx'
 import Dropdown from '../components/Dropdown.tsx'
 
 const timeRanges = ['Last 15 min', 'Last 1 hour', 'Last 6 hours', 'Last 24 hours', 'Last 7 days', 'Custom']
@@ -51,6 +52,7 @@ export default function Errors() {
   const [chart3Metric, setChart3Metric] = useState('count')
   const [chart3Group, setChart3Group] = useState('nothing')
   const [checked, setChecked] = useState<Record<string, boolean>>({})
+  const [drawerError, setDrawerError] = useState<any>(null)
 
   function handleCheck(id: string) {
     setChecked((prev) => ({ ...prev, [id]: !prev[id] }))
@@ -277,9 +279,10 @@ export default function Errors() {
               </div>
             </div>
           </div>
-          <ErrorsTable filteredServices={filteredServices} />
+          <ErrorsTable filteredServices={filteredServices} onView={setDrawerError} />
         </div>
       </div>
+      <ErrorsDrawer open={!!drawerError} onClose={() => setDrawerError(null)} error={drawerError} />
     </div>
   )
 }

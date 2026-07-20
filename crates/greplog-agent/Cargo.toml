@@ -3,10 +3,6 @@ name = "greplog-agent"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-default = []
-bundled = ["duckdb/bundled"]
-
 [dependencies]
 greplog-core = { path = "../greplog-core" }
 
@@ -15,8 +11,6 @@ tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["codec"] }
 bytes = "1"
 prost = "0.13"
-
-duckdb = { version = "1", default-features = false }
 
 axum = "0.7"
 tower = "0.5"

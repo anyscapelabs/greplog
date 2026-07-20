@@ -248,6 +248,13 @@ impl WalWriter {
 
     pub fn close(mut self) -> Result<()> {
         self.flush_fsync()?;
+        self.shutdown_background();
+        Ok(())
+    }
+
+    /// Stop the background sync thread and join it, without consuming `self`.
+    /// Useful when the `WalWriter` is held behind an `Arc<Mutex<...>>`.
+    pub fn shutdown_background(&mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
         if let Some(ref handle) = self.sync_thread {
             handle.thread().unpark();
@@ -255,7 +262,6 @@ impl WalWriter {
         if let Some(handle) = self.sync_thread.take() {
             let _ = handle.join();
         }
-        Ok(())
     }
 }
 

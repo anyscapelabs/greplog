@@ -1,8 +1,10 @@
 use anyhow::Result;
-use bytes::{Buf, Bytes, BytesMut};
-use tokio::io::AsyncRead;
+use bytes::{Buf, BytesMut};
+use greplog_core::gen::{IngestBatch, IngestResponse};
+use prost::Message;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, UnixListener};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_stream::StreamExt;
 use tokio_util::codec::Decoder;
 use tracing::{debug, error, info};
@@ -11,11 +13,11 @@ use tracing::{debug, error, info};
 const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;
 
 pub struct IngestServer {
-    batch_tx: mpsc::Sender<Bytes>,
+    batch_tx: mpsc::Sender<(IngestBatch, oneshot::Sender<IngestResponse>)>,
 }
 
 impl IngestServer {
-    pub fn new(batch_tx: mpsc::Sender<Bytes>) -> Self {
+    pub fn new(batch_tx: mpsc::Sender<(IngestBatch, oneshot::Sender<IngestResponse>)>) -> Self {
         Self { batch_tx }
     }
 
@@ -83,17 +85,51 @@ impl IngestServer {
     }
 }
 
-async fn handle_connection<S>(stream: S, batch_tx: mpsc::Sender<Bytes>)
-where
-    S: AsyncRead + Unpin + Send + 'static,
+/// Handle a single connection: read length‑delimited `IngestBatch` frames,
+/// forward them to the writer task, and write back `IngestResponse` frames.
+async fn handle_connection<S>(
+    stream: S,
+    batch_tx: mpsc::Sender<(IngestBatch, oneshot::Sender<IngestResponse>)>,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let mut framed = tokio_util::codec::FramedRead::new(stream, LengthDelimitedCodec::default());
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut framed = tokio_util::codec::FramedRead::new(reader, LengthDelimitedCodec::default());
 
     loop {
         match framed.next().await {
             Some(Ok(bytes)) => {
-                if batch_tx.send(bytes.freeze()).await.is_err() {
-                    debug!("Batch channel closed, stopping connection handler");
+                let bytes = bytes.freeze();
+
+                let decoded = match IngestBatch::decode(bytes) {
+                    Ok(batch) => batch,
+                    Err(e) => {
+                        debug!("Failed to decode IngestBatch: {}", e);
+                        let resp = IngestResponse {
+                            accepted: false,
+                            events_count: 0,
+                            error: format!("decode_error: {e}"),
+                        };
+                        let _ = write_response(&mut writer, &resp).await;
+                        continue;
+                    }
+                };
+
+                let (resp_tx, resp_rx) = oneshot::channel();
+                if batch_tx.send((decoded, resp_tx)).await.is_err() {
+                    debug!("Writer channel closed, stopping connection handler");
+                    break;
+                }
+
+                let response = match resp_rx.await {
+                    Ok(r) => r,
+                    Err(_) => {
+                        debug!("Writer dropped the response channel");
+                        break;
+                    }
+                };
+
+                if write_response(&mut writer, &response).await.is_err() {
                     break;
                 }
             }
@@ -104,6 +140,18 @@ where
             None => break,
         }
     }
+}
+
+/// Encode an `IngestResponse` as a length‑prefixed frame and write it.
+async fn write_response<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    response: &IngestResponse,
+) -> std::io::Result<()> {
+    let encoded = response.encode_to_vec();
+    let len = (encoded.len() as u32).to_le_bytes();
+    writer.write_all(&len).await?;
+    writer.write_all(&encoded).await?;
+    Ok(())
 }
 
 /// A simple 4-byte little-endian length-delimited codec.

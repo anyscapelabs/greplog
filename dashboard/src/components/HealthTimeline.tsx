@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 
 interface HealthTimelineProps {
   hours?: number
-  interval?: 30 | 60 | 120
+  interval?: number
+  showMarkers?: boolean
 }
 
 function generateTimeline(hours: number, interval: number) {
@@ -20,7 +21,7 @@ function generateTimeline(hours: number, interval: number) {
   return items
 }
 
-export default function HealthTimeline({ hours = 24, interval = 30 }: HealthTimelineProps) {
+export default function HealthTimeline({ hours = 24, interval = 30, showMarkers = true }: HealthTimelineProps) {
   const items = useMemo(() => generateTimeline(hours, interval), [hours, interval])
 
   const half = Math.floor(items.length / 2)
@@ -61,15 +62,17 @@ export default function HealthTimeline({ hours = 24, interval = 30 }: HealthTime
           )
         })}
       </div>
-      <div className="flex w-full gap-[2px]">
-        {items.map((_, i) => (
-          <div key={i} className="flex-1">
-            {markerPositions[i] && (
-              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{markerPositions[i]}</span>
-            )}
-          </div>
-        ))}
-      </div>
+      {showMarkers && (
+        <div className="flex w-full gap-[2px]">
+          {items.map((_, i) => (
+            <div key={i} className="flex-1">
+              {markerPositions[i] && (
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{markerPositions[i]}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

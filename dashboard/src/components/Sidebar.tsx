@@ -25,7 +25,12 @@ export default function Sidebar() {
         borderColor: 'var(--border-primary)',
       }}
     >
-      <div className="flex justify-end p-3">
+      <div className="flex items-center justify-between p-3">
+        <img
+          src={theme === 'dark' ? '/wordmark-white.svg' : '/wordmark-black.svg'}
+          alt="Greplog"
+          className="h-5"
+        />
         <button className="flex items-center justify-center p-2 hover:bg-[var(--hover-bg)] transition-colors" style={{ color: 'var(--text-primary)' }}>
           <CgSidebar className="size-5" />
         </button>

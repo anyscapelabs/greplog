@@ -23,6 +23,7 @@ message LogEvent {
   repeated string     stack_trace = 10;
   string              exception_type = 11;
   string              exception_message = 12;
+  string event_id      = 13;  // client-supplied stable ID; content-hash fallback if empty
 }
 
 message Span {

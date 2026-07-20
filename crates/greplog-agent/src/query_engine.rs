@@ -7,7 +7,7 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
-use datafusion::execution::context::SessionContext;
+use datafusion::execution::context::{SessionContext, SQLOptions};
 use datafusion::execution::memory_pool::GreedyMemoryPool;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::SessionConfig;
@@ -89,8 +89,19 @@ impl QueryEngine {
     ///
     /// A maximum row limit (`DEFAULT_ROW_LIMIT`) and a per‑query timeout
     /// (`DEFAULT_TIMEOUT`) are applied automatically.
+    ///
+    /// ## Mutation Safety
+    ///
+    /// DataFusion's `SQLOptions` verification rejects DDL, DML, and
+    /// `COPY` at the logical‑plan level, **before** the plan is executed.
+    /// This prevents statements like `DROP TABLE logs` from reaching
+    /// the registered ListingTables.
     pub async fn query(&self, sql: &str) -> Result<QueryResult> {
-        let df = self.ctx.sql(sql).await?;
+        let options = SQLOptions::new()
+            .with_allow_ddl(false)
+            .with_allow_dml(false)
+            .with_allow_statements(false);
+        let df = self.ctx.sql_with_options(sql, options).await?;
 
         // Always apply the row cap.  If the user's query already has a
         // smaller LIMIT, the extra outer Limit is a harmless no-op (the
@@ -755,7 +766,90 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Test 8: Manifest / .tmp files are never treated as data
+    // Test 8: Mutation statements are rejected (must not reach Parquet)
+    // ------------------------------------------------------------------
+    //
+    // DataFusion's SQL frontend can accept mutation syntax depending on
+    // the version and table-provider configuration.  We verify that each
+    // representative mutation is either rejected at the parser/planner
+    // level, or — if the parser accepts it — that the underlying data is
+    // unchanged.
+    //
+    // A validation layer is required because `DROP TABLE` (and potentially
+    // other DDL) succeeds through the registered ListingTable path.  See
+    // the `validate_read_only` helper.
+    // ------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_mutation_rejection() {
+        let dir = test_dir("mutation_rejection");
+        write_log_file(&dir, "api", "2024-01-15", "id-1", "info", "hello");
+        let engine = QueryEngine::new(&dir).expect("new engine");
+
+        /// Run one mutation attempt and return Ok(msg) for rejection or
+        /// Err(sql) if the statement was accepted.
+        async fn try_mutation(
+            engine: &QueryEngine,
+            sql: &str,
+        ) -> Result<String, String> {
+            match engine.query(sql).await {
+                Err(e) => Ok(format!("rejected: {}", e)),
+                Ok(_) => Err(sql.to_string()),
+            }
+        }
+
+        // ── INSERT ──────────────────────────────────────────────────
+        let r = try_mutation(&engine, "INSERT INTO logs VALUES ('x', 'svc', 0, 'info', 'msg')").await;
+        assert!(r.is_ok(), "INSERT should be rejected: {:?}", r);
+
+        // ── DELETE ──────────────────────────────────────────────────
+        let r = try_mutation(&engine, "DELETE FROM logs WHERE id = 'id-1'").await;
+        assert!(r.is_ok(), "DELETE should be rejected: {:?}", r);
+
+        // ── UPDATE ──────────────────────────────────────────────────
+        let r = try_mutation(&engine, "UPDATE logs SET message = 'hacked' WHERE id = 'id-1'").await;
+        assert!(r.is_ok(), "UPDATE should be rejected: {:?}", r);
+
+        // ── DROP TABLE ──────────────────────────────────────────────
+        let r = try_mutation(&engine, "DROP TABLE logs").await;
+        assert!(r.is_ok(), "DROP TABLE should be rejected: {:?}", r);
+
+        // ── CREATE TABLE AS SELECT ──────────────────────────────────
+        let r = try_mutation(&engine, "CREATE TABLE evil AS SELECT * FROM logs").await;
+        assert!(r.is_ok(), "CREATE TABLE AS should be rejected: {:?}", r);
+
+        // ── COPY TO ─────────────────────────────────────────────────
+        let r = try_mutation(
+            &engine,
+            "COPY logs TO '/tmp/greplog_exfil_test.parquet'",
+        )
+        .await;
+        assert!(r.is_ok(), "COPY TO should be rejected: {:?}", r);
+
+        // ── Multi-statement ─────────────────────────────────────────
+        let r = try_mutation(&engine, "SELECT 1; DROP TABLE logs;").await;
+        assert!(r.is_ok(), "multi-statement should be rejected: {:?}", r);
+
+        // Final sanity: table still exists and data is intact.
+        let after = engine
+            .query("SELECT COUNT(*) AS cnt FROM logs")
+            .await
+            .expect("count after all mutation attempts");
+        assert_eq!(
+            after.rows[0][0],
+            serde_json::json!(1i64),
+            "data should be unchanged after all mutation attempts"
+        );
+        let row = engine
+            .query("SELECT message FROM logs WHERE id = 'id-1'")
+            .await
+            .expect("check original row");
+        assert_eq!(row.rows[0][0], serde_json::json!("hello"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------
+    // Test 9: Manifest / .tmp files are never treated as data
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_non_parquet_files_ignored() {

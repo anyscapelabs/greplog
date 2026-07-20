@@ -3,7 +3,7 @@ use arrow::array::*;
 
 use arrow::record_batch::RecordBatch;
 use greplog_core::arrow_schema;
-use greplog_core::gen::IngestBatch;
+use greplog_core::gen::{IngestBatch, LogEvent, Metric, Span};
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,6 +16,93 @@ const DATA_DIR: &str = "data";
 pub struct FlushResult {
     pub files_written: usize,
 }
+
+// ---------------------------------------------------------------------------
+// Content‑based IDs (deterministic, no external dependencies)
+// ---------------------------------------------------------------------------
+
+/// Compute a deterministic content ID for a LogEvent from its key fields.
+pub fn log_content_id(log: &LogEvent) -> String {
+    let mut attrs: Vec<(_, _)> = log.attributes.iter().collect();
+    attrs.sort_by(|a, b| a.0.cmp(b.0));
+    let mut a = String::new();
+    for (k, v) in &attrs {
+        if !a.is_empty() { a.push(','); }
+        a.push_str(k);
+        a.push('=');
+        a.push_str(v);
+    }
+    format!(
+        "log|{}|{}|{}|{}|{}|{}|{}|{}|[{}]",
+        log.service_name,
+        log.timestamp_ns,
+        log.level,
+        log.message,
+        log.logger_name,
+        log.file,
+        log.line,
+        log.correlation_id,
+        a,
+    )
+}
+
+/// Compute a deterministic content ID for a Span from its key fields.
+pub fn span_content_id(span: &Span) -> String {
+    let mut attrs: Vec<(_, _)> = span.attributes.iter().collect();
+    attrs.sort_by(|a, b| a.0.cmp(b.0));
+    let mut a = String::new();
+    for (k, v) in &attrs {
+        if !a.is_empty() { a.push(','); }
+        a.push_str(k);
+        a.push('=');
+        a.push_str(v);
+    }
+    format!(
+        "span|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|[{}]|{}",
+        span.service_name,
+        span.name,
+        span.start_time_ns,
+        span.end_time_ns,
+        span.correlation_id,
+        span.parent_correlation_id,
+        span.route,
+        span.method,
+        span.status_code,
+        span.error,
+        a,
+        span.kind,
+    )
+}
+
+/// Compute a deterministic content ID for a Metric from its key fields.
+pub fn metric_content_id(metric: &Metric) -> String {
+    let mut labels: Vec<(_, _)> = metric.labels.iter().collect();
+    labels.sort_by(|a, b| a.0.cmp(b.0));
+    let mut l = String::new();
+    for (k, v) in &labels {
+        if !l.is_empty() { l.push(','); }
+        l.push_str(k);
+        l.push('=');
+        l.push_str(v);
+    }
+    let mut bv = String::new();
+    for v in &metric.bucket_values {
+        if !bv.is_empty() { bv.push(','); }
+        bv.push_str(&v.to_string());
+    }
+    format!(
+        "metric|{}|{}|{}|{}|[{}]|{}|[{}]",
+        metric.service_name,
+        metric.name,
+        metric.value,
+        metric.timestamp_ns,
+        l,
+        metric.r#type,
+        bv,
+    )
+}
+
+// ---------------------------------------------------------------------------
 
 struct LogRow {
     id: String,
@@ -82,6 +169,13 @@ pub fn flush_to_parquet(
     result
 }
 
+/// Flush pending batches to Parquet files, skipping the concurrency
+/// guard and the WAL rotation+checkpoint that `flush_to_parquet` handles.
+/// The caller is responsible for both.
+pub fn flush_parquet_only(base_dir: &Path, pending: &[IngestBatch]) -> Result<FlushResult> {
+    flush_inner(base_dir, pending, None)
+}
+
 /// Delete any `.tmp` files found recursively under `base_dir/data/`.
 /// These are left behind by a crash during the temp-file phase of a flush.
 pub fn cleanup_temp_files(base_dir: &Path) -> Result<()> {
@@ -131,7 +225,7 @@ fn flush_inner(
         for log in &batch.logs {
             let date = micros_to_date_string(ns_to_micros(log.timestamp_ns));
             let key = (service.to_string(), date);
-            let id = uuid::Uuid::new_v4().to_string();
+            let id = log_content_id(log);
             let attrs = if log.attributes.is_empty() {
                 None
             } else {
@@ -151,7 +245,7 @@ fn flush_inner(
         for span in &batch.spans {
             let date = micros_to_date_string(ns_to_micros(span.start_time_ns));
             let key = (service.to_string(), date);
-            let id = uuid::Uuid::new_v4().to_string();
+            let id = span_content_id(span);
             let attrs = if span.attributes.is_empty() {
                 None
             } else {
@@ -177,7 +271,7 @@ fn flush_inner(
         for metric in &batch.metrics {
             let date = micros_to_date_string(ns_to_micros(metric.timestamp_ns));
             let key = (service.to_string(), date);
-            let id = uuid::Uuid::new_v4().to_string();
+            let id = metric_content_id(metric);
             let labels = if metric.labels.is_empty() {
                 None
             } else {

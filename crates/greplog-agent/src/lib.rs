@@ -1,6 +1,9 @@
 use anyhow::Result;
+use greplog_core::gen::IngestBatch;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::{mpsc, oneshot};
 use tracing::info;
 
 pub mod detect;
@@ -9,7 +12,11 @@ pub mod query_engine;
 pub mod server;
 mod store;
 
-pub use store::Writer;
+/// Maximum in‑memory events before the buffer rejects new batches.
+const MAX_BUFFER_EVENTS: usize = 50_000;
+
+/// Channel capacity between the ingest handler and the writer.
+const INGEST_CHANNEL_CAPACITY: usize = 1024;
 
 #[derive(Debug, Clone, clap::Parser)]
 pub struct Config {
@@ -37,10 +44,6 @@ impl Config {
     pub fn abs_socket_path(&self) -> PathBuf {
         self.workspace.join(&self.socket_path)
     }
-
-    pub fn db_path(&self) -> PathBuf {
-        self.workspace.join(".greplog/store.db")
-    }
 }
 
 pub async fn run(config: Config) -> Result<()> {
@@ -48,10 +51,22 @@ pub async fn run(config: Config) -> Result<()> {
 
     tokio::fs::create_dir_all(config.socket_dir()).await?;
 
-    let (batch_tx, batch_rx) = tokio::sync::mpsc::channel::<bytes::Bytes>(1024);
+    let (batch_tx, batch_rx) =
+        mpsc::channel::<(IngestBatch, oneshot::Sender<greplog_core::gen::IngestResponse>)>(
+            INGEST_CHANNEL_CAPACITY,
+        );
 
-    let writer = store::Writer::new(config.db_path())?;
-    let writer_handle = writer.spawn(batch_rx, config.flush_interval_secs);
+    let writer = store::Writer::new(&config.workspace, MAX_BUFFER_EVENTS)?;
+    // Run the full startup recovery sequence before accepting any connections:
+    // cleanup, compaction reconciliation, WAL replay with dedup, and immediate
+    // flush.  This guarantees that ingest listeners only see a fully‑recovered
+    // data plane.
+    writer.run_startup(50_000)?;
+    let dropped_events = writer.dropped_events();
+    let writer_handle = writer.spawn(
+        batch_rx,
+        Duration::from_secs(config.flush_interval_secs),
+    );
 
     let ingest_handle = ingest::IngestServer::new(batch_tx).spawn(&config);
 
@@ -60,6 +75,7 @@ pub async fn run(config: Config) -> Result<()> {
     let server_state = server::AppState {
         config: config.clone(),
         query_engine,
+        dropped_events,
     };
     let server_handle = server::HttpServer::new().spawn(server_state);
 

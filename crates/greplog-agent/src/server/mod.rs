@@ -7,6 +7,7 @@ use axum::{
     Router,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tower::ServiceBuilder;
 use tracing::info;
@@ -20,6 +21,7 @@ struct HealthResponse {
 pub struct AppState {
     pub config: Arc<super::Config>,
     pub query_engine: QueryEngine,
+    pub dropped_events: Arc<AtomicUsize>,
 }
 
 /// JSON request body for `POST /query`.
@@ -79,10 +81,14 @@ async fn health_handler() -> Json<HealthResponse> {
     })
 }
 
-async fn status_handler() -> Json<serde_json::Value> {
+async fn status_handler(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "running",
         "version": env!("CARGO_PKG_VERSION"),
+        "dropped_events": state.dropped_events.load(Ordering::SeqCst),
+        "buffer_occupancy": 0,  // TODO: wire real buffer occupancy in a follow‑up
     }))
 }
 
@@ -174,6 +180,7 @@ mod tests {
                 socket_path: PathBuf::from(".greplog/test.sock"),
             }),
             query_engine: engine,
+            dropped_events: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -283,12 +290,8 @@ mod tests {
 
         assert_eq!(result["status"], "running");
         assert_eq!(result["version"], env!("CARGO_PKG_VERSION"));
-
-        // The old DuckDB era did not expose pool-specific fields in this
-        // codebase version, so there is no `active_queries` field to remove
-        // or replace.  WAL/flush-layer fields (`dropped_events`,
-        // `buffer_occupancy`) are not yet wired; they will be added in the
-        // crash-recovery startup round and are not touched here.
+        assert_eq!(result["dropped_events"], 0, "no drops expected in this test");
+        assert!(result.get("buffer_occupancy").is_some(), "buffer_occupancy should be present");
 
         let _ = fs::remove_dir_all(&dir);
     }
