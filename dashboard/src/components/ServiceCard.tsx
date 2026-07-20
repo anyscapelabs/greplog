@@ -42,8 +42,8 @@ export default function ServiceCard({ name, requests, data }: ServiceCardProps) 
       style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}
     >
       <div className="z-10 flex flex-col relative">
-        <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{name}</span>
-        <span className="text-3xl font-bold mt-1 tracking-tight" style={{ color: 'var(--text-primary)' }}>{requests}</span>
+        <span className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>{name}</span>
+        <span className="text-xl font-bold mt-1 tracking-tight" style={{ color: 'var(--text-primary)' }}>{requests}</span>
       </div>
       <div className="absolute inset-0 z-0 pointer-events-none">
         <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge />

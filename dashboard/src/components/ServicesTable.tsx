@@ -1,6 +1,5 @@
-import { useState, useRef, useMemo } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
-import { LuChevronDown, LuChevronUp, LuCircleCheck, LuDownload } from 'react-icons/lu'
+import { useState, useEffect, useMemo } from 'react'
+import { LuChevronDown, LuChevronUp, LuCircleCheck, LuDownload, LuChevronLeft, LuChevronRight } from 'react-icons/lu'
 import Dropdown from './Dropdown.tsx'
 
 const columns = [
@@ -62,7 +61,7 @@ export default function ServicesTable({ filteredServices, onView }: ServicesTabl
   const [limit, setLimit] = useState('500')
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
-  const cardRef = useRef<HTMLDivElement>(null)
+  const [page, setPage] = useState(0)
 
   const data = filteredServices
     ? mockData.filter((row) => filteredServices.includes(row.service))
@@ -85,14 +84,36 @@ export default function ServicesTable({ filteredServices, onView }: ServicesTabl
   }, [data, sortColumn, sortDirection])
 
   const parsedLimit = limit === 'All' ? sortedData.length : parseInt(limit.replace('k', '000'))
-  const displayData = sortedData.slice(0, parsedLimit)
+  const displayData = useMemo(() => sortedData.slice(0, parsedLimit), [sortedData, parsedLimit])
 
-  const virtualizer = useVirtualizer({
-    count: displayData.length,
-    estimateSize: () => 28,
-    getScrollElement: () => cardRef.current,
-    overscan: 30,
-  })
+  const pageSize = limit === 'All' ? displayData.length : parseInt(limit.replace('k', '000'))
+  const totalPages = Math.ceil(displayData.length / pageSize)
+  const pageData = useMemo(() => displayData.slice(page * pageSize, (page + 1) * pageSize), [displayData, page, pageSize])
+
+  const bodyRows = useMemo(() => pageData.map((row) => (
+    <div
+      key={row.id}
+      className="flex items-center border-b text-sm py-1 hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono"
+    >
+      <div className="w-[60px] shrink-0 h-full border-r border-l flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>
+        <button className="text-sm text-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer" onClick={() => onView?.(row)}>View</button>
+      </div>
+      <div className="w-[180px] shrink-0 px-3 truncate border-r h-full flex items-center gap-1.5" style={{ borderColor: 'var(--border-primary)' }}>
+        <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: statusColors[row.status] }} />
+        <span className="text-text-primary whitespace-nowrap">{row.service}</span>
+      </div>
+      <div className="w-[120px] shrink-0 px-3 font-medium truncate border-r h-full flex items-center whitespace-nowrap" style={{ color: statusColors[row.status], borderColor: 'var(--border-primary)' }}>{row.status === 'healthy' ? 'Healthy' : row.status === 'degraded' ? 'Degraded' : 'Down'}</div>
+      <div className="w-[110px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.uptime}</div>
+      <div className="w-[140px] shrink-0 px-3 text-text-primary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.requests}</div>
+      <div className="w-[130px] shrink-0 px-3 truncate border-r h-full flex items-center whitespace-nowrap" style={{ color: row.errorRate && parseFloat(row.errorRate) > 5 ? 'var(--error)' : parseFloat(row.errorRate) > 1 ? 'var(--warn)' : 'var(--text-secondary)', borderColor: 'var(--border-primary)' }}>{row.errorRate}</div>
+      <div className="w-[130px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.avgLatency}</div>
+      <div className="w-[120px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.p95}</div>
+      <div className="w-[120px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.p99}</div>
+      <div className="w-[170px] shrink-0 px-3 text-text-secondary truncate h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.lastSeen}</div>
+    </div>
+  )), [pageData, onView])
+
+  useEffect(() => { setPage(0) }, [limit, sortColumn, sortDirection, filteredServices])
 
   function handleSort(column: string) {
     if (sortColumn !== column) {
@@ -149,10 +170,30 @@ export default function ServicesTable({ filteredServices, onView }: ServicesTabl
               Export
             </button>
           </div>
+          <div className="h-4 w-px shrink-0" style={{ backgroundColor: 'var(--border-primary)' }} />
+          <div className="px-3 py-1.5 shrink-0 flex items-center gap-1.5">
+            <button
+              className="flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors disabled:opacity-30"
+              disabled={page === 0}
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+            >
+              <LuChevronLeft className="size-3.5" style={{ color: 'var(--text-secondary)' }} />
+            </button>
+            <span className="text-xs text-text-secondary whitespace-nowrap">
+              {totalPages > 0 ? `${page + 1} / ${totalPages}` : '-'}
+            </span>
+            <button
+              className="flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors disabled:opacity-30"
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+            >
+              <LuChevronRight className="size-3.5" style={{ color: 'var(--text-secondary)' }} />
+            </button>
+          </div>
         </div>
-        <div ref={cardRef} className="flex-1 overflow-auto min-h-0 relative">
+        <div className="flex-1 overflow-auto min-h-0 relative">
           <div className="min-w-fit flex flex-col">
-            <div className="flex items-center h-8 border-b text-sm font-medium shrink-0 sticky top-0 z-10" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'color-mix(in srgb, var(--bg-primary) 40%, var(--bg-secondary))' }}>
+            <div className="flex items-center h-9 border-b text-sm font-medium shrink-0 sticky top-0 z-10" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'color-mix(in srgb, var(--bg-primary) 40%, var(--bg-secondary))' }}>
               <div className="w-[60px] shrink-0 h-full border-r border-l flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>
                 <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>View</span>
               </div>
@@ -178,41 +219,8 @@ export default function ServicesTable({ filteredServices, onView }: ServicesTabl
                 )
               })}
             </div>
-            <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative', width: '100%' }}>
-              {virtualizer.getVirtualItems().map((virtualItem) => {
-                const row = displayData[virtualItem.index]
-                return (
-                  <div
-                    key={virtualItem.key}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      height: `${virtualItem.size}px`,
-                      transform: `translateY(${virtualItem.start}px)`,
-                      borderColor: 'var(--border-primary)',
-                    }}
-                    className="flex items-center border-b text-xs hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono"
-                  >
-                    <div className="w-[60px] shrink-0 h-full border-r border-l flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>
-                      <button className="text-xs text-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer" onClick={() => onView?.(row)}>View</button>
-                    </div>
-                    <div className="w-[180px] shrink-0 px-3 truncate border-r h-full flex items-center gap-1.5" style={{ borderColor: 'var(--border-primary)' }}>
-                      <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: statusColors[row.status] }} />
-                      <span className="text-text-primary whitespace-nowrap">{row.service}</span>
-                    </div>
-                    <div className="w-[120px] shrink-0 px-3 font-medium truncate border-r h-full flex items-center whitespace-nowrap" style={{ color: statusColors[row.status], borderColor: 'var(--border-primary)' }}>{row.status === 'healthy' ? 'Healthy' : row.status === 'degraded' ? 'Degraded' : 'Down'}</div>
-                    <div className="w-[110px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.uptime}</div>
-                    <div className="w-[140px] shrink-0 px-3 text-text-primary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.requests}</div>
-                    <div className="w-[130px] shrink-0 px-3 truncate border-r h-full flex items-center whitespace-nowrap" style={{ color: row.errorRate && parseFloat(row.errorRate) > 5 ? 'var(--error)' : parseFloat(row.errorRate) > 1 ? 'var(--warn)' : 'var(--text-secondary)', borderColor: 'var(--border-primary)' }}>{row.errorRate}</div>
-                    <div className="w-[130px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.avgLatency}</div>
-                    <div className="w-[120px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.p95}</div>
-                    <div className="w-[120px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.p99}</div>
-                    <div className="w-[170px] shrink-0 px-3 text-text-secondary truncate h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.lastSeen}</div>
-                  </div>
-                )
-              })}
+            <div style={{ position: 'relative', width: '100%' }}>
+              {bodyRows}
             </div>
           </div>
         </div>

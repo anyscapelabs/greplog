@@ -5,7 +5,6 @@ use tracing::info;
 
 pub mod detect;
 mod ingest;
-pub mod query;
 pub mod query_engine;
 pub mod server;
 mod store;
@@ -56,7 +55,7 @@ pub async fn run(config: Config) -> Result<()> {
 
     let ingest_handle = ingest::IngestServer::new(batch_tx).spawn(&config);
 
-    let query_engine = query::QueryEngine::new(config.db_path())?;
+    let query_engine = query_engine::QueryEngine::new(&config.workspace)?;
 
     let server_state = server::AppState {
         config: config.clone(),

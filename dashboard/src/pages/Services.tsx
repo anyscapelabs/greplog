@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import Drawer from '../components/Drawer.tsx'
+import ServicesDrawer from '../components/ServicesDrawer.tsx'
 import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen } from 'react-icons/lu'
 import ServiceCard from '../components/ServiceCard.tsx'
 import ServicesFilterSidebar from '../components/ServicesFilterSidebar.tsx'
@@ -192,37 +192,7 @@ export default function Services() {
           <ServicesTable filteredServices={filteredServices} onView={setDrawerService} />
         </div>
       </div>
-      <Drawer open={!!drawerService} onClose={() => setDrawerService(null)} title={drawerService ? `Service: ${drawerService.service}` : ''}>
-        {drawerService && (
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-2">
-              <span className="size-2.5 rounded-full" style={{ backgroundColor: drawerService.status === 'healthy' ? 'var(--success)' : drawerService.status === 'degraded' ? 'var(--warn)' : 'var(--error)' }} />
-              <span className="text-sm font-medium text-text-primary">{drawerService.service}</span>
-              <span className="text-xs ml-auto" style={{ color: drawerService.status === 'healthy' ? 'var(--success)' : drawerService.status === 'degraded' ? 'var(--warn)' : 'var(--error)' }}>
-                {drawerService.status === 'healthy' ? 'Healthy' : drawerService.status === 'degraded' ? 'Degraded' : 'Down'}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded border p-3" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Uptime</span>
-                <p className="text-lg font-bold text-text-primary">{drawerService.uptime}</p>
-              </div>
-              <div className="rounded border p-3" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Requests</span>
-                <p className="text-lg font-bold text-text-primary">{drawerService.requests}</p>
-              </div>
-              <div className="rounded border p-3" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Error Rate</span>
-                <p className="text-lg font-bold text-text-primary">{drawerService.errorRate}</p>
-              </div>
-              <div className="rounded border p-3" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Avg Latency</span>
-                <p className="text-lg font-bold text-text-primary">{drawerService.avgLatency}</p>
-              </div>
-            </div>
-          </div>
-        )}
-      </Drawer>
+      <ServicesDrawer open={!!drawerService} onClose={() => setDrawerService(null)} service={drawerService} />
     </div>
   )
 }

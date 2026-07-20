@@ -4,7 +4,7 @@ import { LuX } from 'react-icons/lu'
 interface DrawerProps {
   open: boolean
   onClose: () => void
-  title: string
+  title: ReactNode
   children: ReactNode
 }
 
@@ -15,7 +15,7 @@ export default function Drawer({ open, onClose, title, children }: DrawerProps) 
     <>
       <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
       <div
-        className="fixed top-0 right-0 h-full w-[520px] border-l shadow-xl z-50 flex flex-col animate-in slide-in-from-right"
+        className="fixed top-0 right-0 h-full w-[900px] border-l shadow-xl z-50 flex flex-col animate-in slide-in-from-right"
         style={{
           backgroundColor: 'var(--bg-secondary)',
           borderColor: 'var(--border-primary)',

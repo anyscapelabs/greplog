@@ -1,12 +1,12 @@
-use super::query::QueryEngine;
+use super::query_engine::QueryEngine;
 use axum::{
     Json,
     extract::State,
-    http::{header, Method},
+    http::{header, Method, StatusCode},
     routing::{get, post},
     Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tower::ServiceBuilder;
 use tracing::info;
@@ -20,6 +20,12 @@ struct HealthResponse {
 pub struct AppState {
     pub config: Arc<super::Config>,
     pub query_engine: QueryEngine,
+}
+
+/// JSON request body for `POST /query`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct QueryRequest {
+    pub sql: String,
 }
 
 pub struct HttpServer;
@@ -82,12 +88,12 @@ async fn status_handler() -> Json<serde_json::Value> {
 
 async fn query_handler(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<super::query::QueryRequest>,
-) -> Result<Json<super::query::QueryResult>, (axum::http::StatusCode, String)> {
-    match state.query_engine.query(&req.sql) {
+    Json(req): Json<QueryRequest>,
+) -> Result<Json<super::query_engine::QueryResult>, (StatusCode, String)> {
+    match state.query_engine.query(&req.sql).await {
         Ok(result) => Ok(Json(result)),
         Err(e) => Err((
-            axum::http::StatusCode::BAD_REQUEST,
+            StatusCode::BAD_REQUEST,
             format!("Query failed: {e}"),
         )),
     }
@@ -105,4 +111,185 @@ async fn resources_handler(
 ) -> Json<super::detect::system::SystemResources> {
     let resources = super::detect::system::collect_system_resources(&state.config.workspace);
     Json(resources)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::io::write_parquet_atomic;
+    use arrow::array::*;
+    use arrow::datatypes::TimeUnit;
+    use arrow::record_batch::RecordBatch;
+    use axum::body::Body;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::{fs, path::Path};
+    use tower::ServiceExt;
+
+    fn test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("greplog_server_test_{}_{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::create_dir_all(&dir);
+        dir
+    }
+
+    fn write_log_file(base: &Path, service: &str, date: &str, id: &str, level: &str, message: &str) {
+        let dir = base
+            .join("data")
+            .join("table_type=logs")
+            .join(format!("service={}", service))
+            .join(format!("date={}", date));
+        let schema = greplog_core::arrow_schema::log_schema();
+        let ts = 1_700_000_000_000_000;
+        let batch = RecordBatch::try_new(
+            Arc::new(schema),
+            vec![
+                Arc::new(StringArray::from(vec![id])),
+                Arc::new(StringArray::from(vec![service])),
+                Arc::new(TimestampMicrosecondArray::from(vec![ts])),
+                Arc::new(StringArray::from(vec![Some(level)])),
+                Arc::new(StringArray::from(vec![None::<&str>])),
+                Arc::new(StringArray::from(vec![Some(message)])),
+                Arc::new(StringArray::from(vec![None::<&str>])),
+            ],
+        )
+        .expect("build log batch");
+        write_parquet_atomic(&dir, &batch).expect("write log parquet");
+    }
+
+    fn make_state(dir: &Path) -> Arc<AppState> {
+        let engine = super::super::query_engine::QueryEngine::new(dir)
+            .expect("new engine");
+        Arc::new(AppState {
+            config: Arc::new(super::super::Config {
+                workspace: dir.to_path_buf(),
+                tcp_port: 0,
+                ui_port: 0,
+                flush_interval_secs: 2,
+                socket_path: PathBuf::from(".greplog/test.sock"),
+            }),
+            query_engine: engine,
+        })
+    }
+
+    // ------------------------------------------------------------------
+    // Test 1: End-to-end /query via the axum Router
+    // ------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_query_endpoint() {
+        let dir = test_dir("query_endpoint");
+        write_log_file(&dir, "api", "2024-01-15", "id-1", "info", "hello world");
+        let state = make_state(&dir);
+
+        let app = Router::new()
+            .route("/query", post(query_handler))
+            .with_state(state);
+
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(axum::http::Method::POST)
+                    .uri("/query")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"sql": "SELECT message FROM logs"}"#))
+                    .unwrap(),
+            )
+            .await
+            .expect("request");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["row_count"], 1);
+        assert_eq!(result["columns"][0], "message");
+        assert_eq!(result["rows"][0][0], "hello world");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------
+    // Test 2: New data is visible without re-registration
+    // ------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_new_data_visibility() {
+        let dir = test_dir("new_data_visibility");
+        write_log_file(&dir, "api", "2024-01-15", "id-1", "info", "first batch");
+        let state = make_state(&dir);
+
+        // Query initial data
+        let result = state
+            .query_engine
+            .query("SELECT message FROM logs ORDER BY id")
+            .await
+            .expect("initial query");
+        assert_eq!(result.row_count, 1);
+        assert_eq!(result.rows[0][0], "first batch");
+
+        // Write additional data AFTER the engine was created
+        write_log_file(&dir, "api", "2024-01-15", "id-2", "info", "second batch");
+
+        // Query again — should pick up the new file automatically now
+        // that DataFusion's file-list cache is disabled.
+        let result = state
+            .query_engine
+            .query("SELECT message FROM logs ORDER BY id")
+            .await
+            .expect("second query");
+        assert_eq!(
+            result.row_count, 2,
+            "new data should be visible without re-registration"
+        );
+        assert_eq!(result.rows[1][0], "second batch");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------
+    // Test 3: /status returns expected shape
+    // ------------------------------------------------------------------
+    #[tokio::test]
+    async fn test_status_endpoint() {
+        let dir = test_dir("status_test");
+        write_log_file(&dir, "svc", "2024-01-15", "id-1", "info", "test");
+        let state = make_state(&dir);
+
+        let app = Router::new()
+            .route("/status", get(status_handler))
+            .with_state(state);
+
+        let response = app
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(axum::http::Method::GET)
+                    .uri("/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("request");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(result["status"], "running");
+        assert_eq!(result["version"], env!("CARGO_PKG_VERSION"));
+
+        // The old DuckDB era did not expose pool-specific fields in this
+        // codebase version, so there is no `active_queries` field to remove
+        // or replace.  WAL/flush-layer fields (`dropped_events`,
+        // `buffer_occupancy`) are not yet wired; they will be added in the
+        // crash-recovery startup round and are not touched here.
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
