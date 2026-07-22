@@ -2,3 +2,15 @@
 node_modules
 .greplog
 dist
+
+# Benchmark data
+data/
+
+# Write-ahead logs
+wal/
+
+# Log files
+*.log
+
+# Parquet files
+*.parquet
