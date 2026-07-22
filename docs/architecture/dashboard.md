@@ -11,7 +11,7 @@ The core UX revolves around interleaved logs:
 
 ## Global Filter Bar
 
-A prominent toggle to view all services or isolate a specific one, compiled into a simple `WHERE service_name = 'X'` DuckDB query. Chips for `route:/payments/*`, `status:>=500`, etc.
+A prominent toggle to view all services or isolate a specific one, compiled into a filter predicate (`service_name = 'X'`) pushed down to the agent's query engine. Chips for `route:/payments/*`, `status:>=500`, etc.
 
 ## Saved Views
 
@@ -19,4 +19,4 @@ Filter definitions stored as JSON (`~/.greplog/views.json`).
 
 ## Graphs
 
-Latency percentiles and error-rate over time, computed via DuckDB aggregates.
+Latency percentiles and error-rate over time, computed by the agent's query engine via Parquet/Arrow scans (no external database).

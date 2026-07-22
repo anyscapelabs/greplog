@@ -22,7 +22,7 @@
 |------------------------------------|------------|----------------------------------|
 | `feature/project-foundation`       | In progress | Docs, LICENSE, README, structure |
 | `feature/rust-workspace-core`      | Pending    | `greplog-core` with Protobuf schema |
-| `feature/agent-ingest`             | Pending    | UDS/TCP ingest, DuckDB writer    |
+| `feature/agent-ingest`             | Pending    | UDS/TCP ingest, WAL + storage    |
 | `feature/sdk-node`                 | Pending    | Node.js SDK with auto-detection  |
 | `feature/agent-query-api`          | Pending    | `POST /query` SQL translation    |
 | `feature/dashboard-embed`          | Pending    | React dashboard embedded in agent |

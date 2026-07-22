@@ -1,6 +1,11 @@
 [![License](https://img.shields.io/badge/license-Greplog%20Non--Commercial-blue)](#license)
 
-Greplog — Open-source observability for AI-assisted coders and small dev teams.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/branding/logo/wordmark/wordmark-white.svg">
+  <img alt="Greplog" src="assets/branding/logo/wordmark/wordmark-black.svg" height="60">
+</picture>
+
+Open-source observability for AI-assisted coders and small dev teams.
 
 `npm i -g greplog && greplog dev` → dashboard in <60s. Zero Docker, zero config.
 
@@ -82,7 +87,11 @@ greplog::init();
 - **Service badges** — Color-coded tags per service (`[web]`, `[api]`, `[worker]`).
 - **Filter bar** — Query by `service:`, `route:/payments/*`, `status:>=500`, etc.
 - **Saved views** — Save filters as named presets (e.g., "Payment errors").
-- **Latency & error-rate graphs** — DuckDB-aggregated percentiles over time.
+- **Crash-safe WAL** — Every event is written to a write-ahead log before acknowledgment; zero data loss on crash.
+- **Content-addressed dedup** — Duplicate events (from SDK retries, network jitter) are eliminated before storage.
+- **Arrow-native storage** — Events accumulated in an in-memory Arrow buffer, flushed to partitioned Parquet files.
+- **Auto-compaction** — Background compaction merges small Parquet files into larger partitions; configurable schedule.
+- **Latency & error-rate graphs** — Query-engine aggregated percentiles over time.
 - **Framework auto-detection** — Express, Fastify, NestJS, Next.js, Flask, Django, FastAPI, Gin, Echo, Fiber, Axum, Actix, and more.
 - **Docker-friendly** — Falls back to TCP when UDS can't cross the container boundary.
 - **PII redaction** — Configurable field scrubbing in SDK and agent.
@@ -109,24 +118,60 @@ All SDKs:
            ┌─────────────────┐
            │   Node App      │──UDS──┐
            └─────────────────┘       │
-           ┌─────────────────┐       │   ┌──────────────────────────┐
-           │   Go API        │──UDS──├──▶│     Greplog Agent        │
-           └─────────────────┘       │   │  (Rust daemon, local)    │
-           ┌─────────────────┐       │   │                          │
-           │   Python API    │──TCP──┘   │  UDS/TCP ingest          │
-           │   (Docker)      │ fallback  │  DuckDB writer           │
-           └─────────────────┘          │  Parquet WAL              │
-                                         │  HTTP query API          │
-                                         │  Embedded React dashboard│
-                                         └──────────┬───────────────┘
-                                                    │
-                                         ┌──────────▼───────────────┐
-                                         │  localhost:4317          │
-                                         │  (React Dashboard)       │
-                                         └──────────────────────────┘
+           ┌─────────────────┐       │   ┌────────────────────────────────────┐
+           │   Go API        │──UDS──├──▶│          Greplog Agent             │
+           └─────────────────┘       │   │          (Rust daemon)             │
+           ┌─────────────────┐       │   │                                    │
+           │   Python API    │──TCP──┘   │  ┌────────┐  ┌──────────────────┐  │
+           │   (Docker)      │ fallback  │  │ Ingest │─▶│ WAL + Dedup      │  │
+           └─────────────────┘          │  │ UDS/TCP│  │ (crash-safe)      │  │
+                                         │  └────────┘  └────────┬─────────┘  │
+                                         │            ┌──────────▼──────────┐ │
+                                         │            │ Arrow Buffer        │ │
+                                         │            │ (in-memory batch)   │ │
+                                         │            └──────────┬──────────┘ │
+                                         │            ┌──────────▼──────────┐ │
+                                         │            │ Parquet Flush       │ │
+                                         │            │ (every 2s, deduped) │ │
+                                         │            └──────────┬──────────┘ │
+                                         │            ┌──────────▼──────────┐ │
+                                         │            │ Compaction          │ │
+                                         │            │ (background, hourly)│ │
+                                         │            └──────────┬──────────┘ │
+                                         │  ┌────────────────────▼─────────┐ │
+                                         │  │ HTTP Query API + Dashboard  │ │
+                                         │  │ (localhost:4317)             │ │
+                                         │  └──────────────────────────────┘ │
+                                         └────────────────────────────────────┘
 ```
 
-The agent is a single Rust binary per workspace. SDKs never talk to the network — they write to a local `.greplog/greplog.sock`. See [docs/architecture/](docs/architecture/) for the full design.
+The agent is a single Rust binary per workspace. SDKs never talk to the network — they write to a local `.greplog/greplog.sock`. Events pass through a crash-safe WAL, content-addressed dedup, and an Arrow-native buffer before being flushed to partitioned Parquet files with background compaction. See [docs/architecture/](docs/architecture/) for the full design.
+
+## Benchmarks
+
+Throughput measured by `bench_throughput` (single producer, 10–50 events per batch, UDS to local agent, measured from `IngestResponse` acknowledgment round-trips over wall-clock time).
+
+### Small events (74 bytes avg, 10 ev/batch)
+
+| Step | Target ev/s | Actual ev/s | Accepted | Rejected | Lost |
+|------|-------------|-------------|----------|----------|------|
+| 1    | 1,000       | 1,000       | 15,000   | 0        | 0    |
+| 2    | 3,000       | 2,999       | 45,000   | 0        | 0    |
+| 3    | 5,000       | 4,999       | 74,980   | 0        | 0    |
+| 4    | 7,000       | 6,998       | 104,980  | 0        | 0    |
+
+True ceiling not reached — no rejections or lost batches at the max tested rate.
+
+### Saturated throughput (72 bytes avg, 50 ev/batch)
+
+| Step | Target ev/s | Actual ev/s | Accepted | Rejected | Durable write |
+|------|-------------|-------------|----------|----------|---------------|
+| 1    | 25,000      | 24,973      | 374,700  | 150      | 1.7 MiB/s     |
+| 2    | 50,000      | 25,215      | 378,250  | 193,350  | 1.7 MiB/s     |
+| 3    | 75,000      | 25,074      | 376,350  | 195,650  | 1.7 MiB/s     |
+| 4    | 100,000     | 24,909      | 373,650  | 189,700  | 1.7 MiB/s     |
+
+Sustained ceiling: **~25,000 ev/s** (~750 batches/s, 1.7 MiB/s durable write). Excess events are cleanly rejected (zero lost batches).
 
 ## Build from source
 
@@ -160,8 +205,13 @@ cargo build --release -p greplog-cli
 ```
 greplog/
 ├── crates/
-│   ├── greplog-core/       # Shared types, Protobuf wire format, redaction
+│   ├── greplog-core/        # Shared types, Protobuf wire format, redaction
 │   ├── greplog-agent/       # Local daemon (ingest, store, query, detect, server)
+│   │   ├── ingest/          # UDS & TCP listener, batching channels
+│   │   ├── store/           # WAL, dedup, Arrow buffer, Parquet flush, compaction
+│   │   ├── query_engine.rs  # Parquet/Arrow query layer served to dashboard
+│   │   ├── detect/          # framework auto-detection engine
+│   │   └── server/          # embedded HTTP server (axum) + static dashboard
 │   └── greplog-cli/         # CLI (`greplog dev`, `greplog init`, `greplog status`)
 ├── sdks/
 │   ├── node/               # @greplog/node
@@ -174,7 +224,7 @@ greplog/
 
 ## License
 
-Greplog is released under the [Greplog Non-Commercial License](LICENSE). Self-hosting, personal use, and development use are free. Commercial use and reselling require a commercial license.
+Greplog is released under the [Greplog Non-Commercial License](LICENSE) by **Anyscape Labs PLC**. Self-hosting, personal use, and development use are free. Commercial use and reselling require a commercial license.
 
 See [LICENSE](LICENSE) for details.
 
