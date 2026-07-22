@@ -7,6 +7,9 @@ pub async fn run(
     ui_port: u16,
     tcp_port: u16,
     workspace: Option<PathBuf>,
+    max_buffer_events: usize,
+    flush_interval_secs: u64,
+    compaction_interval_secs: u64,
 ) -> Result<()> {
     let workspace = resolve_workspace(workspace)?;
 
@@ -20,8 +23,10 @@ pub async fn run(
         workspace: workspace.clone(),
         tcp_port,
         ui_port,
-        flush_interval_secs: 2,
+        flush_interval_secs,
         socket_path: PathBuf::from(".greplog/greplog.sock"),
+        max_buffer_events,
+        compaction_interval_secs,
     };
 
     if foreground {

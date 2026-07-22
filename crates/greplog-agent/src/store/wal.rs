@@ -138,7 +138,8 @@ impl WalWriter {
     /// an async/tokio context MUST invoke this via `spawn_blocking` (or an
     /// equivalent dedicated blocking-safe path) — calling it directly from an
     /// async task will block that task's tokio worker thread on disk I/O.
-    pub fn append(&mut self, batch: &IngestBatch) -> Result<()> {
+    #[allow(dead_code)]
+    pub fn prepare_append(batch: &IngestBatch) -> Vec<u8> {
         let payload = batch.encode_to_vec();
         let crc = crc32(&payload);
 
@@ -147,7 +148,11 @@ impl WalWriter {
         buf.extend_from_slice(&(4u32 + payload.len() as u32).to_le_bytes());
         buf.extend_from_slice(&crc.to_le_bytes());
         buf.extend_from_slice(&payload);
+        buf
+    }
 
+    pub fn append_raw(&mut self, buf: &[u8]) -> Result<()> {
+        let frame_len = buf.len();
         let mut inner = lock_inner(&self.inner)?;
 
         if inner.current_size + frame_len as u64 > self.max_segment_size {
@@ -160,11 +165,17 @@ impl WalWriter {
             Some(f) => f,
             None => bail!("WAL is not open"),
         };
-        file.write_all(&buf)?;
+        file.write_all(buf)?;
         inner.current_size += frame_len as u64;
         self.pending_writes.store(true, Ordering::SeqCst);
 
         Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn append(&mut self, batch: &IngestBatch) -> Result<()> {
+        let buf = Self::prepare_append(batch);
+        self.append_raw(&buf)
     }
 
     /// Force-close the current segment and open a new one with the next sequence number.
@@ -246,6 +257,7 @@ impl WalWriter {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn close(mut self) -> Result<()> {
         self.flush_fsync()?;
         self.shutdown_background();

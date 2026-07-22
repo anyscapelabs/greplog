@@ -9,3 +9,9 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+
+[profile.bench-quick]
+inherits = "release"
+lto = false
+codegen-units = 16
+opt-level = 2

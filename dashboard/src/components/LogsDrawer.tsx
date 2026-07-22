@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { LuX, LuChevronRight, LuCopy, LuChevronDown } from 'react-icons/lu'
 import { useNavigate } from 'react-router-dom'
+import Editor from '@monaco-editor/react'
 
 interface LogsDrawerProps {
   open: boolean
@@ -66,25 +67,23 @@ export default function LogsDrawer({ open, onClose, log }: LogsDrawerProps) {
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <span className="text-sm font-semibold text-text-primary">Context</span>
+                <span className="text-sm font-semibold text-text-primary">Metadata</span>
                 <div className="rounded border text-sm" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
                   {[
-                    ['Service', log.service],
-                    ['Status', log.statusCode],
-                    ['Response', log.response],
-                    ['Logger', log.logger],
-                    ['File', log.file, true],
-                    ['Correlation', log.correlationId, true],
-                    ['Environment', 'production'],
-                    ['Host', 'db-03.internal'],
+                    ['service_name', log.service],
+                    ['logger_name', log.logger],
+                    ['correlation_id', log.correlationId, true],
+                    ['event_id', `evt_${log.id}`, true],
+                    ['file', log.file, true],
+                    ['line', '42'],
                   ].map(([label, value, isSpecial], i) => (
                     <div
                       key={label as string}
                       className="flex items-center px-4 py-2"
-                      style={{ borderBottom: i < 7 ? '1px solid var(--border-primary)' : 'none' }}
+                      style={{ borderBottom: i < 5 ? '1px solid var(--border-primary)' : 'none' }}
                     >
-                      <span className="w-28 shrink-0 text-xs" style={{ color: 'var(--text-secondary)' }}>{(label as string)}</span>
-                      {isSpecial && label === 'File' ? (
+                      <span className="w-48 shrink-0 text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{(label as string)}</span>
+                      {isSpecial && label === 'file' ? (
                         <button
                           className="font-mono text-xs hover:underline cursor-pointer"
                           style={{ color: 'var(--accent)' }}
@@ -92,7 +91,7 @@ export default function LogsDrawer({ open, onClose, log }: LogsDrawerProps) {
                         >
                           {value as string}
                         </button>
-                      ) : isSpecial && label === 'Correlation' ? (
+                      ) : isSpecial && (label === 'correlation_id' || label === 'event_id') ? (
                         <span className="font-mono text-xs flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
                           {value as string}
                           <button
@@ -110,6 +109,26 @@ export default function LogsDrawer({ open, onClose, log }: LogsDrawerProps) {
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-semibold text-text-primary">Attributes</span>
+                <div className="rounded border text-sm" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+                  {[
+                    ['http.status_code', String(log.statusCode)],
+                    ['http.latency_ms', String(log.response)],
+                    ['deployment.environment', 'production'],
+                    ['host.hostname', 'worker-node-01'],
+                  ].map(([label, value], i) => (
+                    <div
+                      key={label}
+                      className="flex items-center px-4 py-2"
+                      style={{ borderBottom: i < 3 ? '1px solid var(--border-primary)' : 'none' }}
+                    >
+                      <span className="w-48 shrink-0 text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                      <span className="font-mono text-xs" style={{ color: 'var(--text-primary)' }}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
                 <button
                   className="flex items-center gap-1.5 text-sm font-semibold text-text-primary cursor-pointer hover:opacity-80 transition-opacity"
                   onClick={() => setTraceOpen(!traceOpen)}
@@ -118,14 +137,27 @@ export default function LogsDrawer({ open, onClose, log }: LogsDrawerProps) {
                   Stack Trace
                 </button>
                 {traceOpen && (
-                  <div className="rounded border font-mono text-xs" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                    <div className="p-3 leading-relaxed whitespace-pre" style={{ color: 'var(--text-primary)' }}>
-                      {`Error: ConnectionTimeout
+                  <div className="rounded border overflow-hidden h-32" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+                    <Editor
+                      height="100%"
+                      defaultLanguage="text"
+                      theme="vs-dark"
+                      options={{
+                        minimap: { enabled: false },
+                        readOnly: true,
+                        wordWrap: 'on',
+                        scrollBeyondLastLine: false,
+                        padding: { top: 12, bottom: 12 },
+                        lineNumbers: 'off',
+                        renderLineHighlight: 'none',
+                        folding: false,
+                      }}
+                      value={`Error: ConnectionTimeout
     at Pool.acquire (src/db/pool.ts:142)
     at QueryRunner.run (src/db/query.ts:89)
     at RequestHandler.exec (src/http/handler.ts:201)
     at Server.process (src/server.ts:56)`}
-                    </div>
+                    />
                   </div>
                 )}
               </div>
@@ -138,19 +170,39 @@ export default function LogsDrawer({ open, onClose, log }: LogsDrawerProps) {
                   Raw Log Payload
                 </button>
                 {payloadOpen && (
-                  <div className="rounded border font-mono text-xs overflow-x-auto" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                    <div className="p-3 leading-relaxed whitespace-pre" style={{ color: 'var(--text-primary)' }}>
-                      {`{
+                  <div className="rounded border overflow-hidden h-64" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+                    <Editor
+                      height="100%"
+                      defaultLanguage="json"
+                      theme="vs-dark"
+                      options={{
+                        minimap: { enabled: false },
+                        readOnly: true,
+                        wordWrap: 'on',
+                        scrollBeyondLastLine: false,
+                        padding: { top: 12, bottom: 12 },
+                        lineNumbers: 'off',
+                        renderLineHighlight: 'none',
+                        folding: false,
+                      }}
+                      value={`{
+  "event_id": "evt_${log.id}",
+  "timestamp": "${log.timestamp}",
   "level": "${log.level}",
   "message": "${log.message}",
-  "service": "${log.service}",
-  "status_code": ${log.statusCode},
-  "response_time_ms": "${log.response}",
-  "logger": "${log.logger}",
+  "service_name": "${log.service}",
+  "logger_name": "${log.logger}",
   "correlation_id": "${log.correlationId}",
-  "file": "${log.file}"
+  "file": "${log.file}",
+  "line": 42,
+  "attributes": {
+    "http.status_code": ${log.statusCode},
+    "http.latency_ms": "${log.response}",
+    "deployment.environment": "production",
+    "host.hostname": "worker-node-01"
+  }
 }`}
-                    </div>
+                    />
                   </div>
                 )}
               </div>
@@ -192,51 +244,60 @@ export default function LogsDrawer({ open, onClose, log }: LogsDrawerProps) {
                   ))}
                 </div>
               </div>
-              <div className="flex items-center gap-2 pt-2 border-t flex-wrap" style={{ borderColor: 'var(--border-primary)' }}>
-                <button
-                  className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
-                  style={{ color: 'var(--accent)' }}
-                  onClick={() => navigator.clipboard.writeText(String(log.id))}
-                >
-                  Copy ID
-                </button>
-                <button
-                  className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
-                  style={{ color: 'var(--accent)' }}
-                  onClick={() => {
-                    const json = JSON.stringify({
-                      level: log.level,
-                      message: log.message,
-                      service: log.service,
-                      status_code: log.statusCode,
-                      response_time_ms: log.response,
-                      logger: log.logger,
-                      correlation_id: log.correlationId,
-                      file: log.file,
-                    }, null, 2)
-                    navigator.clipboard.writeText(json)
-                  }}
-                >
-                  Copy JSON
-                </button>
-                <button
-                  className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
-                  style={{ color: 'var(--accent)' }}
-                  onClick={() => navigate(`/errors?correlationId=${log.correlationId}`)}
-                >
-                  View Related Errors →
-                </button>
-                <button
-                  className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
-                  style={{ color: 'var(--accent)' }}
-                  onClick={() => navigate(`/logs?service=${log.service}`)}
-                >
-                  View in Logs
-                </button>
-              </div>
             </>
           )}
         </div>
+        {log && (
+          <div className="flex items-center gap-2 px-4 py-3 border-t shrink-0 flex-wrap" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-secondary)' }}>
+            <button
+              className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
+              style={{ color: 'var(--accent)' }}
+              onClick={() => navigator.clipboard.writeText(String(log.id))}
+            >
+              Copy ID
+            </button>
+            <button
+              className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
+              style={{ color: 'var(--accent)' }}
+              onClick={() => {
+                const json = JSON.stringify({
+                  event_id: `evt_${log.id}`,
+                  timestamp: log.timestamp,
+                  level: log.level,
+                  message: log.message,
+                  service_name: log.service,
+                  logger_name: log.logger,
+                  correlation_id: log.correlationId,
+                  file: log.file,
+                  line: 42,
+                  attributes: {
+                    'http.status_code': log.statusCode,
+                    'http.latency_ms': log.response,
+                    'deployment.environment': 'production',
+                    'host.hostname': 'worker-node-01'
+                  }
+                }, null, 2)
+                navigator.clipboard.writeText(json)
+              }}
+            >
+              Copy JSON
+            </button>
+            <button
+              className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
+              style={{ color: 'var(--accent)' }}
+              onClick={() => navigate(`/errors?correlationId=${log.correlationId}`)}
+            >
+              View Related Errors →
+            </button>
+            <button
+              className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
+              style={{ color: 'var(--accent)' }}
+              onClick={() => navigate(`/logs?service=${log.service}`)}
+            >
+              View in Logs
+            </button>
+          </div>
+        )}
       </div>
     </>
   )

@@ -12,9 +12,6 @@ pub mod query_engine;
 pub mod server;
 mod store;
 
-/// Maximum in‑memory events before the buffer rejects new batches.
-const MAX_BUFFER_EVENTS: usize = 50_000;
-
 /// Channel capacity between the ingest handler and the writer.
 const INGEST_CHANNEL_CAPACITY: usize = 1024;
 
@@ -34,6 +31,12 @@ pub struct Config {
 
     #[arg(long, default_value = ".greplog/greplog.sock")]
     pub socket_path: PathBuf,
+
+    #[arg(long, default_value_t = 50_000)]
+    pub max_buffer_events: usize,
+
+    #[arg(long, default_value_t = 300)]
+    pub compaction_interval_secs: u64,
 }
 
 impl Config {
@@ -52,11 +55,11 @@ pub async fn run(config: Config) -> Result<()> {
     tokio::fs::create_dir_all(config.socket_dir()).await?;
 
     let (batch_tx, batch_rx) =
-        mpsc::channel::<(IngestBatch, oneshot::Sender<greplog_core::gen::IngestResponse>)>(
+        mpsc::channel::<(IngestBatch, bytes::Bytes, oneshot::Sender<greplog_core::gen::IngestResponse>)>(
             INGEST_CHANNEL_CAPACITY,
         );
 
-    let writer = store::Writer::new(&config.workspace, MAX_BUFFER_EVENTS)?;
+    let writer = store::Writer::new(&config.workspace, config.max_buffer_events)?;
     // Run the full startup recovery sequence before accepting any connections:
     // cleanup, compaction reconciliation, WAL replay with dedup, and immediate
     // flush.  This guarantees that ingest listeners only see a fully‑recovered
@@ -71,6 +74,12 @@ pub async fn run(config: Config) -> Result<()> {
     let ingest_handle = ingest::IngestServer::new(batch_tx).spawn(&config);
 
     let query_engine = query_engine::QueryEngine::new(&config.workspace)?;
+
+    let compaction_interval = Duration::from_secs(config.compaction_interval_secs);
+    let compaction_handle = store::compaction_scheduler::spawn_compaction_scheduler(
+        config.workspace.clone(),
+        compaction_interval,
+    );
 
     let server_state = server::AppState {
         config: config.clone(),
@@ -90,6 +99,9 @@ pub async fn run(config: Config) -> Result<()> {
         },
         _ = server_handle => {
             info!("HTTP server exited");
+        },
+        _ = compaction_handle => {
+            info!("Compaction scheduler exited");
         },
         _ = tokio::signal::ctrl_c() => {
             info!("Received Ctrl+C, shutting down gracefully");

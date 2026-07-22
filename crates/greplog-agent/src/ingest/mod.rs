@@ -13,11 +13,11 @@ use tracing::{debug, error, info};
 const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;
 
 pub struct IngestServer {
-    batch_tx: mpsc::Sender<(IngestBatch, oneshot::Sender<IngestResponse>)>,
+    batch_tx: mpsc::Sender<(IngestBatch, bytes::Bytes, oneshot::Sender<IngestResponse>)>,
 }
 
 impl IngestServer {
-    pub fn new(batch_tx: mpsc::Sender<(IngestBatch, oneshot::Sender<IngestResponse>)>) -> Self {
+    pub fn new(batch_tx: mpsc::Sender<(IngestBatch, bytes::Bytes, oneshot::Sender<IngestResponse>)>) -> Self {
         Self { batch_tx }
     }
 
@@ -89,7 +89,7 @@ impl IngestServer {
 /// forward them to the writer task, and write back `IngestResponse` frames.
 async fn handle_connection<S>(
     stream: S,
-    batch_tx: mpsc::Sender<(IngestBatch, oneshot::Sender<IngestResponse>)>,
+    batch_tx: mpsc::Sender<(IngestBatch, bytes::Bytes, oneshot::Sender<IngestResponse>)>,
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -101,7 +101,7 @@ async fn handle_connection<S>(
             Some(Ok(bytes)) => {
                 let bytes = bytes.freeze();
 
-                let decoded = match IngestBatch::decode(bytes) {
+                let decoded = match IngestBatch::decode(bytes.clone()) {
                     Ok(batch) => batch,
                     Err(e) => {
                         debug!("Failed to decode IngestBatch: {}", e);
@@ -116,7 +116,7 @@ async fn handle_connection<S>(
                 };
 
                 let (resp_tx, resp_rx) = oneshot::channel();
-                if batch_tx.send((decoded, resp_tx)).await.is_err() {
+                if batch_tx.send((decoded, bytes, resp_tx)).await.is_err() {
                     debug!("Writer channel closed, stopping connection handler");
                     break;
                 }

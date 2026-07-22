@@ -86,7 +86,7 @@ export default function LogsTable({ filteredServices, onView }: LogsTableProps) 
     return (
       <div
         key={row.id}
-        className="flex items-center border-b text-sm py-1 hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono"
+        className="flex items-center border-b text-sm hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono h-9"
         style={{ borderColor: 'var(--border-primary)' }}
       >
         <div className="w-[60px] shrink-0 h-full border-r border-l flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>

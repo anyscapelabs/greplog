@@ -127,8 +127,7 @@ async fn resources_handler(
 mod tests {
     use super::*;
     use crate::store::io::write_parquet_atomic;
-    use arrow::array::*;
-    use arrow::datatypes::TimeUnit;
+    use arrow::array::{StringArray, TimestampMicrosecondArray};
     use arrow::record_batch::RecordBatch;
     use axum::body::Body;
     use std::path::PathBuf;
@@ -178,6 +177,8 @@ mod tests {
                 ui_port: 0,
                 flush_interval_secs: 2,
                 socket_path: PathBuf::from(".greplog/test.sock"),
+                max_buffer_events: 50_000,
+                compaction_interval_secs: 300,
             }),
             query_engine: engine,
             dropped_events: Arc::new(AtomicUsize::new(0)),

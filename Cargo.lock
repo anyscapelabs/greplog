@@ -1820,6 +1820,7 @@ dependencies = [
  "figlet-rs",
  "greplog-agent",
  "greplog-core",
+ "prost",
  "reqwest",
  "serde",
  "serde_json",

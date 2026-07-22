@@ -13,7 +13,7 @@ use tracing::{debug, info, warn};
 const MANIFEST_FILE: &str = ".compaction_manifest";
 
 /// Target merged-file size in bytes (~128 MB).
-const DEFAULT_TARGET_SIZE: u64 = 128 * 1024 * 1024;
+pub(crate) const DEFAULT_TARGET_SIZE: u64 = 128 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Manifest types
@@ -191,8 +191,11 @@ pub fn reconcile_compactions(base_dir: &Path) -> Result<()> {
         let manifest: Manifest = match serde_json::from_str(&manifest_data) {
             Ok(m) => m,
             Err(e) => {
-                warn!("Cannot parse manifest {:?}: {}", manifest_path, e);
-                continue;
+                anyhow::bail!(
+                    "Cannot parse manifest {:?}: {} — aborting startup recovery",
+                    manifest_path,
+                    e,
+                );
             }
         };
 
@@ -427,7 +430,7 @@ fn update_manifest_entry_status(
 
 /// Recursively find all leaf directories under `data_dir` that match
 /// the `date=YYYY-MM-DD` pattern — these are partition directories.
-fn find_partition_dirs(data_dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn find_partition_dirs(data_dir: &Path) -> Vec<PathBuf> {
     let mut result = Vec::new();
     if let Ok(entries) = fs::read_dir(data_dir) {
         for entry in entries.flatten() {
@@ -482,7 +485,7 @@ fn is_today_partition(dir: &Path) -> bool {
 
 /// Convert days since Unix epoch to `YYYY-MM-DD` using Howard Hinnant's
 /// civil‑date algorithm.
-fn civil_days_to_ymd(days: i64) -> String {
+pub(crate) fn civil_days_to_ymd(days: i64) -> String {
     let z = days + 719468;
     let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
     let doe = z - era * 146097;

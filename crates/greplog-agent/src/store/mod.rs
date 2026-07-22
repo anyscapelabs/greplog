@@ -1,5 +1,6 @@
 use anyhow::Result;
 use greplog_core::gen::{IngestBatch, IngestResponse};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -7,7 +8,9 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info};
 
+pub mod buffer;
 pub mod compaction;
+pub mod compaction_scheduler;
 pub mod dedup;
 pub mod flush;
 pub mod io;
@@ -17,10 +20,17 @@ pub mod wal;
 // Shared mutable state
 // ---------------------------------------------------------------------------
 
+/// In-memory buffer backed by Arrow per-(service, date) column builders.
+///
+/// At ingest time each event's fields are appended directly into the
+/// builders.  At flush time the builders are finished into RecordBatches
+/// and written to Parquet — no per-event iteration at flush time.
 struct BufferInner {
-    batches: Vec<IngestBatch>,
-    /// Total number of individual events (logs + spans + metrics) across all
-    /// batches currently in `batches`.  Used for capacity checks.
+    log_groups: HashMap<(String, String), buffer::LogBuilders>,
+    span_groups: HashMap<(String, String), buffer::SpanBuilders>,
+    metric_groups: HashMap<(String, String), buffer::MetricBuilders>,
+    /// Total number of individual events across all builder groups.
+    /// Used for capacity checks.
     event_count: usize,
 }
 
@@ -47,7 +57,9 @@ struct BufferInner {
 pub struct Writer {
     wal: Arc<Mutex<wal::WalWriter>>,
     buffer: Arc<Mutex<BufferInner>>,
+    dedup_cache: Arc<Mutex<dedup::DedupCache>>,
     is_flushing: Arc<AtomicBool>,
+    startup_done: Arc<AtomicBool>,
     dropped_events: Arc<AtomicUsize>,
     data_dir: PathBuf,
     max_buffer_events: usize,
@@ -61,10 +73,14 @@ impl Writer {
         Ok(Self {
             wal: Arc::new(Mutex::new(w)),
             buffer: Arc::new(Mutex::new(BufferInner {
-                batches: Vec::new(),
+                log_groups: HashMap::new(),
+                span_groups: HashMap::new(),
+                metric_groups: HashMap::new(),
                 event_count: 0,
             })),
+            dedup_cache: Arc::new(Mutex::new(dedup::DedupCache::new(0))),
             is_flushing: Arc::new(AtomicBool::new(false)),
+            startup_done: Arc::new(AtomicBool::new(false)),
             dropped_events: Arc::new(AtomicUsize::new(0)),
             data_dir: base_dir.to_path_buf(),
             max_buffer_events,
@@ -88,27 +104,35 @@ impl Writer {
         flush::cleanup_temp_files(&self.data_dir)?;
         compaction::reconcile_compactions(&self.data_dir)?;
 
-        let mut dedup = dedup::DedupCache::new(dedup_seed_limit);
-        dedup.seed_from_recent_files(&self.data_dir)?;
-
         let replayed = wal::replay_segments(&self.data_dir)?;
         if replayed.is_empty() {
             info!("Startup recovery: no WAL data to replay");
+            self.startup_done.store(true, Ordering::SeqCst);
             return Ok(());
         }
 
+        // Replace the shared cache with a properly-seeded instance.
+        {
+            let mut guard = self.dedup_cache.lock().map_err(|e| anyhow::anyhow!("dedup lock: {e}"))?;
+            let mut fresh = dedup::DedupCache::new(dedup_seed_limit);
+            fresh.seed_from_recent_files(&self.data_dir)?;
+            *guard = fresh;
+        }
+
+        let mut dedup_guard = self.dedup_cache.lock().map_err(|e| anyhow::anyhow!("dedup lock: {e}"))?;
         let mut deduped: Vec<IngestBatch> = Vec::with_capacity(replayed.len());
         for (batch, _meta) in replayed {
-            let filtered = dedup.filter_batch(&batch);
+            let filtered = dedup_guard.filter_batch(&batch);
             if filtered.logs.is_empty()
                 && filtered.spans.is_empty()
                 && filtered.metrics.is_empty()
             {
                 continue;
             }
-            dedup.insert_batch(&batch);
+            dedup_guard.insert_batch(&batch);
             deduped.push(filtered);
         }
+        drop(dedup_guard);
 
         if deduped.is_empty() {
             let mut wal = self
@@ -119,6 +143,7 @@ impl Writer {
             let seq = wal.current_seq();
             wal.delete_segments_up_to(seq)?;
             info!("Startup recovery: all WAL data already flushed (dedup removed everything)");
+            self.startup_done.store(true, Ordering::SeqCst);
             return Ok(());
         }
 
@@ -134,11 +159,19 @@ impl Writer {
             deduped.len(),
         );
 
+        self.startup_done.store(true, Ordering::SeqCst);
         Ok(())
     }
 
     pub fn dropped_events(&self) -> Arc<AtomicUsize> {
         self.dropped_events.clone()
+    }
+
+    /// Mark startup recovery as complete. Exposed for tests that bypass
+    /// `run_startup()`.
+    #[allow(dead_code)]
+    pub fn mark_startup_done(&self) {
+        self.startup_done.store(true, Ordering::SeqCst);
     }
 
     // ------------------------------------------------------------------
@@ -154,12 +187,14 @@ impl Writer {
     /// final flush finishes.
     pub fn spawn(
         self,
-        mut batch_rx: mpsc::Receiver<(IngestBatch, oneshot::Sender<IngestResponse>)>,
+        mut batch_rx: mpsc::Receiver<(IngestBatch, bytes::Bytes, oneshot::Sender<IngestResponse>)>,
         flush_interval: Duration,
     ) -> tokio::task::JoinHandle<()> {
         let wal = self.wal;
         let buffer = self.buffer;
+        let dedup_cache = self.dedup_cache;
         let is_flushing = self.is_flushing;
+        let startup_done = self.startup_done;
         let dropped_events = self.dropped_events;
         let data_dir = self.data_dir;
         let max_buffer_events = self.max_buffer_events;
@@ -178,10 +213,11 @@ impl Writer {
                         if should_flush {
                             let w = wal.clone();
                             let b = buffer.clone();
+                            let dc = dedup_cache.clone();
                             let f = is_flushing.clone();
                             let d = data_dir.clone();
                             if let Err(e) = tokio::task::spawn_blocking(move || {
-                                flush_inner(&w, &b, &f, &d)
+                                flush_inner(&w, &b, &dc, &f, &d)
                             }).await.unwrap_or_else(|e| {
                                 Err(anyhow::anyhow!("spawn_blocking join: {e}"))
                             }) {
@@ -191,13 +227,15 @@ impl Writer {
                     }
                     msg = batch_rx.recv() => {
                         match msg {
-                            Some((batch, resp_tx)) => {
+                            Some((batch, raw_bytes, resp_tx)) => {
                                 let w = wal.clone();
                                 let b = buffer.clone();
+                                let dc = dedup_cache.clone();
                                 let d = dropped_events.clone();
+                                let sd = startup_done.clone();
                                 let max = max_buffer_events;
                                 tokio::task::spawn_blocking(move || {
-                                    let resp = handle_batch(&w, &b, batch, max, &d);
+                                    let resp = handle_batch(&w, &b, &dc, batch, raw_bytes, max, &d, &sd);
                                     let _ = resp_tx.send(resp);
                                 });
                             }
@@ -209,10 +247,11 @@ impl Writer {
                                 if has_data {
                                     let w = wal.clone();
                                     let b = buffer.clone();
+                                    let dc = dedup_cache.clone();
                                     let f = is_flushing.clone();
                                     let d = data_dir.clone();
                                     if let Err(e) = tokio::task::spawn_blocking(move || {
-                                        flush_inner(&w, &b, &f, &d)
+                                        flush_inner(&w, &b, &dc, &f, &d)
                                     }).await.unwrap_or_else(|e| {
                                         Err(anyhow::anyhow!("spawn_blocking join: {e}"))
                                     }) {
@@ -242,51 +281,150 @@ fn count_events(batch: &IngestBatch) -> usize {
     batch.logs.len() + batch.spans.len() + batch.metrics.len()
 }
 
-/// Process one ingested batch: check capacity, append to WAL, add to buffer,
-/// return an [`IngestResponse`].
+/// Compute content-based IDs for every event in a batch and set the
+/// `event_id` field on the struct.  Runs BEFORE any lock so that flush
+/// can use the pre-computed `event_id` directly (via `log_content_id()`'s
+/// priority check) without recomputing content hashes.
+///
+/// This does not change the WAL frame bytes (they use the original
+/// protobuf `raw_bytes` from the wire — unchanged).
+fn assign_content_ids(batch: &mut IngestBatch) {
+    for log in &mut batch.logs {
+        if log.event_id.is_empty() {
+            log.event_id = flush::log_content_id(log);
+        }
+    }
+    for span in &mut batch.spans {
+        if span.event_id.is_empty() {
+            span.event_id = flush::span_content_id(span);
+        }
+    }
+    for metric in &mut batch.metrics {
+        if metric.event_id.is_empty() {
+            metric.event_id = flush::metric_content_id(metric);
+        }
+    }
+}
+
+/// Process one ingested batch: compute content IDs, check capacity,
+/// append to WAL, add to buffer, return an [`IngestResponse`].
 ///
 /// ## Lock order (deadlock avoidance)
 ///
 /// Both this function and `flush_inner` acquire locks in the **same order**:
 /// **buffer → wal**.  Never reverse this order.
+///
+/// ## Critical section
+///
+/// The WAL frame encoding and content-ID computation happen *before*
+/// acquiring either lock.  Under the lock only: writing the already-encoded
+/// bytes to the WAL, and pushing the already-computed batch into the buffer.
 fn handle_batch(
     wal_lock: &Mutex<wal::WalWriter>,
     buffer_lock: &Mutex<BufferInner>,
-    batch: IngestBatch,
+    _dedup_cache: &Mutex<dedup::DedupCache>,
+    mut batch: IngestBatch,
+    raw_bytes: bytes::Bytes,
     max_buffer_events: usize,
     dropped_events: &AtomicUsize,
+    startup_done: &AtomicBool,
 ) -> IngestResponse {
     let event_count = count_events(&batch);
 
-    // 1. Lock buffer FIRST.
-    let mut buf = match buffer_lock.lock() {
-        Ok(g) => g,
-        Err(_) => {
-            return rejected_response(event_count, "internal_error: buffer lock poisoned");
-        }
-    };
-
-    // 2. Capacity check BEFORE WAL I/O.
-    if buf.event_count + event_count > max_buffer_events {
-        dropped_events.fetch_add(event_count, Ordering::SeqCst);
-        return rejected_response(event_count, "buffer_full");
+    // 0. Gate on startup recovery.
+    if !startup_done.load(Ordering::SeqCst) {
+        return rejected_response(event_count, "startup_recovery_in_progress");
     }
 
-    // 3. Append to WAL (locks wal.inner internally — consistent order).
-    let mut wal = match wal_lock.lock() {
-        Ok(g) => g,
-        Err(_) => {
-            return rejected_response(event_count, "internal_error: wal lock poisoned");
-        }
-    };
-    if let Err(e) = wal.append(&batch) {
-        return rejected_response(event_count, &format!("wal_append: {e}"));
-    }
-    drop(wal);
+    // ── Pre-lock work ──────────────────────────────────────────────────
+    // Content-ID computation and WAL frame encoding happen here, before
+    // any lock is acquired.  These are the bulk of per-event CPU cost.
+    // Multiple batches can run this phase concurrently across the
+    // spawn_blocking thread pool — there is no contention until the
+    // locks below.
 
-    // 4. Add to buffer.
-    buf.batches.push(batch);
-    buf.event_count += event_count;
+    // 1. Compute content IDs and set event_id on the struct.
+    assign_content_ids(&mut batch);
+
+    // 2. Pre-encode the WAL frame (already outside lock in Round 9b).
+    let crc = crc32fast::hash(&raw_bytes);
+    let frame_len = 4 + 4 + raw_bytes.len();
+    let mut frame = Vec::with_capacity(frame_len);
+    frame.extend_from_slice(&(4u32 + raw_bytes.len() as u32).to_le_bytes());
+    frame.extend_from_slice(&crc.to_le_bytes());
+    frame.extend_from_slice(&raw_bytes);
+
+    // ── Locked critical section (minimal, fixed per batch) ─────────────
+
+    // 3. Capacity check.
+    {
+        let buf = match buffer_lock.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                return rejected_response(event_count, "internal_error: buffer lock poisoned");
+            }
+        };
+        if buf.event_count + event_count > max_buffer_events {
+            dropped_events.fetch_add(event_count, Ordering::SeqCst);
+            return rejected_response(event_count, "buffer_full");
+        }
+    }
+
+    // 4. Append to WAL.
+    {
+        let mut wal = match wal_lock.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                return rejected_response(event_count, "internal_error: wal lock poisoned");
+            }
+        };
+        if let Err(e) = wal.append_raw(&frame) {
+            return rejected_response(event_count, &format!("wal_append: {e}"));
+        }
+    }
+
+    // 5. Add to buffer (append to per-table, per-(service,date) Arrow builders).
+    {
+        let mut buf = match buffer_lock.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                return rejected_response(event_count, "internal_error: buffer lock poisoned");
+            }
+        };
+        let service = if batch.service_name.is_empty() {
+            "default".to_string()
+        } else {
+            batch.service_name.clone()
+        };
+        for log in &batch.logs {
+            let date = flush::micros_to_date_string(flush::ns_to_micros(log.timestamp_ns));
+            let key = (service.clone(), date);
+            let builders = buf
+                .log_groups
+                .entry(key)
+                .or_insert_with(buffer::LogBuilders::new);
+            builders.append(log, &service);
+        }
+        for span in &batch.spans {
+            let date = flush::micros_to_date_string(flush::ns_to_micros(span.start_time_ns));
+            let key = (service.clone(), date);
+            let builders = buf
+                .span_groups
+                .entry(key)
+                .or_insert_with(buffer::SpanBuilders::new);
+            builders.append(span, &service);
+        }
+        for metric in &batch.metrics {
+            let date = flush::micros_to_date_string(flush::ns_to_micros(metric.timestamp_ns));
+            let key = (service.clone(), date);
+            let builders = buf
+                .metric_groups
+                .entry(key)
+                .or_insert_with(buffer::MetricBuilders::new);
+            builders.append(metric, &service);
+        }
+        buf.event_count += event_count;
+    }
 
     IngestResponse {
         accepted: true,
@@ -295,20 +433,21 @@ fn handle_batch(
     }
 }
 
-/// Atomically swap the buffer and rotate the WAL, flush to Parquet, then
-/// checkpoint.  Runs inside `spawn_blocking`.
+/// Atomically swap the buffer and rotate the WAL, flush to Parquet,
+/// checkpoint, then update the dedup cache.  Runs inside `spawn_blocking`.
 fn flush_inner(
     wal_lock: &Mutex<wal::WalWriter>,
     buffer_lock: &Mutex<BufferInner>,
+    _dedup_cache: &Mutex<dedup::DedupCache>,
     is_flushing: &AtomicBool,
     data_dir: &Path,
 ) -> Result<()> {
     if is_flushing.load(Ordering::SeqCst) {
-        debug!("Flush skipped — already in progress");
+        debug!("Flush skipped - already in progress");
         return Ok(());
     }
     is_flushing.store(true, Ordering::SeqCst);
-    let result = flush_inner_impl(wal_lock, buffer_lock, data_dir);
+    let result = flush_inner_impl(wal_lock, buffer_lock, _dedup_cache, data_dir);
     is_flushing.store(false, Ordering::SeqCst);
     result
 }
@@ -316,30 +455,74 @@ fn flush_inner(
 fn flush_inner_impl(
     wal_lock: &Mutex<wal::WalWriter>,
     buffer_lock: &Mutex<BufferInner>,
+    _dedup_cache: &Mutex<dedup::DedupCache>,
     data_dir: &Path,
 ) -> Result<()> {
-    // ── Atomic section: extract buffer + rotate WAL ──
-    let (old_batches, sealed_seq) = {
-        let mut buf = buffer_lock.lock().map_err(|e| anyhow::anyhow!("buffer lock: {e}"))?;
-        let old = std::mem::take(&mut buf.batches);
+    // ── Atomic section: extract builder groups + rotate WAL ──
+    let (log_groups, span_groups, metric_groups, sealed_seq) = {
+        let mut buf = buffer_lock
+            .lock()
+            .map_err(|e| anyhow::anyhow!("buffer lock: {e}"))?;
+        let log_groups = std::mem::take(&mut buf.log_groups);
+        let span_groups = std::mem::take(&mut buf.span_groups);
+        let metric_groups = std::mem::take(&mut buf.metric_groups);
         buf.event_count = 0;
 
-        let mut wal = wal_lock.lock().map_err(|e| anyhow::anyhow!("wal lock: {e}"))?;
+        let mut wal = wal_lock
+            .lock()
+            .map_err(|e| anyhow::anyhow!("wal lock: {e}"))?;
         wal.rotate()?;
         let seq = wal.current_seq();
-        (old, seq)
+        (log_groups, span_groups, metric_groups, seq)
     };
 
-    if old_batches.is_empty() {
+    if log_groups.is_empty() && span_groups.is_empty() && metric_groups.is_empty() {
         return Ok(());
     }
 
-    // ── Flush to Parquet ──
-    let written = flush::flush_parquet_only(data_dir, &old_batches)?;
+    let mut files_written = 0;
 
-    // ── Checkpoint sealed segments ──
-    if written.files_written > 0 {
-        let wal = wal_lock.lock().map_err(|e| anyhow::anyhow!("wal lock: {e}"))?;
+    // ── Finish log groups ──
+    for ((service, date), mut builders) in log_groups {
+        let batch = builders.finish()?;
+        let dir = data_dir
+            .join("data")
+            .join("table_type=logs")
+            .join(format!("service={}", service))
+            .join(format!("date={}", date));
+        io::write_parquet_atomic(&dir, &batch)?;
+        files_written += 1;
+    }
+
+    // ── Finish span groups ──
+    for ((service, date), mut builders) in span_groups {
+        let batch = builders.finish()?;
+        let dir = data_dir
+            .join("data")
+            .join("table_type=spans")
+            .join(format!("service={}", service))
+            .join(format!("date={}", date));
+        io::write_parquet_atomic(&dir, &batch)?;
+        files_written += 1;
+    }
+
+    // ── Finish metric groups ──
+    for ((service, date), mut builders) in metric_groups {
+        let batch = builders.finish()?;
+        let dir = data_dir
+            .join("data")
+            .join("table_type=metrics")
+            .join(format!("service={}", service))
+            .join(format!("date={}", date));
+        io::write_parquet_atomic(&dir, &batch)?;
+        files_written += 1;
+    }
+
+    if files_written > 0 {
+        // ── Checkpoint sealed segments ──
+        let wal = wal_lock
+            .lock()
+            .map_err(|e| anyhow::anyhow!("wal lock: {e}"))?;
         wal.delete_segments_up_to(sealed_seq)?;
     }
 
@@ -361,7 +544,7 @@ fn rejected_response(event_count: usize, reason: &str) -> IngestResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arrow::array::*;
+
     use greplog_core::gen::LogEvent;
     use std::collections::HashMap;
     use std::fs;
@@ -393,6 +576,7 @@ mod tests {
             stack_trace: Vec::new(),
             exception_type: String::new(),
             exception_message: String::new(),
+            event_id: String::new(),
         }
     }
 
@@ -419,6 +603,7 @@ mod tests {
         let dir = test_dir("ingest_flush_query");
         let writer = Writer::new(&dir, 100_000).expect("new writer");
         let dropped = writer.dropped_events();
+        writer.mark_startup_done();
 
         let (batch_tx, batch_rx) = mpsc::channel(64);
         let _handle = writer.spawn(batch_rx, Duration::from_millis(100));
@@ -428,7 +613,10 @@ mod tests {
             let svc = svc.to_string();
             async move {
                 let (resp_tx, resp_rx) = oneshot::channel();
-                tx.send((make_batch(&svc, seq, n), resp_tx)).await.expect("send");
+                let batch = make_batch(&svc, seq, n);
+                use prost::Message;
+                let raw_bytes = bytes::Bytes::from(batch.encode_to_vec());
+                tx.send((batch, raw_bytes, resp_tx)).await.expect("send");
                 let resp = resp_rx.await.expect("response");
                 assert!(resp.accepted, "batch {seq} should be accepted");
                 resp
@@ -464,6 +652,7 @@ mod tests {
     async fn test_concurrent_ingest_atomicity() {
         let dir = test_dir("concurrent_atomicity");
         let writer = Writer::new(&dir, 500_000).expect("new writer");
+        writer.mark_startup_done();
 
         let (batch_tx, batch_rx) = mpsc::channel(256);
         let _handle = writer.spawn(batch_rx, Duration::from_millis(50));
@@ -480,8 +669,12 @@ mod tests {
             send_handles.push(tokio::spawn(async move {
                 for b in 0..batches_per_producer {
                     let (resp_tx, resp_rx) = oneshot::channel();
+                    let batch = make_batch(&service, (b + p * batches_per_producer) as i64, events_per_batch);
+                    use prost::Message;
+                    let raw_bytes = bytes::Bytes::from(batch.encode_to_vec());
                     tx.send((
-                        make_batch(&service, (b + p * batches_per_producer) as i64, events_per_batch),
+                        batch,
+                        raw_bytes,
                         resp_tx,
                     ))
                     .await
@@ -525,6 +718,7 @@ mod tests {
         let dir = test_dir("backpressure");
         let writer = Writer::new(&dir, 10).expect("new writer"); // tiny cap
         let dropped = writer.dropped_events();
+        writer.mark_startup_done();
 
         let (batch_tx, batch_rx) = mpsc::channel(256);
         let _handle = writer.spawn(batch_rx, Duration::from_secs(60)); // very slow flush
@@ -535,8 +729,11 @@ mod tests {
 
         for i in 0..burst {
             let (resp_tx, resp_rx) = oneshot::channel();
+            let batch = make_batch("svc", i as i64, 1);
+            use prost::Message;
+            let raw_bytes = bytes::Bytes::from(batch.encode_to_vec());
             batch_tx
-                .send((make_batch("svc", i as i64, 1), resp_tx))
+                .send((batch, raw_bytes, resp_tx))
                 .await
                 .expect("send");
             let resp = resp_rx.await.expect("response");
@@ -590,27 +787,34 @@ mod tests {
 
         let wal = writer.wal.clone();
         let buffer = writer.buffer.clone();
+        let dedup_cache = writer.dedup_cache.clone();
         let dropped = writer.dropped_events();
+        let startup_done = std::sync::atomic::AtomicBool::new(true);
 
         // Pre‑fill the buffer so there is data to "flush".
         for i in 0..5 {
             let batch = make_batch("svc", i, 3);
-            handle_batch(&wal, &buffer, batch, 100_000, &dropped);
+            use prost::Message;
+            let raw_bytes = bytes::Bytes::from(batch.encode_to_vec());
+            handle_batch(&wal, &buffer, &dedup_cache, batch, raw_bytes, 100_000, &dropped, &startup_done);
         }
 
         // Phase 1: simulate the atomic section of a flush
         // (lock extraction + WAL rotation in the same scope as flush_inner_impl).
-        let (old_batches, sealed_seq) = {
+        let (had_data, sealed_seq) = {
             let mut buf = buffer.lock().expect("buffer lock");
-            let old = std::mem::take(&mut buf.batches);
+            let had = buf.event_count > 0;
+            let _log_groups = std::mem::take(&mut buf.log_groups);
+            let _span_groups = std::mem::take(&mut buf.span_groups);
+            let _metric_groups = std::mem::take(&mut buf.metric_groups);
             buf.event_count = 0;
             let mut w = wal.lock().expect("wal lock");
             w.rotate().expect("rotate");
             let seq = w.current_seq();
-            (old, seq)
-        }; // Both guards dropped here — same as line 264 in flush_inner_impl
+            (had, seq)
+        }; // Both guards dropped here — same as flush_inner_impl
 
-        assert!(!old_batches.is_empty(), "should have extracted data");
+        assert!(had_data, "should have extracted data");
 
         // Phase 2: simulate a slow Parquet write (100 ms) while holding
         // NO locks.  During this window a concurrent ingest must be fast.
@@ -622,11 +826,9 @@ mod tests {
             // "slow Parquet write"
             std::thread::sleep(slow_sleep);
 
-            // Checkpoint (re‑acquires wal lock, same as line 275)
-            if !old_batches.is_empty() {
-                let w = wal2.lock().expect("wal lock");
-                w.delete_segments_up_to(sealed_seq).ok();
-            }
+            // Checkpoint (re‑acquires wal lock)
+            let w = wal2.lock().expect("wal lock");
+            w.delete_segments_up_to(sealed_seq).ok();
         });
 
         // Give the slow flush a moment to start sleeping.
@@ -637,7 +839,9 @@ mod tests {
         // because the buffer and wal locks are NOT held.
         let start = std::time::Instant::now();
         let batch = make_batch("svc", 100, 1);
-        let resp = handle_batch(&wal, &buffer, batch, 100_000, &dropped);
+        use prost::Message;
+        let raw_bytes = bytes::Bytes::from(batch.encode_to_vec());
+        let resp = handle_batch(&wal, &buffer, &dedup_cache, batch, raw_bytes, 100_000, &dropped, &startup_done);
         let elapsed = start.elapsed();
 
         assert!(
@@ -710,6 +914,7 @@ mod tests {
             stack_trace: Vec::new(),
             exception_type: String::new(),
             exception_message: String::new(),
+            event_id: String::new(),
         }
     }
 
@@ -949,6 +1154,188 @@ mod tests {
         // Phase 5: WAL is empty (checkpointed).
         let replayed = wal::replay_segments(&dir).expect("replay");
         assert!(replayed.is_empty(), "WAL fully check-pointed");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ==================================================================
+    // §8b.2 — Three required tests
+    // ==================================================================
+
+    // ------------------------------------------------------------------
+    // Test A: Ingest gated on recovery (empirical).
+    // ------------------------------------------------------------------
+    //
+    // Create a Writer that has NOT completed startup recovery, attempt an
+    // ingest (simulated via handle_batch), confirm rejection.  Then mark
+    // startup done and confirm a subsequent ingest is accepted.
+    #[test]
+    fn test_ingest_gated_during_recovery() {
+        let dir = test_dir("ingest_gated");
+        let writer = Writer::new(&dir, 100_000).expect("new writer");
+
+        let wal = writer.wal.clone();
+        let buffer = writer.buffer.clone();
+        let dedup_cache = writer.dedup_cache.clone();
+        let dropped = writer.dropped_events();
+        // NOTE: startup_done is still false — run_startup was NOT called.
+
+        // Attempt 1: startup not done → must reject.
+        let batch1 = make_batch("svc", 1, 1);
+        use prost::Message;
+        let raw_bytes1 = bytes::Bytes::from(batch1.encode_to_vec());
+        let resp1 = handle_batch(&wal, &buffer, &dedup_cache, batch1, raw_bytes1, 100_000, &dropped, &writer.startup_done);
+        assert!(!resp1.accepted, "ingest should be rejected during recovery");
+        assert_eq!(resp1.error, "startup_recovery_in_progress");
+
+        // Mark startup complete.
+        writer.mark_startup_done();
+
+        // Attempt 2: startup done → must accept.
+        let batch2 = make_batch("svc", 2, 2);
+        let raw_bytes2 = bytes::Bytes::from(batch2.encode_to_vec());
+        let resp2 = handle_batch(&wal, &buffer, &dedup_cache, batch2, raw_bytes2, 100_000, &dropped, &writer.startup_done);
+        assert!(resp2.accepted, "ingest should be accepted after recovery");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------
+    // Test B: Clean failure on genuine corruption (invalid manifest JSON).
+    // ------------------------------------------------------------------
+    #[test]
+    fn test_startup_recovery_corrupt_manifest() {
+        let dir = test_dir("startup_corrupt_manifest");
+
+        // Create a compaction manifest with invalid JSON.
+        // Note: the manifest file is `.compaction_manifest` (hidden file).
+        let compaction_dir = dir.join("data").join("table_type=logs")
+            .join("service=svc").join("date=2023-01-01");
+        fs::create_dir_all(&compaction_dir).expect("create partition");
+        let manifest_path = compaction_dir.join(".compaction_manifest");
+        fs::write(&manifest_path, b"not valid json at all { broken").expect("write corrupt manifest");
+
+        let writer = Writer::new(&dir, 100_000).expect("new writer");
+        let result = writer.run_startup(1000);
+        assert!(
+            result.is_err(),
+            "run_startup must return Err on corrupt manifest, got Ok: {:?}",
+            result,
+        );
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("manifest") || err_msg.contains("parse"),
+            "error should reference the manifest/parse failure, got: {err_msg}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------
+    // Test C: Ordering — .tmp file inside a partition being reconciled.
+    // ------------------------------------------------------------------
+    //
+    // Create a partition directory that simultaneously has an interrupted
+    // compaction (manifest entry + merged file + undeleted source files)
+    // AND a stray .tmp file.  After run_startup(), the .tmp must be gone
+    // and the reconciliation must handle the compaction state cleanly.
+    #[test]
+    fn test_startup_recovery_tmp_inside_reconciled_partition() {
+        use std::fs;
+
+        let dir = test_dir("startup_tmp_reconcile");
+
+        // Create a partition directory (same structure compaction v2 expects).
+        let partition_dir = dir.join("data").join("table_type=logs")
+            .join("service=svc").join("date=2023-06-15");
+        fs::create_dir_all(&partition_dir).expect("create partition");
+
+        // Write a "source" Parquet file (undeleted — simulating a crash
+        // after merge write but before source deletion).
+        let source_path = partition_dir.join("000001.parquet");
+        // Write a minimal valid Parquet file.
+        {
+            use arrow::array::StringArray;
+            use arrow::datatypes::{DataType, Field};
+            use arrow::record_batch::RecordBatch;
+            use parquet::arrow::ArrowWriter;
+            use std::sync::Arc;
+
+            let schema = Arc::new(arrow::datatypes::Schema::new(vec![
+                Field::new("id", DataType::Utf8, false),
+            ]));
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(StringArray::from(vec!["evt-1"]))],
+            )
+            .expect("batch");
+            let file = fs::File::create(&source_path).expect("create source");
+            let mut writer = ArrowWriter::try_new(file, schema, None).expect("writer");
+            writer.write(&batch).expect("write");
+            writer.close().expect("close");
+        }
+
+        // Write a "merged" Parquet file (simulating phase2 completion).
+        let merged_path = partition_dir.join("000002.parquet");
+        {
+            use arrow::array::StringArray;
+            use arrow::datatypes::{DataType, Field};
+            use arrow::record_batch::RecordBatch;
+            use parquet::arrow::ArrowWriter;
+            use std::sync::Arc;
+
+            let schema = Arc::new(arrow::datatypes::Schema::new(vec![
+                Field::new("id", DataType::Utf8, false),
+            ]));
+            let batch = RecordBatch::try_new(
+                schema.clone(),
+                vec![Arc::new(StringArray::from(vec!["evt-1"]))],
+            )
+            .expect("batch");
+            let file = fs::File::create(&merged_path).expect("create merged");
+            let mut writer = ArrowWriter::try_new(file, schema, None).expect("writer");
+            writer.write(&batch).expect("write");
+            writer.close().expect("close");
+        }
+
+        // Write a compaction manifest with a pending_merge entry that
+        // references the source and the merged file.
+        // Field names must match the ManifestEntry serde struct.
+        // Note: the manifest file is `.compaction_manifest` (hidden file).
+        let manifest_path = partition_dir.join(".compaction_manifest");
+        let manifest_content = serde_json::json!({
+            "entries": [{
+                "merged_file": "000002.parquet",
+                "source_files": ["000001.parquet"],
+                "status": "pending_merge"
+            }]
+        });
+        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest_content).unwrap())
+            .expect("write manifest");
+
+        // Write a stray .tmp file in the same partition directory.
+        let tmp_path = partition_dir.join("orphan.tmp");
+        fs::write(&tmp_path, b"garbage").expect("write tmp");
+
+        // Run startup — should clean .tmp AND reconcile the compaction.
+        let writer = Writer::new(&dir, 100_000).expect("new writer");
+        writer.run_startup(1000).expect("run_startup should succeed");
+
+        // Assert: .tmp file is gone.
+        assert!(!tmp_path.exists(), "stray .tmp should be removed during startup");
+
+        // Assert: after reconciliation the manifest entry progressed
+        // (status changed from pending_merge to something else).
+        let after_manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest_path).expect("read manifest"))
+                .expect("parse manifest");
+        let entries = after_manifest["entries"].as_array().expect("entries array");
+        assert!(!entries.is_empty(), "manifest should still have entries");
+        let status = entries[0]["status"].as_str().expect("status string");
+        assert_ne!(
+            status, "pending_merge",
+            "reconciliation should advance the manifest past pending_merge, got: {status}"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }

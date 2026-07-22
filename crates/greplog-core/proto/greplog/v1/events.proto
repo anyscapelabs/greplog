@@ -40,6 +40,7 @@ message Span {
 
   map<string, string> attributes = 11;
   SpanKind kind           = 12;
+  string event_id         = 13;  // client-supplied stable ID; content-hash fallback if empty
 }
 
 enum SpanKind {
@@ -60,6 +61,7 @@ message Metric {
   map<string, string> labels    = 5;
   MetricType          type      = 6;
   repeated double     bucket_values = 7;  // histogram buckets
+  string event_id     = 8;  // client-supplied stable ID; content-hash fallback if empty
 }
 
 enum MetricType {

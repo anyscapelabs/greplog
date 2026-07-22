@@ -47,10 +47,12 @@ impl DedupCache {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn contains(&self, id: &str) -> bool {
         self.ids.contains(id)
     }
 
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.ids.len()
     }
@@ -58,9 +60,13 @@ impl DedupCache {
     /// Filter an `IngestBatch`, returning a new batch that only contains
     /// events whose content IDs are NOT in the cache.
     ///
+    /// Uses the pre-populated `event_id` from the proto (assigned at ingest
+    /// time by `handle_batch()`). For events with an empty `event_id` (old
+    /// WAL records from before the schema change) falls back to computing
+    /// the content hash.
+    ///
     /// New (non-duplicate) events are **not** added to the cache — that's
-    /// done when they are flushed (or when they pass through here during
-    /// normal operation if we choose to keep the cache live).
+    /// done when they are flushed.
     pub fn filter_batch(&self, batch: &IngestBatch) -> IngestBatch {
         IngestBatch {
             service_name: batch.service_name.clone(),
@@ -69,19 +75,40 @@ impl DedupCache {
             logs: batch
                 .logs
                 .iter()
-                .filter(|l| !self.ids.contains(&crate::store::flush::log_content_id(l)))
+                .filter(|l| {
+                    let key = if l.event_id.is_empty() {
+                        crate::store::flush::log_content_id(l)
+                    } else {
+                        l.event_id.clone()
+                    };
+                    !self.ids.contains(&key)
+                })
                 .cloned()
                 .collect(),
             spans: batch
                 .spans
                 .iter()
-                .filter(|s| !self.ids.contains(&crate::store::flush::span_content_id(s)))
+                .filter(|s| {
+                    let key = if s.event_id.is_empty() {
+                        crate::store::flush::span_content_id(s)
+                    } else {
+                        s.event_id.clone()
+                    };
+                    !self.ids.contains(&key)
+                })
                 .cloned()
                 .collect(),
             metrics: batch
                 .metrics
                 .iter()
-                .filter(|m| !self.ids.contains(&crate::store::flush::metric_content_id(m)))
+                .filter(|m| {
+                    let key = if m.event_id.is_empty() {
+                        crate::store::flush::metric_content_id(m)
+                    } else {
+                        m.event_id.clone()
+                    };
+                    !self.ids.contains(&key)
+                })
                 .cloned()
                 .collect(),
         }
@@ -90,13 +117,28 @@ impl DedupCache {
     /// Insert IDs from an IngestBatch (after it has been flushed).
     pub fn insert_batch(&mut self, batch: &IngestBatch) {
         for log in &batch.logs {
-            self.ids.insert(crate::store::flush::log_content_id(log));
+            let id = if log.event_id.is_empty() {
+                crate::store::flush::log_content_id(log)
+            } else {
+                log.event_id.clone()
+            };
+            self.ids.insert(id);
         }
         for span in &batch.spans {
-            self.ids.insert(crate::store::flush::span_content_id(span));
+            let id = if span.event_id.is_empty() {
+                crate::store::flush::span_content_id(span)
+            } else {
+                span.event_id.clone()
+            };
+            self.ids.insert(id);
         }
         for metric in &batch.metrics {
-            self.ids.insert(crate::store::flush::metric_content_id(metric));
+            let id = if metric.event_id.is_empty() {
+                crate::store::flush::metric_content_id(metric)
+            } else {
+                metric.event_id.clone()
+            };
+            self.ids.insert(id);
         }
     }
 }
@@ -186,6 +228,7 @@ mod tests {
             stack_trace: Vec::new(),
             exception_type: String::new(),
             exception_message: String::new(),
+            event_id: String::new(),
         }
     }
 
@@ -205,6 +248,7 @@ mod tests {
             error: String::new(),
             attributes: HashMap::new(),
             kind: 0,
+            event_id: String::new(),
         }
     }
 
@@ -217,6 +261,7 @@ mod tests {
             labels: HashMap::new(),
             r#type: 1,
             bucket_values: Vec::new(),
+            event_id: String::new(),
         }
     }
 

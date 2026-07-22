@@ -25,6 +25,12 @@ enum Commands {
         tcp_port: u16,
         #[arg(long)]
         workspace: Option<std::path::PathBuf>,
+        #[arg(long, default_value_t = 50_000)]
+        max_buffer_events: usize,
+        #[arg(long, default_value_t = 2)]
+        flush_interval_secs: u64,
+        #[arg(long, default_value_t = 300)]
+        compaction_interval_secs: u64,
     },
     /// Detect frameworks and write greplog.config.json
     Init {
@@ -57,7 +63,10 @@ async fn main() -> anyhow::Result<()> {
             port,
             tcp_port,
             workspace,
-        } => commands::dev::run(foreground, port, tcp_port, workspace).await,
+            max_buffer_events,
+            flush_interval_secs,
+            compaction_interval_secs,
+        } => commands::dev::run(foreground, port, tcp_port, workspace, max_buffer_events, flush_interval_secs, compaction_interval_secs).await,
         Commands::Init { workspace } => commands::init::run(workspace).await,
         Commands::Status { port } => commands::status::run(port).await,
     }

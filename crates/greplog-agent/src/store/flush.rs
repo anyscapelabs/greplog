@@ -14,6 +14,7 @@ const DATA_DIR: &str = "data";
 /// Result of a flush cycle.
 #[derive(Debug, Default)]
 pub struct FlushResult {
+    #[allow(dead_code)]
     pub files_written: usize,
 }
 
@@ -21,85 +22,92 @@ pub struct FlushResult {
 // Content‑based IDs (deterministic, no external dependencies)
 // ---------------------------------------------------------------------------
 
-/// Compute a deterministic content ID for a LogEvent from its key fields.
+/// Return a stable ID for a LogEvent.
+///
+/// Priority order (§1.3b):
+/// 1. Client-supplied `event_id` if non-empty.
+/// 2. Deterministic content-hash fallback from key fields.
 pub fn log_content_id(log: &LogEvent) -> String {
-    let mut attrs: Vec<(_, _)> = log.attributes.iter().collect();
-    attrs.sort_by(|a, b| a.0.cmp(b.0));
-    let mut a = String::new();
-    for (k, v) in &attrs {
-        if !a.is_empty() { a.push(','); }
-        a.push_str(k);
-        a.push('=');
-        a.push_str(v);
+    if !log.event_id.is_empty() {
+        return log.event_id.clone();
     }
-    format!(
-        "log|{}|{}|{}|{}|{}|{}|{}|{}|[{}]",
-        log.service_name,
-        log.timestamp_ns,
-        log.level,
-        log.message,
-        log.logger_name,
-        log.file,
-        log.line,
-        log.correlation_id,
-        a,
-    )
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    log.service_name.hash(&mut hasher);
+    log.timestamp_ns.hash(&mut hasher);
+    log.level.hash(&mut hasher);
+    log.message.hash(&mut hasher);
+    log.logger_name.hash(&mut hasher);
+    log.file.hash(&mut hasher);
+    log.line.hash(&mut hasher);
+    log.correlation_id.hash(&mut hasher);
+    let mut keys: Vec<&String> = log.attributes.keys().collect();
+    keys.sort();
+    for k in &keys {
+        k.hash(&mut hasher);
+        log.attributes[*k].hash(&mut hasher);
+    }
+    format!("{:016x}", hasher.finish())
 }
 
-/// Compute a deterministic content ID for a Span from its key fields.
+/// Return a stable ID for a Span.
+///
+/// Priority order (§1.3b):
+/// 1. Client-supplied `event_id` if non-empty.
+/// 2. Deterministic content-hash fallback from key fields.
 pub fn span_content_id(span: &Span) -> String {
-    let mut attrs: Vec<(_, _)> = span.attributes.iter().collect();
-    attrs.sort_by(|a, b| a.0.cmp(b.0));
-    let mut a = String::new();
-    for (k, v) in &attrs {
-        if !a.is_empty() { a.push(','); }
-        a.push_str(k);
-        a.push('=');
-        a.push_str(v);
+    if !span.event_id.is_empty() {
+        return span.event_id.clone();
     }
-    format!(
-        "span|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|[{}]|{}",
-        span.service_name,
-        span.name,
-        span.start_time_ns,
-        span.end_time_ns,
-        span.correlation_id,
-        span.parent_correlation_id,
-        span.route,
-        span.method,
-        span.status_code,
-        span.error,
-        a,
-        span.kind,
-    )
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    span.service_name.hash(&mut hasher);
+    span.name.hash(&mut hasher);
+    span.start_time_ns.hash(&mut hasher);
+    span.end_time_ns.hash(&mut hasher);
+    span.correlation_id.hash(&mut hasher);
+    span.parent_correlation_id.hash(&mut hasher);
+    span.route.hash(&mut hasher);
+    span.method.hash(&mut hasher);
+    span.status_code.hash(&mut hasher);
+    span.error.hash(&mut hasher);
+    let mut keys: Vec<&String> = span.attributes.keys().collect();
+    keys.sort();
+    for k in &keys {
+        k.hash(&mut hasher);
+        span.attributes[*k].hash(&mut hasher);
+    }
+    span.kind.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
-/// Compute a deterministic content ID for a Metric from its key fields.
+/// Return a stable ID for a Metric.
+///
+/// Priority order (§1.3b):
+/// 1. Client-supplied `event_id` if non-empty.
+/// 2. Deterministic content-hash fallback from key fields.
 pub fn metric_content_id(metric: &Metric) -> String {
-    let mut labels: Vec<(_, _)> = metric.labels.iter().collect();
-    labels.sort_by(|a, b| a.0.cmp(b.0));
-    let mut l = String::new();
-    for (k, v) in &labels {
-        if !l.is_empty() { l.push(','); }
-        l.push_str(k);
-        l.push('=');
-        l.push_str(v);
+    if !metric.event_id.is_empty() {
+        return metric.event_id.clone();
     }
-    let mut bv = String::new();
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    metric.service_name.hash(&mut hasher);
+    metric.name.hash(&mut hasher);
+    // f64 doesn't implement Hash, so use to_bits
+    metric.value.to_bits().hash(&mut hasher);
+    metric.timestamp_ns.hash(&mut hasher);
+    let mut keys: Vec<&String> = metric.labels.keys().collect();
+    keys.sort();
+    for k in &keys {
+        k.hash(&mut hasher);
+        metric.labels[*k].hash(&mut hasher);
+    }
+    metric.r#type.hash(&mut hasher);
     for v in &metric.bucket_values {
-        if !bv.is_empty() { bv.push(','); }
-        bv.push_str(&v.to_string());
+        v.to_bits().hash(&mut hasher);
     }
-    format!(
-        "metric|{}|{}|{}|{}|[{}]|{}|[{}]",
-        metric.service_name,
-        metric.name,
-        metric.value,
-        metric.timestamp_ns,
-        l,
-        metric.r#type,
-        bv,
-    )
+    format!("{:016x}", hasher.finish())
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +180,7 @@ pub fn flush_to_parquet(
 /// Flush pending batches to Parquet files, skipping the concurrency
 /// guard and the WAL rotation+checkpoint that `flush_to_parquet` handles.
 /// The caller is responsible for both.
+#[allow(dead_code)]
 pub fn flush_parquet_only(base_dir: &Path, pending: &[IngestBatch]) -> Result<FlushResult> {
     flush_inner(base_dir, pending, None)
 }
@@ -402,7 +411,7 @@ fn write_parquet(dir: &Path, batch: &RecordBatch) -> Result<()> {
 }
 
 /// Convert a microsecond-precision Unix timestamp to `YYYY-MM-DD` in UTC.
-fn micros_to_date_string(micros: i64) -> String {
+pub(crate) fn micros_to_date_string(micros: i64) -> String {
     let secs = if micros >= 0 {
         micros / 1_000_000
     } else {
@@ -430,11 +439,11 @@ fn micros_to_date_string(micros: i64) -> String {
     format!("{:04}-{:02}-{:02}", year, month, day)
 }
 
-fn ns_to_micros(ns: i64) -> i64 {
+pub(crate) fn ns_to_micros(ns: i64) -> i64 {
     ns / 1000
 }
 
-fn non_empty(s: &str) -> Option<String> {
+pub(crate) fn non_empty(s: &str) -> Option<String> {
     if s.is_empty() { None } else { Some(s.to_string()) }
 }
 
@@ -476,6 +485,7 @@ mod tests {
             stack_trace: Vec::new(),
             exception_type: String::new(),
             exception_message: String::new(),
+            event_id: String::new(),
         }
     }
 
@@ -493,6 +503,7 @@ mod tests {
             error: String::new(),
             attributes: HashMap::new(),
             kind: 0,
+            event_id: String::new(),
         }
     }
 
@@ -505,6 +516,7 @@ mod tests {
             labels: HashMap::new(),
             r#type: 1,
             bucket_values: Vec::new(),
+            event_id: String::new(),
         }
     }
 
@@ -709,6 +721,121 @@ mod tests {
                 .collect();
             assert!(entries.is_empty(), "no files should exist for empty buffer");
         }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ------------------------------------------------------------------
+    // §8b.1: event_id priority — client-supplied vs content-hash fallback
+    // ------------------------------------------------------------------
+
+    /// Helper: a log event with no event_id — should trigger content-hash fallback.
+    fn make_log_no_event_id(service: &str, ts: i64, msg: &str) -> LogEvent {
+        let mut attrs = HashMap::new();
+        attrs.insert("k".into(), "v".into());
+        LogEvent {
+            service_name: service.into(),
+            message: msg.into(),
+            level: "info".into(),
+            timestamp_ns: ts,
+            logger_name: "logger".into(),
+            file: "f.rs".into(),
+            line: 42,
+            correlation_id: "corr".into(),
+            attributes: attrs,
+            stack_trace: Vec::new(),
+            exception_type: String::new(),
+            exception_message: String::new(),
+            event_id: String::new(),
+        }
+    }
+
+    /// Helper: a log with a client-supplied event_id.
+    fn make_log_with_event_id(service: &str, ts: i64, msg: &str, eid: &str) -> LogEvent {
+        let mut log = make_log_no_event_id(service, ts, msg);
+        log.event_id = eid.to_string();
+        log
+    }
+
+    /// Test: event with client-supplied event_id gets that exact ID in Parquet.
+    #[test]
+    fn test_event_id_present_used_directly() {
+        let dir = std::env::temp_dir()
+            .join(format!("test_eid_present_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create dir");
+        let is_flushing = AtomicBool::new(false);
+
+        let log = make_log_with_event_id("svc", 1_700_000_000_000_000_000, "hello", "my-stable-id-42");
+        let batch = IngestBatch {
+            service_name: "svc".into(),
+            instance_id: "i".into(),
+            batch_seq: 1,
+            logs: vec![log],
+            spans: vec![],
+            metrics: vec![],
+        };
+
+        flush_to_parquet(&dir, &[batch], None, &is_flushing).expect("flush");
+
+        // Read the Parquet file back and check id column.
+        let data_dir = dir.join("data");
+        let parquet_files: Vec<_> = walkdir(&data_dir)
+            .into_iter()
+            .filter(|p| p.extension().map_or(false, |e| e == "parquet"))
+            .collect();
+        assert_eq!(parquet_files.len(), 1);
+        let batches = read_parquet(&parquet_files[0]);
+        assert_eq!(batches.len(), 1);
+        let id_col = batches[0].column(0);
+        let id_arr = id_col.as_any().downcast_ref::<arrow::array::StringArray>().expect("id col");
+        assert_eq!(id_arr.value(0), "my-stable-id-42");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Test: event without event_id gets a deterministic content-hash fallback ID.
+    #[test]
+    fn test_event_id_absent_falls_back_to_content_hash() {
+        let dir = std::env::temp_dir()
+            .join(format!("test_eid_absent_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create dir");
+        let is_flushing = AtomicBool::new(false);
+
+        let log = make_log_no_event_id("svc", 1_700_000_000_000_000_000, "hello");
+        let batch = IngestBatch {
+            service_name: "svc".into(),
+            instance_id: "i".into(),
+            batch_seq: 1,
+            logs: vec![log],
+            spans: vec![],
+            metrics: vec![],
+        };
+
+        flush_to_parquet(&dir, &[batch], None, &is_flushing).expect("flush");
+
+        // Read the Parquet file and verify the ID is a deterministic content hash.
+        let data_dir = dir.join("data");
+        let parquet_files: Vec<_> = walkdir(&data_dir)
+            .into_iter()
+            .filter(|p| p.extension().map_or(false, |e| e == "parquet"))
+            .collect();
+        assert_eq!(parquet_files.len(), 1);
+        let batches = read_parquet(&parquet_files[0]);
+        assert_eq!(batches.len(), 1);
+        let id_col = batches[0].column(0);
+        let id_arr = id_col.as_any().downcast_ref::<arrow::array::StringArray>().expect("id col");
+        let id_value = id_arr.value(0);
+
+        // Must be a 16-character hex string (the content hash)
+        assert_eq!(id_value.len(), 16, "content-hash ID should be 16 hex chars, got: {id_value}");
+        assert!(
+            id_value.chars().all(|c| c.is_ascii_hexdigit()),
+            "ID {id_value} should contain only hex characters"
+        );
+        // Must NOT be a raw UUID
+        assert!(!id_value.contains('-'), "ID {id_value} should not contain UUID dashes");
 
         let _ = fs::remove_dir_all(&dir);
     }
