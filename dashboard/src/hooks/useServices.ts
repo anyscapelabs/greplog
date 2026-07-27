@@ -15,6 +15,7 @@ const defaultData = {
   services: placeholderServiceEntries,
   serviceCards: placeholderServiceCards,
   charts: placeholderServiceCharts,
+  isWaiting: false,
 }
 
 export function useServices(): ServicesPageProps {
@@ -36,6 +37,7 @@ export function useServices(): ServicesPageProps {
     filterSections: placeholderServiceFilterSections,
     serviceCards: data.serviceCards,
     charts: data.charts,
+    isWaiting: data.isWaiting,
     timeRanges: placeholderTimeRanges,
     autoRefreshOptions: placeholderAutoRefreshOptions,
     countRateOptions: placeholderCountRateOptions,

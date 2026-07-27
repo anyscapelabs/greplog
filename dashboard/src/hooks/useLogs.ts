@@ -18,6 +18,7 @@ const defaultLogs = placeholderLogs(50000)
 const defaultData = {
   logs: defaultLogs,
   charts: placeholderLogCharts(),
+  isWaiting: false,
 }
 
 export function useLogs(): LogsPageProps {
@@ -39,6 +40,7 @@ export function useLogs(): LogsPageProps {
     querySeconds: 0.32,
     filterSections: placeholderLogFilterSections,
     charts: data.charts,
+    isWaiting: data.isWaiting,
     timeRanges: placeholderTimeRanges,
     services: placeholderServices,
     autoRefreshOptions: placeholderAutoRefreshOptions,

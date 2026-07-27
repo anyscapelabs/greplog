@@ -102,6 +102,7 @@ export interface LogsPageProps {
   totalLogs: number
   totalRows: number
   querySeconds: number
+  isWaiting: boolean
   filterSections: FilterSectionConfig[]
   charts: LogCharts
   timeRanges: DropdownOption[]
@@ -146,6 +147,7 @@ export interface ErrorsPageProps {
   totalErrors: number
   totalRows: number
   querySeconds: number
+  isWaiting: boolean
   filterSections: FilterSectionConfig[]
   charts: ErrorCharts
   timeRanges: DropdownOption[]
@@ -199,6 +201,7 @@ export interface ServicesPageProps {
   services: ServiceEntry[]
   totalRows: number
   querySeconds: number
+  isWaiting: boolean
   filterSections: FilterSectionConfig[]
   serviceCards: ServiceCardData[]
   charts: ServiceCharts
@@ -213,6 +216,7 @@ export interface ServicesPageProps {
 
 export interface AnalyticsPageProps {
   metrics: AnalyticsMetric[]
+  isWaiting: boolean
   timeRanges: DropdownOption[]
   services: DropdownOption[]
   autoRefreshOptions: DropdownOption[]

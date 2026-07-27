@@ -1,10 +1,12 @@
 import { useState, useMemo } from 'react'
 import { useServices } from '../hooks/index.ts'
+import { useAgent } from '../context/AgentContext.tsx'
 import ServicesDrawer from '../components/ServicesDrawer.tsx'
 import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen } from 'react-icons/lu'
 import ServiceCard from '../components/ServiceCard.tsx'
 import ServicesFilterSidebar from '../components/ServicesFilterSidebar.tsx'
 import ServicesTable from '../components/ServicesTable.tsx'
+import WaitingOverlay from '../components/WaitingOverlay.tsx'
 import AnalyticsChartPanel from '../components/AnalyticsChartPanel.tsx'
 import RequestsByServiceChart from '../components/RequestsByServiceChart.tsx'
 import ErrorRateByServiceChart from '../components/ErrorRateByServiceChart.tsx'
@@ -12,6 +14,7 @@ import AvgLatencyByServiceChart from '../components/AvgLatencyByServiceChart.tsx
 import Dropdown from '../components/Dropdown.tsx'
 
 export default function Services() {
+  const { connected } = useAgent()
   const {
     services,
     totalRows,
@@ -102,7 +105,26 @@ export default function Services() {
           </button>
         </div>
       </div>
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative">
+          <WaitingOverlay
+            visible={!connected}
+            message="Run the agent and configure the SDK to start monitoring services"
+            terminal={[
+              '# Install the Greplog SDK',
+              'npm install @greplog/sdk',
+              '',
+              '# Initialize the agent',
+              'npx greplog init',
+              '',
+              '# Start collecting',
+              '$ greplog agent start --endpoint http://localhost:3000',
+              '',
+              '# Or add to your application',
+              'import { Greplog } from "@greplog/sdk"',
+              'const greplog = new Greplog({ endpoint: "http://localhost:3000" })',
+              'greplog.collect()',
+            ]}
+          />
         {filterOpen && <ServicesFilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div

@@ -1,15 +1,18 @@
 import { useState, useMemo } from 'react'
 import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen, LuServer, LuFilter, LuX } from 'react-icons/lu'
 import { useErrors } from '../hooks/index.ts'
+import { useAgent } from '../context/AgentContext.tsx'
 import ErrorsFilterSidebar from '../components/ErrorsFilterSidebar.tsx'
 import ErrorCountChart from '../components/ErrorCountChart.tsx'
 import ErrorRateChart from '../components/ErrorRateChart.tsx'
 import ErrorByServiceChart from '../components/ErrorByServiceChart.tsx'
 import ErrorsTable from '../components/ErrorsTable.tsx'
 import ErrorsDrawer from '../components/ErrorsDrawer.tsx'
+import WaitingOverlay from '../components/WaitingOverlay.tsx'
 import Dropdown from '../components/Dropdown.tsx'
 
 export default function Errors() {
+  const { connected } = useAgent()
   const {
     errors,
     totalErrors,
@@ -110,7 +113,26 @@ export default function Errors() {
           </button>
         </div>
       </div>
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative">
+          <WaitingOverlay
+            visible={!connected}
+            message="Run the agent and configure the SDK to start collecting errors"
+            terminal={[
+              '# Install the Greplog SDK',
+              'npm install @greplog/sdk',
+              '',
+              '# Initialize the agent',
+              'npx greplog init',
+              '',
+              '# Start collecting',
+              '$ greplog agent start --endpoint http://localhost:3000',
+              '',
+              '# Or add to your application',
+              'import { Greplog } from "@greplog/sdk"',
+              'const greplog = new Greplog({ endpoint: "http://localhost:3000" })',
+              'greplog.collect()',
+            ]}
+          />
         {filterOpen && <ErrorsFilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div

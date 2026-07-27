@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { LuRefreshCw, LuServer } from 'react-icons/lu'
 import { useAnalytics } from '../hooks/index.ts'
+import { useAgent } from '../context/AgentContext.tsx'
 import AnalyticsMetricCard from '../components/AnalyticsMetricCard.tsx'
 import AnalyticsChartPanel from '../components/AnalyticsChartPanel.tsx'
+import WaitingOverlay from '../components/WaitingOverlay.tsx'
 import IngestionChart from '../components/IngestionChart.tsx'
 import ErrorOverTimeChart from '../components/ErrorOverTimeChart.tsx'
 import LatencyPercentilesChart from '../components/LatencyPercentilesChart.tsx'
@@ -15,6 +17,7 @@ import AvgResponseTimeChart from '../components/AvgResponseTimeChart.tsx'
 import Dropdown from '../components/Dropdown.tsx'
 
 export default function Analytics() {
+  const { connected } = useAgent()
   const {
     metrics,
     timeRanges: timeRangeOptions,
@@ -92,7 +95,26 @@ export default function Analytics() {
           />
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-0.5">
+      <div className="flex-1 overflow-y-auto p-0.5 relative">
+        <WaitingOverlay
+            visible={!connected}
+            message="Run the agent and configure the SDK to start collecting analytics"
+            terminal={[
+              '# Install the Greplog SDK',
+              'npm install @greplog/sdk',
+              '',
+              '# Initialize the agent',
+              'npx greplog init',
+              '',
+              '# Start collecting',
+              '$ greplog agent start --endpoint http://localhost:3000',
+              '',
+              '# Or add to your application',
+              'import { Greplog } from "@greplog/sdk"',
+              'const greplog = new Greplog({ endpoint: "http://localhost:3000" })',
+              'greplog.collect()',
+            ]}
+          />
         <div className="grid grid-cols-6 gap-0.5">
           {metrics.map((metric) => (
             <AnalyticsMetricCard key={metric.title} title={metric.title} value={metric.value} color={metric.color} rgb={metric.rgb} data={metric.sparkline} />

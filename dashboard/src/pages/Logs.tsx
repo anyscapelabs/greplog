@@ -1,19 +1,22 @@
 import { useState, useMemo } from 'react'
 import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen, LuServer, LuFilter, LuX } from 'react-icons/lu'
 import { useLogs } from '../hooks/index.ts'
+import { useAgent } from '../context/AgentContext.tsx'
 import FilterSidebar from '../components/FilterSidebar.tsx'
 import LogVolumeChart from '../components/LogVolumeChart.tsx'
 import ErrorsChart from '../components/ErrorsChart.tsx'
 import StatusCodesChart from '../components/StatusCodesChart.tsx'
 import LogsTable from '../components/LogsTable.tsx'
 import LogsDrawer from '../components/LogsDrawer.tsx'
+import WaitingOverlay from '../components/WaitingOverlay.tsx'
 import Dropdown from '../components/Dropdown.tsx'
 
 export default function Logs() {
+  const { connected } = useAgent()
   const {
     logs,
     totalLogs,
-    totalRows,
+totalRows,
     querySeconds,
     filterSections,
     timeRanges: timeRangeOptions,
@@ -110,7 +113,26 @@ export default function Logs() {
           </button>
         </div>
       </div>
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative">
+          <WaitingOverlay
+            visible={!connected}
+            message="Run the agent and configure the SDK to start collecting logs"
+            terminal={[
+              '# Install the Greplog SDK',
+              'npm install @greplog/sdk',
+              '',
+              '# Initialize the agent',
+              'npx greplog init',
+              '',
+              '# Start collecting',
+              '$ greplog agent start --endpoint http://localhost:3000',
+              '',
+              '# Or add to your application',
+              'import { Greplog } from "@greplog/sdk"',
+              'const greplog = new Greplog({ endpoint: "http://localhost:3000" })',
+              'greplog.collect()',
+            ]}
+          />
         {filterOpen && <FilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div

@@ -31,6 +31,7 @@ const defaultData = {
   severityDistribution: placeholderSeverityDistribution,
   systemMetrics: placeholderSystemMetrics,
   avgResponseTimes: placeholderAvgResponseTimes,
+  isWaiting: false,
 }
 
 export function useAnalytics(): AnalyticsPageProps {

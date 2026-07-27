@@ -16,6 +16,7 @@ const defaultErrors = placeholderErrors(50000)
 const defaultData = {
   errors: defaultErrors,
   charts: placeholderErrorCharts(),
+  isWaiting: false,
 }
 
 const errorRateGroupBy = [
@@ -50,6 +51,7 @@ export function useErrors(): ErrorsPageProps {
     querySeconds: 0.28,
     filterSections: placeholderErrorFilterSections,
     charts: data.charts,
+    isWaiting: data.isWaiting,
     timeRanges: placeholderTimeRanges,
     services: placeholderServices,
     autoRefreshOptions: placeholderAutoRefreshOptions,
