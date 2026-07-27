@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "greplog"
+version = "0.1.0"
+description = "Open-source observability for AI-assisted coders and small dev teams"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Greplog Non-Commercial License" }
+dependencies = [
+    "protobuf>=4.25.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "flask>=2.0",
+    "fastapi>=0.100",
+    "uvicorn>=0.23",
+    "httpx>=0.24",
+    "grpcio-tools>=1.50",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["greplog*"]
+
+[tool.setuptools.package-data]
+greplog = ["proto/**/*.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

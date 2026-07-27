@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen, LuServer, LuFilter, LuX } from 'react-icons/lu'
+import { useErrors } from '../hooks/index.ts'
 import ErrorsFilterSidebar from '../components/ErrorsFilterSidebar.tsx'
 import ErrorCountChart from '../components/ErrorCountChart.tsx'
 import ErrorRateChart from '../components/ErrorRateChart.tsx'
@@ -8,40 +9,28 @@ import ErrorsTable from '../components/ErrorsTable.tsx'
 import ErrorsDrawer from '../components/ErrorsDrawer.tsx'
 import Dropdown from '../components/Dropdown.tsx'
 
-const timeRanges = ['Last 15 min', 'Last 1 hour', 'Last 6 hours', 'Last 24 hours', 'Last 7 days', 'Custom']
-
-const chartMetrics = [
-  { label: 'Count', value: 'count' },
-  { label: 'Rate', value: 'rate' },
-]
-
-const errorCountGroupBy = [
-  { label: 'nothing', value: 'nothing' },
-  { label: 'service', value: 'service' },
-  { label: 'level', value: 'level' },
-  { label: 'status_code', value: 'status_code' },
-]
-
-const errorRateGroupBy = [
-  { label: 'nothing', value: 'nothing' },
-  { label: 'service', value: 'service' },
-  { label: 'level', value: 'level' },
-  { label: 'status_code', value: 'status_code' },
-]
-
-const errorByServiceGroupBy = [
-  { label: 'nothing', value: 'nothing' },
-  { label: 'level', value: 'level' },
-  { label: 'status_code', value: 'status_code' },
-]
-
 export default function Errors() {
+  const {
+    errors,
+    totalErrors,
+    totalRows,
+    querySeconds,
+    filterSections,
+    timeRanges: timeRangeOptions,
+    services: serviceOptions,
+    autoRefreshOptions,
+    chartMetrics,
+    groupByOptions,
+  } = useErrors()
+
+  const services = serviceOptions.map((s) => s.label)
+  const timeRanges = timeRangeOptions.map((r) => r.label)
+
   const [spinning, setSpinning] = useState(false)
   const [live, setLive] = useState(false)
-  const [timeRange, setTimeRange] = useState('Last 15 min')
+  const [timeRange, setTimeRange] = useState(timeRanges[0])
   const [filterOpen, setFilterOpen] = useState(true)
   const [autoRefresh, setAutoRefresh] = useState('Off')
-  const services = ['All Services', 'web', 'api', 'db', 'worker']
   const [service, setService] = useState('All Services')
   const [query, setQuery] = useState('')
   const [chips, setChips] = useState<string[]>([])
@@ -122,7 +111,7 @@ export default function Errors() {
         </div>
       </div>
       <div className="flex flex-1 min-h-0">
-        {filterOpen && <ErrorsFilterSidebar checked={checked} onCheck={handleCheck} />}
+        {filterOpen && <ErrorsFilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div
             className="flex items-center h-10 border-b shrink-0"
@@ -175,7 +164,7 @@ export default function Errors() {
             <div className="ml-auto flex items-center gap-2 pr-4">
               <Dropdown
                 trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-[var(--bg-primary)] rounded">{autoRefresh}</span>}</>}
-                items={['Off', '10s', '30s', '1m', '5m'].map((opt) => ({ label: opt, value: opt }))}
+                items={autoRefreshOptions}
                 value={autoRefresh}
                 onChange={setAutoRefresh}
                 align="right"
@@ -184,7 +173,7 @@ export default function Errors() {
               />
               <Dropdown
                 trigger={<span>{timeRange}</span>}
-                items={timeRanges.map((r) => ({ label: r, value: r }))}
+                items={timeRangeOptions}
                 value={timeRange}
                 onChange={setTimeRange}
                 align="right"
@@ -208,8 +197,8 @@ export default function Errors() {
                     triggerClassName="text-xs text-text-secondary hover:text-text-primary"
                   />
                   <Dropdown
-                    trigger={<span className="text-xs text-text-secondary">Grouped by {errorCountGroupBy.find(g => g.value === chart1Group)?.label}</span>}
-                    items={errorCountGroupBy}
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {groupByOptions.errorCount.find(g => g.value === chart1Group)?.label}</span>}
+                    items={groupByOptions.errorCount}
                     value={chart1Group}
                     onChange={setChart1Group}
                     minWidth="min-w-36"
@@ -236,8 +225,8 @@ export default function Errors() {
                     triggerClassName="text-xs text-text-secondary hover:text-text-primary"
                   />
                   <Dropdown
-                    trigger={<span className="text-xs text-text-secondary">Grouped by {errorRateGroupBy.find(g => g.value === chart2Group)?.label}</span>}
-                    items={errorRateGroupBy}
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {groupByOptions.errorRate.find(g => g.value === chart2Group)?.label}</span>}
+                    items={groupByOptions.errorRate}
                     value={chart2Group}
                     onChange={setChart2Group}
                     minWidth="min-w-36"
@@ -264,8 +253,8 @@ export default function Errors() {
                     triggerClassName="text-xs text-text-secondary hover:text-text-primary"
                   />
                   <Dropdown
-                    trigger={<span className="text-xs text-text-secondary">Grouped by {errorByServiceGroupBy.find(g => g.value === chart3Group)?.label}</span>}
-                    items={errorByServiceGroupBy}
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {groupByOptions.byService.find(g => g.value === chart3Group)?.label}</span>}
+                    items={groupByOptions.byService}
                     value={chart3Group}
                     onChange={setChart3Group}
                     minWidth="min-w-36"
@@ -279,7 +268,7 @@ export default function Errors() {
               </div>
             </div>
           </div>
-          <ErrorsTable filteredServices={filteredServices} onView={setDrawerError} />
+          <ErrorsTable data={errors} totalRows={totalRows} totalLogs={totalErrors} querySeconds={querySeconds} filteredServices={filteredServices} onView={setDrawerError} />
         </div>
       </div>
       <ErrorsDrawer open={!!drawerError} onClose={() => setDrawerError(null)} error={drawerError} />

@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package greplog.v1;
+
+option go_package = "github.com/greplog/greplog-go/core/v1";
+
+// ──────────────────────────────────────────
+// Core event types
+// ──────────────────────────────────────────
+
+message LogEvent {
+  string service_name   = 1;
+  string message        = 2;
+  string level          = 3;  // trace | debug | info | warn | error | fatal
+  int64  timestamp_ns   = 4;  // Unix epoch in nanoseconds
+
+  string logger_name    = 5;
+  string file           = 6;
+  int32  line           = 7;
+  string correlation_id = 8;  // optional pseudo-tracing link
+
+  map<string, string> attributes  = 9;
+  repeated string     stack_trace = 10;
+  string              exception_type = 11;
+  string              exception_message = 12;
+  string event_id      = 13;  // client-supplied stable ID; content-hash fallback if empty
+}
+
+message Span {
+  string service_name       = 1;
+  string name               = 2;  // e.g. "GET /api/users"
+  int64  start_time_ns      = 3;
+  int64  end_time_ns        = 4;
+  string correlation_id     = 5;
+  string parent_correlation_id = 6;
+  string route              = 7;
+  string method             = 8;  // HTTP method or RPC name
+  int32  status_code        = 9;
+  string error              = 10;
+
+  map<string, string> attributes = 11;
+  SpanKind kind           = 12;
+  string event_id         = 13;  // client-supplied stable ID; content-hash fallback if empty
+}
+
+enum SpanKind {
+  SPAN_KIND_UNSPECIFIED = 0;
+  SPAN_KIND_INTERNAL   = 1;
+  SPAN_KIND_SERVER     = 2;
+  SPAN_KIND_CLIENT     = 3;
+  SPAN_KIND_PRODUCER   = 4;
+  SPAN_KIND_CONSUMER   = 5;
+}
+
+message Metric {
+  string service_name = 1;
+  string name         = 2;  // e.g. "http.request.duration"
+  double value        = 3;
+  int64  timestamp_ns = 4;
+
+  map<string, string> labels    = 5;
+  MetricType          type      = 6;
+  repeated double     bucket_values = 7;  // histogram buckets
+  string event_id     = 8;  // client-supplied stable ID; content-hash fallback if empty
+}
+
+enum MetricType {
+  METRIC_TYPE_UNSPECIFIED = 0;
+  METRIC_TYPE_COUNTER    = 1;
+  METRIC_TYPE_GAUGE      = 2;
+  METRIC_TYPE_HISTOGRAM  = 3;
+}
+
+// ──────────────────────────────────────────
+// Wire envelope
+// ──────────────────────────────────────────
+
+message IngestBatch {
+  string service_name = 1;
+  string instance_id  = 2;
+  int64  batch_seq    = 3;  // monotonically increasing per instance
+
+  repeated LogEvent logs    = 10;
+  repeated Span     spans   = 11;
+  repeated Metric   metrics = 12;
+}
+
+message IngestResponse {
+  bool  accepted = 1;
+  int64 events_count = 2;
+  string error = 3;
+}

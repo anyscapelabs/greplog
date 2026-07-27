@@ -4,6 +4,7 @@ members = [
     "crates/greplog-core",
     "crates/greplog-agent",
     "crates/greplog-cli",
+    "crates/greplog-sdk",
 ]
 
 [workspace.package]

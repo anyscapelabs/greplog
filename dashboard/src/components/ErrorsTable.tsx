@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { LuChevronDown, LuChevronUp, LuChevronLeft, LuChevronRight, LuCircleCheck, LuDownload } from 'react-icons/lu'
 import Dropdown from './Dropdown.tsx'
+import type { ErrorEntry } from '../types/index.ts'
 
 const columns = [
   { key: 'timestamp', label: 'timestamp', width: 'w-[180px]' },
@@ -12,52 +13,32 @@ const columns = [
   { key: 'freq', label: 'freq', width: 'w-[90px]' },
 ]
 
-const levels = ['error', 'critical', 'warn'] as const
-
-const mockData = Array.from({ length: 50000 }, (_, i) => ({
-  id: i,
-  timestamp: new Date(Date.now() - i * 120000).toISOString().replace('T', ' ').slice(0, 19),
-  errorCode: [500, 502, 503, 504, 400, 401, 403, 404, 408, 429][i % 10],
-  freq: Math.floor(Math.random() * 50) + 1,
-  level: levels[i % levels.length],
-  latency: `${Math.floor(Math.random() * 3000) + 50}ms`,
-  service: ['web', 'api', 'db', 'worker'][i % 4],
-  message: [
-    'Internal server error processing request',
-    'Connection refused by upstream server',
-    'Service unavailable - load shedding active',
-    'Gateway timeout waiting for upstream response',
-    'Invalid request body: missing required field',
-    'Authentication token expired or invalid',
-    'Access denied: insufficient permissions',
-    'Resource not found at requested path',
-    'Request timeout after 30s of inactivity',
-    'Rate limit exceeded for API key',
-  ][i % 10],
-}))
-
 interface ErrorsTableProps {
+  data: ErrorEntry[]
+  totalRows?: number
+  totalLogs?: number
+  querySeconds?: number
   filteredServices?: string[]
-  onView?: (row: any) => void
+  onView?: (row: ErrorEntry) => void
 }
 
-export default function ErrorsTable({ filteredServices, onView }: ErrorsTableProps) {
-  const [totalRows] = useState(1234)
-  const [totalLogs] = useState(5678)
-  const [seconds] = useState(0.3)
+export default function ErrorsTable({ data, totalRows: totalRowsProp, totalLogs: totalLogsProp, querySeconds: secondsProp, filteredServices, onView }: ErrorsTableProps) {
+  const [totalRows] = useState(totalRowsProp ?? data.length)
+  const [totalLogs] = useState(totalLogsProp ?? data.length)
+  const [seconds] = useState(secondsProp ?? 0.3)
   const limits = ['500', '1k', '5k', '10k']
   const [limit, setLimit] = useState('500')
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(0)
 
-  const data = filteredServices
-    ? mockData.filter((row) => filteredServices.includes(row.service))
-    : mockData
+  const filtered = filteredServices
+    ? data.filter((row) => filteredServices.includes(row.service))
+    : data
 
   const sortedData = useMemo(() => {
-    if (!sortColumn) return data
-    return [...data].sort((a, b) => {
+    if (!sortColumn) return filtered
+    return [...filtered].sort((a, b) => {
       const aVal = a[sortColumn as keyof typeof a]
       const bVal = b[sortColumn as keyof typeof b]
       if (typeof aVal === 'number' && typeof bVal === 'number') {
@@ -69,7 +50,7 @@ export default function ErrorsTable({ filteredServices, onView }: ErrorsTablePro
       if (aStr > bStr) return sortDirection === 'asc' ? 1 : -1
       return 0
     })
-  }, [data, sortColumn, sortDirection])
+  }, [filtered, sortColumn, sortDirection])
 
   const parsedLimit = limit === 'All' ? sortedData.length : parseInt(limit.replace('k', '000'))
   const displayData = useMemo(() => sortedData.slice(0, parsedLimit), [sortedData, parsedLimit])
@@ -123,8 +104,8 @@ export default function ErrorsTable({ filteredServices, onView }: ErrorsTablePro
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
     a.download = 'errors-export.csv'
+    a.href = url
     a.click()
     URL.revokeObjectURL(url)
   }

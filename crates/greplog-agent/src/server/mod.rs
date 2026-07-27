@@ -13,7 +13,7 @@ use tower::ServiceBuilder;
 use tracing::info;
 
 #[derive(Serialize)]
-struct HealthResponse {
+pub(crate) struct HealthResponse {
     status: String,
     version: &'static str,
 }
@@ -74,7 +74,7 @@ impl HttpServer {
     }
 }
 
-async fn health_handler() -> Json<HealthResponse> {
+pub(crate) async fn health_handler() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".into(),
         version: env!("CARGO_PKG_VERSION"),
@@ -92,7 +92,7 @@ async fn status_handler(
     }))
 }
 
-async fn query_handler(
+pub(crate) async fn query_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<QueryRequest>,
 ) -> Result<Json<super::query_engine::QueryResult>, (StatusCode, String)> {

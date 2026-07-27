@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { LuChevronDown, LuChevronUp, LuCircleCheck, LuDownload, LuChevronLeft, LuChevronRight } from 'react-icons/lu'
 import Dropdown from './Dropdown.tsx'
+import type { LogEntry } from '../types/index.ts'
 
 const columns = [
   { key: 'timestamp', label: 'timestamp', width: 'w-[180px]' },
@@ -14,52 +15,32 @@ const columns = [
   { key: 'file', label: 'file', width: 'w-[180px]' },
 ]
 
-const levels = ['info', 'warn', 'error', 'debug'] as const
-
-const mockData = Array.from({ length: 50000 }, (_, i) => ({
-  id: i,
-  timestamp: new Date(Date.now() - i * 60000).toISOString().replace('T', ' ').slice(0, 19),
-  level: levels[i % levels.length],
-  service: ['web', 'api', 'db', 'worker'][i % 4],
-  message: [
-    'Request processed successfully',
-    'Cache miss for key user:1234',
-    'Connection pool exhausted',
-    'GET /api/users completed in 45ms',
-    'Failed to connect to upstream',
-    'Job queue processed 12 items',
-    'Slow query detected (2.3s)',
-    'Health check passed',
-  ][i % 8],
-  logger: ['http.server', 'db.connection', 'app.controller', 'background.worker'][i % 4],
-  correlationId: `corr-${Math.random().toString(36).slice(2, 10)}`,
-  file: ['src/http/server.ts', 'src/db/pool.ts', 'src/controllers/users.ts', 'src/workers/jobs.ts'][i % 4],
-  response: `${Math.floor(Math.random() * 500) + 10}ms`,
-  statusCode: [200, 201, 301, 400, 401, 403, 404, 500, 502, 503][i % 10],
-}))
-
 interface LogsTableProps {
+  data: LogEntry[]
+  totalRows?: number
+  totalLogs?: number
+  querySeconds?: number
   filteredServices?: string[]
-  onView?: (row: any) => void
+  onView?: (row: LogEntry) => void
 }
 
-export default function LogsTable({ filteredServices, onView }: LogsTableProps) {
-  const [totalRows] = useState(1234)
-  const [totalLogs] = useState(5678)
-  const [seconds] = useState(0.3)
+export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: totalLogsProp, querySeconds: secondsProp, filteredServices, onView }: LogsTableProps) {
+  const [totalRows] = useState(totalRowsProp ?? data.length)
+  const [totalLogs] = useState(totalLogsProp ?? data.length)
+  const [seconds] = useState(secondsProp ?? 0.3)
   const limits = ['500', '1k', '5k', '10k']
   const [limit, setLimit] = useState('500')
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(0)
 
-  const data = filteredServices
-    ? mockData.filter((row) => filteredServices.includes(row.service))
-    : mockData
+  const filtered = filteredServices
+    ? data.filter((row) => filteredServices.includes(row.service))
+    : data
 
   const sortedData = useMemo(() => {
-    if (!sortColumn) return data
-    return [...data].sort((a, b) => {
+    if (!sortColumn) return filtered
+    return [...filtered].sort((a, b) => {
       const aVal = a[sortColumn as keyof typeof a]
       const bVal = b[sortColumn as keyof typeof b]
       if (typeof aVal === 'number' && typeof bVal === 'number') {
@@ -71,7 +52,7 @@ export default function LogsTable({ filteredServices, onView }: LogsTableProps) 
       if (aStr > bStr) return sortDirection === 'asc' ? 1 : -1
       return 0
     })
-  }, [data, sortColumn, sortDirection])
+  }, [filtered, sortColumn, sortDirection])
 
   const parsedLimit = limit === 'All' ? sortedData.length : parseInt(limit.replace('k', '000'))
   const displayData = useMemo(() => sortedData.slice(0, parsedLimit), [sortedData, parsedLimit])
@@ -128,8 +109,8 @@ export default function LogsTable({ filteredServices, onView }: LogsTableProps) 
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
     a.download = 'logs-export.csv'
+    a.href = url
     a.click()
     URL.revokeObjectURL(url)
   }

@@ -155,10 +155,21 @@ impl SpanBuilders {
             None => self.name.append_null(),
         }
 
-        self.route.append_null();
-        self.method.append_null();
-        self.status_code.append_null();
-        self.latency_ms.append_null();
+        match super::flush::non_empty(&span.route) {
+            Some(v) => self.route.append_value(&v),
+            None => self.route.append_null(),
+        }
+        match super::flush::non_empty(&span.method) {
+            Some(v) => self.method.append_value(&v),
+            None => self.method.append_null(),
+        }
+        if span.status_code != 0 {
+            self.status_code.append_value(span.status_code);
+        } else {
+            self.status_code.append_null();
+        }
+        let latency_ms = (span.end_time_ns - span.start_time_ns) as f64 / 1_000_000.0;
+        self.latency_ms.append_value(latency_ms);
         self.is_error.append_value(!span.error.is_empty());
         self.start_time
             .append_value(super::flush::ns_to_micros(span.start_time_ns));

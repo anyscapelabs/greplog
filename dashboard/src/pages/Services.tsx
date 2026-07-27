@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useServices } from '../hooks/index.ts'
 import ServicesDrawer from '../components/ServicesDrawer.tsx'
 import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen } from 'react-icons/lu'
 import ServiceCard from '../components/ServiceCard.tsx'
@@ -10,40 +11,24 @@ import ErrorRateByServiceChart from '../components/ErrorRateByServiceChart.tsx'
 import AvgLatencyByServiceChart from '../components/AvgLatencyByServiceChart.tsx'
 import Dropdown from '../components/Dropdown.tsx'
 
-const timeRanges = ['Last 15 min', 'Last 1 hour', 'Last 6 hours', 'Last 24 hours', 'Last 7 days', 'Custom']
-
-const countRateOptions = [
-  { label: 'Count', value: 'count' },
-  { label: 'Rate', value: 'rate' },
-]
-
-const latencyOptions = [
-  { label: 'Avg', value: 'avg' },
-  { label: 'P50', value: 'p50' },
-  { label: 'P95', value: 'p95' },
-  { label: 'P99', value: 'p99' },
-]
-
-const generateData = (base: number, variance: number, min: number = 0) => {
-  let current = base
-  return Array.from({ length: 60 }, () => {
-    current += (Math.random() - 0.5) * variance
-    if (current < min) current = min
-    return current
-  })
-}
-
-const serviceCards = [
-  { name: 'api', requests: '2,500 req/s', data: generateData(2500, 500) },
-  { name: 'web', requests: '1,850 req/s', data: generateData(1850, 400) },
-  { name: 'db', requests: '940 req/s', data: generateData(940, 200) },
-  { name: 'worker', requests: '250 req/s', data: generateData(250, 80) },
-]
-
 export default function Services() {
+  const {
+    services,
+    totalRows,
+    querySeconds,
+    filterSections,
+    serviceCards,
+    timeRanges: timeRangeOptions,
+    autoRefreshOptions,
+    countRateOptions,
+    latencyOptions,
+  } = useServices()
+
+  const timeRanges = timeRangeOptions.map((r) => r.label)
+
   const [spinning, setSpinning] = useState(false)
   const [live, setLive] = useState(false)
-  const [timeRange, setTimeRange] = useState('Last 15 min')
+  const [timeRange, setTimeRange] = useState(timeRanges[0])
   const [filterOpen, setFilterOpen] = useState(true)
   const [drawerService, setDrawerService] = useState<any>(null)
   const [autoRefresh, setAutoRefresh] = useState('Off')
@@ -118,7 +103,7 @@ export default function Services() {
         </div>
       </div>
       <div className="flex flex-1 min-h-0">
-        {filterOpen && <ServicesFilterSidebar checked={checked} onCheck={handleCheck} />}
+        {filterOpen && <ServicesFilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div
             className="flex items-center h-10 border-b shrink-0"
@@ -137,7 +122,7 @@ export default function Services() {
             <div className="ml-auto flex items-center gap-2 pr-4">
               <Dropdown
                 trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-[var(--bg-primary)] rounded">{autoRefresh}</span>}</>}
-                items={['Off', '10s', '30s', '1m', '5m'].map((opt) => ({ label: opt, value: opt }))}
+                items={autoRefreshOptions}
                 value={autoRefresh}
                 onChange={setAutoRefresh}
                 align="right"
@@ -146,7 +131,7 @@ export default function Services() {
               />
               <Dropdown
                 trigger={<span>{timeRange}</span>}
-                items={timeRanges.map((r) => ({ label: r, value: r }))}
+                items={timeRangeOptions}
                 value={timeRange}
                 onChange={setTimeRange}
                 align="right"
@@ -157,7 +142,7 @@ export default function Services() {
           </div>
           <div className="flex gap-1.5 px-2 pt-2 pb-1.5 shrink-0">
             {serviceCards.map((card) => (
-              <ServiceCard key={card.name} {...card} />
+              <ServiceCard key={card.name} name={card.name} requests={card.label} data={card.sparkline} />
             ))}
           </div>
           <div className="grid grid-cols-3 gap-1.5 px-2 pt-1 pb-1.5 shrink-0">
@@ -189,7 +174,7 @@ export default function Services() {
               <AvgLatencyByServiceChart metric={latencyMetric} />
             </AnalyticsChartPanel>
           </div>
-          <ServicesTable filteredServices={filteredServices} onView={setDrawerService} />
+          <ServicesTable data={services} totalRows={totalRows} querySeconds={querySeconds} filteredServices={filteredServices} onView={setDrawerService} />
         </div>
       </div>
       <ServicesDrawer open={!!drawerService} onClose={() => setDrawerService(null)} service={drawerService} />

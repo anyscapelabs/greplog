@@ -1,40 +1,6 @@
 import { useState } from 'react'
 import { LuSearch, LuChevronDown, LuChevronRight } from 'react-icons/lu'
-
-const errorStatuses = [
-  { id: '500', label: '500 Internal Server Error', count: 19 },
-  { id: '502', label: '502 Bad Gateway', count: 8 },
-  { id: '503', label: '503 Service Unavailable', count: 5 },
-  { id: '504', label: '504 Gateway Timeout', count: 3 },
-  { id: '400', label: '400 Bad Request', count: 156 },
-  { id: '401', label: '401 Unauthorized', count: 89 },
-  { id: '403', label: '403 Forbidden', count: 42 },
-  { id: '404', label: '404 Not Found', count: 55 },
-  { id: '408', label: '408 Request Timeout', count: 12 },
-  { id: '429', label: '429 Too Many Requests', count: 28 },
-]
-
-const errorTypes = [
-  { id: 'timeout', label: 'Timeout', count: 34, color: 'var(--error)' },
-  { id: 'connection', label: 'Connection Error', count: 23, color: 'var(--error)' },
-  { id: 'validation', label: 'Validation Error', count: 67, color: 'var(--warn)' },
-  { id: 'auth', label: 'Auth Error', count: 89, color: 'var(--warn)' },
-  { id: 'runtime', label: 'Runtime Error', count: 45, color: 'var(--error)' },
-  { id: 'db', label: 'Database Error', count: 18, color: 'var(--error)' },
-]
-
-const services = [
-  { id: 'web', label: 'web', count: 234 },
-  { id: 'api', label: 'api', count: 567 },
-  { id: 'db', label: 'db', count: 89 },
-  { id: 'worker', label: 'worker', count: 123 },
-]
-
-const logLevels = [
-  { id: 'error', label: 'Error', count: 27, color: 'var(--error)' },
-  { id: 'critical', label: 'Critical', count: 5, color: 'var(--error)' },
-  { id: 'warn', label: 'Warn', count: 156, color: 'var(--warn)' },
-]
+import type { FilterSectionConfig } from '../types/index.ts'
 
 function FilterSection({
   title,
@@ -102,14 +68,16 @@ function FilterSection({
 interface ErrorsFilterSidebarProps {
   checked: Record<string, boolean>
   onCheck: (id: string) => void
+  sections: FilterSectionConfig[]
 }
 
-export default function ErrorsFilterSidebar({ checked, onCheck }: ErrorsFilterSidebarProps) {
-  const [openStates, setOpenStates] = useState<Record<string, boolean>>({
-    service: true,
-    type: true,
-    level: false,
-    status: false,
+export default function ErrorsFilterSidebar({ checked, onCheck, sections }: ErrorsFilterSidebarProps) {
+  const [openStates, setOpenStates] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {}
+    for (const s of sections) {
+      initial[s.id] = s.defaultOpen ?? false
+    }
+    return initial
   })
 
   function toggle(section: string) {
@@ -148,41 +116,18 @@ export default function ErrorsFilterSidebar({ checked, onCheck }: ErrorsFilterSi
       <div className="border-b shrink-0" style={{ borderColor: 'var(--border-primary)' }} />
 
       <div className="flex-1 overflow-y-auto">
-        <FilterSection
-          title="service_name"
-          items={services}
-          open={openStates.service}
-          onToggle={() => toggle('service')}
-          checked={checked}
-          onCheck={onCheck}
-        />
-
-        <FilterSection
-          title="error_type"
-          items={errorTypes}
-          open={openStates.type}
-          onToggle={() => toggle('type')}
-          checked={checked}
-          onCheck={onCheck}
-        />
-
-        <FilterSection
-          title="log_level"
-          items={logLevels}
-          open={openStates.level}
-          onToggle={() => toggle('level')}
-          checked={checked}
-          onCheck={onCheck}
-        />
-
-        <FilterSection
-          title="status_code"
-          items={errorStatuses}
-          open={openStates.status}
-          onToggle={() => toggle('status')}
-          checked={checked}
-          onCheck={onCheck}
-        />
+        {sections.map((section) => (
+          <FilterSection
+            key={section.id}
+            title={section.title}
+            items={section.items}
+            open={openStates[section.id] ?? false}
+            onToggle={() => toggle(section.id)}
+            checked={checked}
+            onCheck={onCheck}
+            initialLimit={section.initialLimit}
+          />
+        ))}
       </div>
     </div>
   )

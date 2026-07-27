@@ -1,39 +1,6 @@
 import { useState } from 'react'
 import { LuSearch, LuChevronDown, LuChevronRight } from 'react-icons/lu'
-
-const statusGroups = [
-  { id: 'success', label: 'Success', count: 1243 },
-  { id: 'redirect', label: 'Redirect', count: 89 },
-  { id: 'client_error', label: 'Client Error', count: 342 },
-  { id: 'server_error', label: 'Server Error', count: 27 },
-]
-
-const statusCodes = [
-  { id: '200', label: '200', count: 892 },
-  { id: '201', label: '201', count: 351 },
-  { id: '301', label: '301', count: 45 },
-  { id: '400', label: '400', count: 156 },
-  { id: '401', label: '401', count: 89 },
-  { id: '403', label: '403', count: 42 },
-  { id: '404', label: '404', count: 55 },
-  { id: '500', label: '500', count: 19 },
-  { id: '502', label: '502', count: 5 },
-  { id: '503', label: '503', count: 3 },
-]
-
-const logLevels = [
-  { id: 'error', label: 'Error', count: 27, color: 'var(--error)' },
-  { id: 'warn', label: 'Warn', count: 156, color: 'var(--warn)' },
-  { id: 'info', label: 'Info', count: 1243, color: 'var(--info)' },
-  { id: 'debug', label: 'Debug', count: 3456, color: 'var(--text-secondary)' },
-]
-
-const services = [
-  { id: 'web', label: 'web', count: 2341 },
-  { id: 'api', label: 'api', count: 1567 },
-  { id: 'db', label: 'db', count: 892 },
-  { id: 'worker', label: 'worker', count: 423 },
-]
+import type { FilterSectionConfig } from '../types/index.ts'
 
 function FilterSection({
   title,
@@ -101,14 +68,16 @@ function FilterSection({
 interface FilterSidebarProps {
   checked: Record<string, boolean>
   onCheck: (id: string) => void
+  sections: FilterSectionConfig[]
 }
 
-export default function FilterSidebar({ checked, onCheck }: FilterSidebarProps) {
-  const [openStates, setOpenStates] = useState<Record<string, boolean>>({
-    status: true,
-    codes: false,
-    level: true,
-    service: false,
+export default function FilterSidebar({ checked, onCheck, sections }: FilterSidebarProps) {
+  const [openStates, setOpenStates] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {}
+    for (const s of sections) {
+      initial[s.id] = s.defaultOpen ?? false
+    }
+    return initial
   })
 
   function toggle(section: string) {
@@ -147,41 +116,18 @@ export default function FilterSidebar({ checked, onCheck }: FilterSidebarProps) 
       <div className="border-b shrink-0" style={{ borderColor: 'var(--border-primary)' }} />
 
       <div className="flex-1 overflow-y-auto">
-        <FilterSection
-          title="response_status"
-          items={statusGroups}
-          open={openStates.status}
-          onToggle={() => toggle('status')}
-          checked={checked}
-          onCheck={onCheck}
-        />
-
-        <FilterSection
-          title="status_code"
-          items={statusCodes}
-          open={openStates.codes}
-          onToggle={() => toggle('codes')}
-          checked={checked}
-          onCheck={onCheck}
-        />
-
-        <FilterSection
-          title="log_level"
-          items={logLevels}
-          open={openStates.level}
-          onToggle={() => toggle('level')}
-          checked={checked}
-          onCheck={onCheck}
-        />
-
-        <FilterSection
-          title="service_name"
-          items={services}
-          open={openStates.service}
-          onToggle={() => toggle('service')}
-          checked={checked}
-          onCheck={onCheck}
-        />
+        {sections.map((section) => (
+          <FilterSection
+            key={section.id}
+            title={section.title}
+            items={section.items}
+            open={openStates[section.id] ?? false}
+            onToggle={() => toggle(section.id)}
+            checked={checked}
+            onCheck={onCheck}
+            initialLimit={section.initialLimit}
+          />
+        ))}
       </div>
     </div>
   )

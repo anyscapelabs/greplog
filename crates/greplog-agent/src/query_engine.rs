@@ -52,6 +52,7 @@ pub struct QueryResult {
 ///
 /// Registration is eager (tables are registered at construction time),
 /// matching the convention used by the existing DuckDB query engine.
+#[derive(Clone)]
 pub struct QueryEngine {
     ctx: Arc<SessionContext>,
     row_limit: usize,

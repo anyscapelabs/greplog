@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen, LuServer, LuFilter, LuX } from 'react-icons/lu'
+import { useLogs } from '../hooks/index.ts'
 import FilterSidebar from '../components/FilterSidebar.tsx'
 import LogVolumeChart from '../components/LogVolumeChart.tsx'
 import ErrorsChart from '../components/ErrorsChart.tsx'
@@ -8,39 +9,28 @@ import LogsTable from '../components/LogsTable.tsx'
 import LogsDrawer from '../components/LogsDrawer.tsx'
 import Dropdown from '../components/Dropdown.tsx'
 
-const timeRanges = ['Last 15 min', 'Last 1 hour', 'Last 6 hours', 'Last 24 hours', 'Last 7 days', 'Custom']
-
-const chartMetrics = [
-  { label: 'Count', value: 'count' },
-  { label: 'Rate', value: 'rate' },
-]
-
-const requestsGroupBy = [
-  { label: 'nothing', value: 'nothing' },
-  { label: 'service', value: 'service' },
-  { label: 'level', value: 'level' },
-]
-
-const errorsGroupBy = [
-  { label: 'nothing', value: 'nothing' },
-  { label: 'service', value: 'service' },
-  { label: 'level', value: 'level' },
-  { label: 'status_code', value: 'status_code' },
-]
-
-const statusCodesGroupBy = [
-  { label: 'nothing', value: 'nothing' },
-  { label: 'service', value: 'service' },
-  { label: 'level', value: 'level' },
-]
-
 export default function Logs() {
+  const {
+    logs,
+    totalLogs,
+    totalRows,
+    querySeconds,
+    filterSections,
+    timeRanges: timeRangeOptions,
+    services: serviceOptions,
+    autoRefreshOptions,
+    chartMetrics,
+    groupByOptions,
+  } = useLogs()
+
+  const services = serviceOptions.map((s) => s.label)
+  const timeRanges = timeRangeOptions.map((r) => r.label)
+
   const [spinning, setSpinning] = useState(false)
   const [live, setLive] = useState(false)
-  const [timeRange, setTimeRange] = useState('Last 15 min')
+  const [timeRange, setTimeRange] = useState(timeRanges[0])
   const [filterOpen, setFilterOpen] = useState(true)
   const [autoRefresh, setAutoRefresh] = useState('Off')
-  const services = ['All Services', 'web', 'api', 'db', 'worker']
   const [service, setService] = useState('All Services')
   const [query, setQuery] = useState('')
   const [chips, setChips] = useState<string[]>([])
@@ -121,7 +111,7 @@ export default function Logs() {
         </div>
       </div>
       <div className="flex flex-1 min-h-0">
-        {filterOpen && <FilterSidebar checked={checked} onCheck={handleCheck} />}
+        {filterOpen && <FilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div
             className="flex items-center h-10 border-b shrink-0"
@@ -174,7 +164,7 @@ export default function Logs() {
             <div className="ml-auto flex items-center gap-2 pr-4">
               <Dropdown
                 trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-[var(--bg-primary)] rounded">{autoRefresh}</span>}</>}
-                items={['Off', '10s', '30s', '1m', '5m'].map((opt) => ({ label: opt, value: opt }))}
+                items={autoRefreshOptions}
                 value={autoRefresh}
                 onChange={setAutoRefresh}
                 align="right"
@@ -183,7 +173,7 @@ export default function Logs() {
               />
               <Dropdown
                 trigger={<span>{timeRange}</span>}
-                items={timeRanges.map((r) => ({ label: r, value: r }))}
+                items={timeRangeOptions}
                 value={timeRange}
                 onChange={setTimeRange}
                 align="right"
@@ -207,8 +197,8 @@ export default function Logs() {
                     triggerClassName="text-xs text-text-secondary hover:text-text-primary"
                   />
                   <Dropdown
-                    trigger={<span className="text-xs text-text-secondary">Grouped by {requestsGroupBy.find(g => g.value === chart1Group)?.label}</span>}
-                    items={requestsGroupBy}
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {groupByOptions.requests.find(g => g.value === chart1Group)?.label}</span>}
+                    items={groupByOptions.requests}
                     value={chart1Group}
                     onChange={setChart1Group}
                     minWidth="min-w-36"
@@ -235,8 +225,8 @@ export default function Logs() {
                     triggerClassName="text-xs text-text-secondary hover:text-text-primary"
                   />
                   <Dropdown
-                    trigger={<span className="text-xs text-text-secondary">Grouped by {errorsGroupBy.find(g => g.value === chart2Group)?.label}</span>}
-                    items={errorsGroupBy}
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {groupByOptions.errors.find(g => g.value === chart2Group)?.label}</span>}
+                    items={groupByOptions.errors}
                     value={chart2Group}
                     onChange={setChart2Group}
                     minWidth="min-w-36"
@@ -263,8 +253,8 @@ export default function Logs() {
                     triggerClassName="text-xs text-text-secondary hover:text-text-primary"
                   />
                   <Dropdown
-                    trigger={<span className="text-xs text-text-secondary">Grouped by {statusCodesGroupBy.find(g => g.value === chart3Group)?.label}</span>}
-                    items={statusCodesGroupBy}
+                    trigger={<span className="text-xs text-text-secondary">Grouped by {groupByOptions.statusCodes.find(g => g.value === chart3Group)?.label}</span>}
+                    items={groupByOptions.statusCodes}
                     value={chart3Group}
                     onChange={setChart3Group}
                     minWidth="min-w-36"
@@ -278,7 +268,7 @@ export default function Logs() {
               </div>
             </div>
           </div>
-          <LogsTable filteredServices={filteredServices} onView={setDrawerLog} />
+          <LogsTable data={logs} totalRows={totalRows} totalLogs={totalLogs} querySeconds={querySeconds} filteredServices={filteredServices} onView={setDrawerLog} />
         </div>
       </div>
       <LogsDrawer open={!!drawerLog} onClose={() => setDrawerLog(null)} log={drawerLog} />

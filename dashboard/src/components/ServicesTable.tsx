@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { LuChevronDown, LuChevronUp, LuCircleCheck, LuDownload, LuChevronLeft, LuChevronRight } from 'react-icons/lu'
 import Dropdown from './Dropdown.tsx'
+import type { ServiceEntry } from '../types/index.ts'
 
 const columns = [
   { key: 'service', label: 'Service', width: 'w-[180px]' },
@@ -20,56 +21,34 @@ const statusColors: Record<string, string> = {
   down: 'var(--error)',
 }
 
-const mockData = Array.from({ length: 50000 }, (_, i) => {
-  const services = ['api', 'web', 'db', 'worker']
-  const statuses = ['healthy', 'healthy', 'healthy', 'degraded', 'down'] as const
-  const name = services[i % services.length]
-  const status = statuses[i % statuses.length]
-  const uptime = status === 'healthy' ? (99 + Math.random() * 0.9).toFixed(1) : status === 'degraded' ? (90 + Math.random() * 9).toFixed(1) : (50 + Math.random() * 39).toFixed(1)
-  const reqBase = status === 'healthy' ? 1000000 : status === 'degraded' ? 450000 : 120000
-  const requests = Math.floor(reqBase + (Math.random() - 0.5) * reqBase * 0.4)
-  const errorRate = status === 'healthy' ? (Math.random() * 0.9).toFixed(1) : status === 'degraded' ? (1 + Math.random() * 4).toFixed(1) : (5 + Math.random() * 10).toFixed(1)
-  const avgLatency = status === 'healthy' ? Math.floor(20 + Math.random() * 80) : status === 'degraded' ? Math.floor(100 + Math.random() * 400) : Math.floor(500 + Math.random() * 500)
-  const p95Latency = Math.floor(avgLatency * (1.5 + Math.random() * 2))
-  const p99Latency = Math.floor(p95Latency * (1.2 + Math.random() * 1.5))
-  const lastSeen = ['2m ago', '1m ago', '5m ago', '30s ago', '3m ago'][i % 5]
-
-  return {
-    id: i,
-    service: name,
-    status,
-    uptime: `${uptime}%`,
-    requests: requests >= 1000000 ? `${(requests / 1000000).toFixed(1)}M` : requests >= 1000 ? `${(requests / 1000).toFixed(0)}k` : String(requests),
-    errorRate: `${errorRate}%`,
-    avgLatency: `${avgLatency}ms`,
-    p95: `${p95Latency}ms`,
-    p99: `${p99Latency}ms`,
-    lastSeen,
-  }
-})
-
 interface ServicesTableProps {
+  data: ServiceEntry[]
+  totalRows?: number
+  totalLogs?: number
+  querySeconds?: number
   filteredServices?: string[]
-  onView?: (row: any) => void
+  onView?: (row: ServiceEntry) => void
 }
 
-export default function ServicesTable({ filteredServices, onView }: ServicesTableProps) {
-  const [totalRows] = useState(1234)
-  const [totalLogs] = useState(5678)
-  const [seconds] = useState(0.3)
+export default function ServicesTable({ data, totalRows: totalRowsProp, totalLogs: totalLogsProp, querySeconds: secondsProp, filteredServices, onView }: ServicesTableProps) {
+  const [totalRows] = useState(totalRowsProp ?? data.length)
+  const [totalLogs] = useState(totalLogsProp ?? data.length)
+  const [seconds] = useState(secondsProp ?? 0.3)
   const limits = ['500', '1k', '5k', '10k']
   const [limit, setLimit] = useState('500')
   const [sortColumn, setSortColumn] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [page, setPage] = useState(0)
 
-  const data = filteredServices
-    ? mockData.filter((row) => filteredServices.includes(row.service))
-    : mockData
+  const withServiceField = useMemo(() => data.map((row) => ({ ...row, service: row.name })), [data])
+
+  const filtered = filteredServices
+    ? withServiceField.filter((row) => filteredServices.includes(row.service))
+    : withServiceField
 
   const sortedData = useMemo(() => {
-    if (!sortColumn) return data
-    return [...data].sort((a, b) => {
+    if (!sortColumn) return filtered
+    return [...filtered].sort((a, b) => {
       const aVal = a[sortColumn as keyof typeof a]
       const bVal = b[sortColumn as keyof typeof b]
       if (typeof aVal === 'number' && typeof bVal === 'number') {
@@ -81,7 +60,7 @@ export default function ServicesTable({ filteredServices, onView }: ServicesTabl
       if (aStr > bStr) return sortDirection === 'asc' ? 1 : -1
       return 0
     })
-  }, [data, sortColumn, sortDirection])
+  }, [filtered, sortColumn, sortDirection])
 
   const parsedLimit = limit === 'All' ? sortedData.length : parseInt(limit.replace('k', '000'))
   const displayData = useMemo(() => sortedData.slice(0, parsedLimit), [sortedData, parsedLimit])
@@ -137,8 +116,8 @@ export default function ServicesTable({ filteredServices, onView }: ServicesTabl
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
     a.download = 'services-export.csv'
+    a.href = url
     a.click()
     URL.revokeObjectURL(url)
   }

@@ -1,22 +1,6 @@
 import { useState } from 'react'
 import { LuSearch, LuChevronDown, LuChevronRight } from 'react-icons/lu'
-
-const healthStatuses = [
-  { id: 'healthy', label: 'Healthy', count: 2, color: 'var(--success)' },
-  { id: 'degraded', label: 'Degraded', count: 1, color: 'var(--warn)' },
-  { id: 'down', label: 'Down', count: 1, color: 'var(--error)' },
-]
-
-const services = [
-  { id: 'api', label: 'api', count: 2341 },
-  { id: 'web', label: 'web', count: 1567 },
-  { id: 'db', label: 'db', count: 892 },
-  { id: 'worker', label: 'worker', count: 423 },
-]
-
-const environments = [
-  { id: 'production', label: 'production', count: 4 },
-]
+import type { FilterSectionConfig } from '../types/index.ts'
 
 function FilterSection({
   title,
@@ -87,13 +71,16 @@ function FilterSection({
 interface ServicesFilterSidebarProps {
   checked: Record<string, boolean>
   onCheck: (id: string) => void
+  sections: FilterSectionConfig[]
 }
 
-export default function ServicesFilterSidebar({ checked, onCheck }: ServicesFilterSidebarProps) {
-  const [openStates, setOpenStates] = useState<Record<string, boolean>>({
-    health_status: true,
-    service_name: false,
-    environment: false,
+export default function ServicesFilterSidebar({ checked, onCheck, sections }: ServicesFilterSidebarProps) {
+  const [openStates, setOpenStates] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {}
+    for (const s of sections) {
+      initial[s.id] = s.defaultOpen ?? false
+    }
+    return initial
   })
 
   function toggle(section: string) {
@@ -132,33 +119,18 @@ export default function ServicesFilterSidebar({ checked, onCheck }: ServicesFilt
       <div className="border-b shrink-0" style={{ borderColor: 'var(--border-primary)' }} />
 
       <div className="flex-1 overflow-y-auto">
-        <FilterSection
-          title="health_status"
-          items={healthStatuses}
-          open={openStates.health_status}
-          onToggle={() => toggle('health_status')}
-          checked={checked}
-          onCheck={onCheck}
-        />
-
-        <FilterSection
-          title="service_name"
-          items={services}
-          open={openStates.service_name}
-          onToggle={() => toggle('service_name')}
-          checked={checked}
-          onCheck={onCheck}
-        />
-
-        <FilterSection
-          title="environment"
-          items={environments}
-          open={openStates.environment}
-          onToggle={() => toggle('environment')}
-          checked={checked}
-          onCheck={onCheck}
-          initialLimit={10}
-        />
+        {sections.map((section) => (
+          <FilterSection
+            key={section.id}
+            title={section.title}
+            items={section.items}
+            open={openStates[section.id] ?? false}
+            onToggle={() => toggle(section.id)}
+            checked={checked}
+            onCheck={onCheck}
+            initialLimit={section.initialLimit}
+          />
+        ))}
       </div>
     </div>
   )

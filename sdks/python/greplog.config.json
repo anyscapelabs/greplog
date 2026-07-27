@@ -1,0 +1,6 @@
+{
+  "service_name": "greplog",
+  "language": "python",
+  "framework": "fastapi",
+  "detected_at": "2026-07-27T11:51:38.463042+00:00"
+}
