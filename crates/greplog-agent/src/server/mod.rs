@@ -126,12 +126,14 @@ async fn resources_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::query_engine::LIST_FILES_CACHE_TTL_SECS;
     use crate::store::io::write_parquet_atomic;
     use arrow::array::{StringArray, TimestampMicrosecondArray};
     use arrow::record_batch::RecordBatch;
     use axum::body::Body;
     use std::path::PathBuf;
     use std::sync::Arc;
+    use std::time::Duration;
     use std::{fs, path::Path};
     use tower::ServiceExt;
 
@@ -223,7 +225,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Test 2: New data is visible without re-registration
+    // Test 2: New data is visible within the cache TTL window
     // ------------------------------------------------------------------
     #[tokio::test]
     async fn test_new_data_visibility() {
@@ -243,16 +245,28 @@ mod tests {
         // Write additional data AFTER the engine was created
         write_log_file(&dir, "api", "2024-01-15", "id-2", "info", "second batch");
 
-        // Query again — should pick up the new file automatically now
-        // that DataFusion's file-list cache is disabled.
+        // Query before TTL elapses (cache hit returns stale listing).
         let result = state
             .query_engine
             .query("SELECT message FROM logs ORDER BY id")
             .await
-            .expect("second query");
+            .expect("second query (stale)");
+        assert_eq!(
+            result.row_count, 1,
+            "stale cache: new file not yet visible",
+        );
+
+        // Wait past the TTL plus margin.
+        tokio::time::sleep(Duration::from_secs(LIST_FILES_CACHE_TTL_SECS + 1)).await;
+
+        let result = state
+            .query_engine
+            .query("SELECT message FROM logs ORDER BY id")
+            .await
+            .expect("third query (fresh)");
         assert_eq!(
             result.row_count, 2,
-            "new data should be visible without re-registration"
+            "new data should be visible after cache entry expiry",
         );
         assert_eq!(result.rows[1][0], "second batch");
 
