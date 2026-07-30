@@ -72,6 +72,7 @@ async fn send_frame(stream: &mut TcpStream, batch: &IngestBatch) -> IngestRespon
     IngestResponse::decode(&resp_buf[..]).unwrap()
 }
 
+#[allow(dead_code)]
 fn ns_to_date(_ns: i64) -> String {
     let secs = _ns / 1_000_000_000;
     let days = secs / 86400;
@@ -118,6 +119,7 @@ impl DatasetGenerator {
         self.seed.wrapping_add(self.call_count).wrapping_mul(2654435761)
     }
 
+    #[allow(dead_code)]
     fn pick<'a>(&mut self, items: &'a [&str]) -> &'a str {
         let i = random_usize(items.len(), self.next_seed());
         items[i]
@@ -314,8 +316,10 @@ impl DatasetGenerator {
 
 #[derive(Debug, Clone)]
 struct LatencyStats {
+    #[allow(dead_code)]
     count: usize,
     min: f64,
+    #[allow(dead_code)]
     max: f64,
     p50: f64,
     p95: f64,
@@ -482,7 +486,7 @@ async fn run_benchmark_for_scale(
         l.local_addr().unwrap().port()
     };
 
-    let mut config = Config {
+    let config = Config {
         workspace: dir.clone(),
         tcp_port,
         ui_port: 0,
@@ -503,7 +507,7 @@ async fn run_benchmark_for_scale(
     let writer = Writer::new(&config.workspace, config.max_buffer_events)?;
     let dropped_events = writer.dropped_events();
     writer.run_startup(50_000)?;
-    let writer_handle = writer.spawn(
+    let _writer_handle = writer.spawn(
         batch_rx,
         Duration::from_secs(config.flush_interval_secs),
     );
@@ -514,6 +518,7 @@ async fn run_benchmark_for_scale(
         config: config.clone(),
         query_engine: query_engine.clone(),
         dropped_events,
+        live_tx: None,
     };
     let _server_handle = HttpServer::new().spawn(server_state);
 
@@ -584,7 +589,7 @@ async fn main() -> Result<()> {
     info!("\n=== Concurrent ingestion + query test ===");
 
     // Run at 1-week scale to keep it fast
-    let conc_scale = &SCALES[0];
+    let _conc_scale = &SCALES[0];
     let dir = test_dir("concurrent");
     fs::create_dir_all(dir.join(".greplog"))?;
 
@@ -617,7 +622,7 @@ async fn main() -> Result<()> {
     let ingest_tcp_port = tcp_port;
     let ingest_handle = tokio::spawn(async move {
         if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", ingest_tcp_port)).await {
-            let mut conc_gen = DatasetGenerator::new();
+            let _conc_gen = DatasetGenerator::new();
             for _ in 0..20 {
                 let mut attrs = HashMap::new();
                 attrs.insert("bench".into(), "concurrent".into());
@@ -683,7 +688,7 @@ async fn main() -> Result<()> {
     // Wait for ingest background task to finish
     ingest_handle.await.ok();
 
-    for run in 0..n_conc_runs {
+    for _run in 0..n_conc_runs {
         let start = Instant::now();
         let _ = engine
             .query("SELECT count(*) FROM logs WHERE service = 'checkout' AND level = 'error'")

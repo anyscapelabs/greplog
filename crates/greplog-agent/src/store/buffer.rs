@@ -48,6 +48,12 @@ pub struct MetricBuilders {
 // LogBuilders
 // ---------------------------------------------------------------------------
 
+impl Default for LogBuilders {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LogBuilders {
     pub fn new() -> Self {
         Self {
@@ -113,6 +119,12 @@ impl LogBuilders {
 // ---------------------------------------------------------------------------
 // SpanBuilders
 // ---------------------------------------------------------------------------
+
+impl Default for SpanBuilders {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl SpanBuilders {
     pub fn new() -> Self {
@@ -211,6 +223,12 @@ impl SpanBuilders {
 // ---------------------------------------------------------------------------
 // MetricBuilders
 // ---------------------------------------------------------------------------
+
+impl Default for MetricBuilders {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl MetricBuilders {
     pub fn new() -> Self {

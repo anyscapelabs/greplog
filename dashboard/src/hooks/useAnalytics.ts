@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import type { AnalyticsPageProps } from '../types/index.ts'
+import { postQuery, type QueryResult } from './api.ts'
 import {
   placeholderAnalyticsMetrics,
   placeholderIngestionTimeseries,
@@ -19,8 +20,9 @@ import {
   placeholderAnalyticsLatencyOptions,
   placeholderSortOptions,
 } from './placeholder-data.ts'
+import { useAgent } from '../context/AgentContext.tsx'
 
-const defaultData = {
+const PLACEHOLDER = {
   metrics: placeholderAnalyticsMetrics,
   ingestionTimeseries: placeholderIngestionTimeseries(),
   errorRateTimeseries: placeholderErrorRateTimeseries(),
@@ -31,20 +33,50 @@ const defaultData = {
   severityDistribution: placeholderSeverityDistribution,
   systemMetrics: placeholderSystemMetrics,
   avgResponseTimes: placeholderAvgResponseTimes,
-  isWaiting: false,
+  isWaiting: true,
+}
+
+function parseCountTimeseries(result: QueryResult): AnalyticsPageProps['ingestionTimeseries'] {
+  const idx = (name: string) => result.columns.indexOf(name)
+  const tsIdx = idx('date')
+  const cntIdx = idx('cnt')
+  if (tsIdx < 0 || cntIdx < 0) return placeholderIngestionTimeseries()
+  return result.rows.map((r) => ({
+    timestamp: r[tsIdx] ?? '',
+    value: Number(r[cntIdx] ?? 0),
+  }))
 }
 
 export function useAnalytics(): AnalyticsPageProps {
+  const { connected } = useAgent()
+
   const query = useQuery({
     queryKey: ['analytics'],
     queryFn: async () => {
-      await new Promise((r) => setTimeout(r, 150))
-      return defaultData
+      if (!connected) return PLACEHOLDER
+      const result = await postQuery(
+        "SELECT date, count(*) AS cnt FROM logs GROUP BY date ORDER BY date",
+      )
+      if (!result) return PLACEHOLDER
+      return {
+        metrics: placeholderAnalyticsMetrics,
+        ingestionTimeseries: parseCountTimeseries(result),
+        errorRateTimeseries: placeholderErrorRateTimeseries(),
+        latencyData: placeholderLatencyData,
+        serviceHealthData: placeholderServiceHealth,
+        statusCodeDistribution: placeholderStatusCodeDistribution,
+        noisyServices: placeholderNoisyServices,
+        severityDistribution: placeholderSeverityDistribution,
+        systemMetrics: placeholderSystemMetrics,
+        avgResponseTimes: placeholderAvgResponseTimes,
+        isWaiting: false,
+      }
     },
-    placeholderData: defaultData,
+    placeholderData: PLACEHOLDER,
+    enabled: connected,
   })
 
-  const data = query.data ?? defaultData
+  const data = query.data ?? PLACEHOLDER
 
   return {
     ...data,

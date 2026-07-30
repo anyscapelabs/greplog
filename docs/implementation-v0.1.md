@@ -1,5 +1,7 @@
 # Greplog v0.1 — Implementation Guide
 
+> **Status:** ✅ Shipped (v0.1) — core pipeline shipped; remaining features tracked in §5 and ROADMAP.md
+
 This document covers only the **CLI, Agent, and Core** crates. SDKs (Node, Python, Go, Rust) are excluded.
 
 ---
@@ -93,7 +95,7 @@ Compiled at build time via `prost-build` into native Rust structs.
 | `Span` | `service_name`, `name`, `start_time_ns`, `end_time_ns`, `correlation_id`, `parent_correlation_id`, `route`, `method`, `status_code`, `error`, `attributes` (map), `kind` | Distributed tracing span with HTTP/RPC metadata |
 | `Metric` | `service_name`, `name`, `value`, `timestamp_ns`, `labels` (map), `type`, `bucket_values` | Counter, gauge, or histogram datapoint |
 | `IngestBatch` | `service_name`, `instance_id`, `batch_seq`, `logs`, `spans`, `metrics` | Wire envelope for transport |
-| `IngestResponse` | `accepted`, `events_count`, `error` | Acknowledgement **(defined but not yet sent by agent)** |
+| `IngestResponse` | `accepted`, `events_count`, `error` | Acknowledgement sent back to client with accepted/rejected status |
 
 #### Enums
 
@@ -286,7 +288,7 @@ Uses `sysinfo` crate to collect:
 
 ## 4. Crate: greplog-cli
 
-**Purpose:** Thin CLI wrapper over the agent. Two commands: `dev` and `status`.
+**Purpose:** Thin CLI wrapper over the agent. Three commands: `dev`, `init`, and `status`.
 
 ### 4.1 Command: `greplog dev`
 
@@ -364,4 +366,4 @@ Uses `figlet-rs` with the `standard` font to render "Greplog" in bright cyan, fo
 | **Views page** | Medium | Saved view CRUD (save/load filter configurations) |
 | **Services page** | Medium | Per-service overview with health status |
 | **Patterns page** | Low | Log pattern detection and grouping |
-| **Live tail** | Low | WebSocket or polling-based live log stream |
+| **Live tail** | Low | SSE-based live log stream (Round 14) |

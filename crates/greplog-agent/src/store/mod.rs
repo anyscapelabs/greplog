@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::{debug, error, info};
 
 pub mod buffer;
@@ -63,6 +63,7 @@ pub struct Writer {
     dropped_events: Arc<AtomicUsize>,
     data_dir: PathBuf,
     max_buffer_events: usize,
+    live_tx: Option<broadcast::Sender<String>>,
 }
 
 impl Writer {
@@ -84,7 +85,14 @@ impl Writer {
             dropped_events: Arc::new(AtomicUsize::new(0)),
             data_dir: base_dir.to_path_buf(),
             max_buffer_events,
+            live_tx: None,
         })
+    }
+
+    /// Enable live tail by attaching a broadcast sender.
+    pub fn with_live_tail(mut self, tx: broadcast::Sender<String>) -> Self {
+        self.live_tx = Some(tx);
+        self
     }
 
     /// Run the full startup recovery sequence:
@@ -198,6 +206,7 @@ impl Writer {
         let dropped_events = self.dropped_events;
         let data_dir = self.data_dir;
         let max_buffer_events = self.max_buffer_events;
+        let live_tx = self.live_tx;
 
         tokio::spawn(async move {
             let mut flush_ticker = tokio::time::interval(flush_interval);
@@ -234,8 +243,9 @@ impl Writer {
                                 let d = dropped_events.clone();
                                 let sd = startup_done.clone();
                                 let max = max_buffer_events;
+                                let lt = live_tx.clone();
                                 tokio::task::spawn_blocking(move || {
-                                    let resp = handle_batch(&w, &b, &dc, batch, raw_bytes, max, &d, &sd);
+                                    let resp = handle_batch(&w, &b, &dc, batch, raw_bytes, max, &d, &sd, lt.as_ref());
                                     let _ = resp_tx.send(resp);
                                 });
                             }
@@ -319,6 +329,7 @@ fn assign_content_ids(batch: &mut IngestBatch) {
 /// The WAL frame encoding and content-ID computation happen *before*
 /// acquiring either lock.  Under the lock only: writing the already-encoded
 /// bytes to the WAL, and pushing the already-computed batch into the buffer.
+#[allow(clippy::too_many_arguments)]
 fn handle_batch(
     wal_lock: &Mutex<wal::WalWriter>,
     buffer_lock: &Mutex<BufferInner>,
@@ -328,6 +339,7 @@ fn handle_batch(
     max_buffer_events: usize,
     dropped_events: &AtomicUsize,
     startup_done: &AtomicBool,
+    live_tx: Option<&broadcast::Sender<String>>,
 ) -> IngestResponse {
     let event_count = count_events(&batch);
 
@@ -424,6 +436,12 @@ fn handle_batch(
             builders.append(metric, &service);
         }
         buf.event_count += event_count;
+    }
+
+    if let Some(tx) = live_tx {
+        if tx.receiver_count() > 0 {
+            broadcast_batch(tx, &batch);
+        }
     }
 
     IngestResponse {
@@ -534,6 +552,53 @@ fn rejected_response(event_count: usize, reason: &str) -> IngestResponse {
         accepted: false,
         events_count: event_count as i64,
         error: reason.to_string(),
+    }
+}
+
+/// Broadcast events from an accepted batch to Live Tail subscribers via
+/// the tokio broadcast channel.  Each event is serialized as a JSON line.
+fn broadcast_batch(tx: &broadcast::Sender<String>, batch: &IngestBatch) {
+    for log in &batch.logs {
+        let msg = serde_json::json!({
+            "type": "log",
+            "timestamp_ns": log.timestamp_ns,
+            "service": log.service_name,
+            "level": log.level,
+            "message": log.message,
+            "logger_name": log.logger_name,
+            "file": log.file,
+            "line": log.line,
+            "correlation_id": log.correlation_id,
+            "attributes": log.attributes,
+        });
+        let _ = tx.send(msg.to_string());
+    }
+    for span in &batch.spans {
+        let msg = serde_json::json!({
+            "type": "span",
+            "start_time_ns": span.start_time_ns,
+            "end_time_ns": span.end_time_ns,
+            "service": span.service_name,
+            "name": span.name,
+            "route": span.route,
+            "method": span.method,
+            "status_code": span.status_code,
+            "error": span.error,
+            "correlation_id": span.correlation_id,
+            "attributes": span.attributes,
+        });
+        let _ = tx.send(msg.to_string());
+    }
+    for metric in &batch.metrics {
+        let msg = serde_json::json!({
+            "type": "metric",
+            "timestamp_ns": metric.timestamp_ns,
+            "service": metric.service_name,
+            "name": metric.name,
+            "value": metric.value,
+            "labels": metric.labels,
+        });
+        let _ = tx.send(msg.to_string());
     }
 }
 
@@ -746,7 +811,7 @@ mod tests {
         }
 
         assert!(
-            accepted >= 10 && accepted < 50,
+            (10..50).contains(&accepted),
             "buffer cap 10 should allow ~10 events, got {accepted}"
         );
         assert!(rejected > 0, "some events should be rejected");
@@ -796,7 +861,7 @@ mod tests {
             let batch = make_batch("svc", i, 3);
             use prost::Message;
             let raw_bytes = bytes::Bytes::from(batch.encode_to_vec());
-            handle_batch(&wal, &buffer, &dedup_cache, batch, raw_bytes, 100_000, &dropped, &startup_done);
+            handle_batch(&wal, &buffer, &dedup_cache, batch, raw_bytes, 100_000, &dropped, &startup_done, None);
         }
 
         // Phase 1: simulate the atomic section of a flush
@@ -841,7 +906,7 @@ mod tests {
         let batch = make_batch("svc", 100, 1);
         use prost::Message;
         let raw_bytes = bytes::Bytes::from(batch.encode_to_vec());
-        let resp = handle_batch(&wal, &buffer, &dedup_cache, batch, raw_bytes, 100_000, &dropped, &startup_done);
+        let resp = handle_batch(&wal, &buffer, &dedup_cache, batch, raw_bytes, 100_000, &dropped, &startup_done, None);
         let elapsed = start.elapsed();
 
         assert!(
@@ -1184,7 +1249,7 @@ mod tests {
         let batch1 = make_batch("svc", 1, 1);
         use prost::Message;
         let raw_bytes1 = bytes::Bytes::from(batch1.encode_to_vec());
-        let resp1 = handle_batch(&wal, &buffer, &dedup_cache, batch1, raw_bytes1, 100_000, &dropped, &writer.startup_done);
+        let resp1 = handle_batch(&wal, &buffer, &dedup_cache, batch1, raw_bytes1, 100_000, &dropped, &writer.startup_done, None);
         assert!(!resp1.accepted, "ingest should be rejected during recovery");
         assert_eq!(resp1.error, "startup_recovery_in_progress");
 
@@ -1194,7 +1259,7 @@ mod tests {
         // Attempt 2: startup done → must accept.
         let batch2 = make_batch("svc", 2, 2);
         let raw_bytes2 = bytes::Bytes::from(batch2.encode_to_vec());
-        let resp2 = handle_batch(&wal, &buffer, &dedup_cache, batch2, raw_bytes2, 100_000, &dropped, &writer.startup_done);
+        let resp2 = handle_batch(&wal, &buffer, &dedup_cache, batch2, raw_bytes2, 100_000, &dropped, &writer.startup_done, None);
         assert!(resp2.accepted, "ingest should be accepted after recovery");
 
         let _ = fs::remove_dir_all(&dir);

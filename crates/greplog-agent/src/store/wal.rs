@@ -64,7 +64,6 @@ impl WalWriter {
         let file = OpenOptions::new()
             .create(true)
             .append(true)
-            .write(true)
             .open(&file_path)?;
 
         let current_size = file.metadata().ok().map_or(0, |m| m.len());
@@ -172,6 +171,39 @@ impl WalWriter {
         Ok(())
     }
 
+    /// Append multiple pre-encoded frames in a single `write_vectored` call.
+    ///
+    /// All frames are written atomically (from the kernel's perspective) in
+    /// order.  If the combined size exceeds the segment threshold the segment
+    /// is rotated before writing.
+    pub fn append_raw_batch(&mut self, bufs: &[&[u8]]) -> Result<()> {
+        if bufs.is_empty() {
+            return Ok(());
+        }
+        let total_len: usize = bufs.iter().map(|b| b.len()).sum();
+        let mut inner = lock_inner(&self.inner)?;
+
+        if inner.current_size + total_len as u64 > self.max_segment_size {
+            drop(inner);
+            self.rotate_internal()?;
+            inner = lock_inner(&self.inner)?;
+        }
+
+        let file = match inner.current_file.as_mut() {
+            Some(f) => f,
+            None => bail!("WAL is not open"),
+        };
+        let mut flat = Vec::with_capacity(total_len);
+        for buf in bufs {
+            flat.extend_from_slice(buf);
+        }
+        file.write_all(&flat)?;
+        inner.current_size += total_len as u64;
+        self.pending_writes.store(true, Ordering::SeqCst);
+
+        Ok(())
+    }
+
     #[allow(dead_code)]
     pub fn append(&mut self, batch: &IngestBatch) -> Result<()> {
         let buf = Self::prepare_append(batch);
@@ -195,7 +227,6 @@ impl WalWriter {
         let file = OpenOptions::new()
             .create(true)
             .append(true)
-            .write(true)
             .open(&file_path)?;
 
         inner.current_file = Some(file);
@@ -315,7 +346,7 @@ pub fn replay_segments(dir: &Path) -> Result<Vec<(IngestBatch, u64)>> {
         .filter(|e| {
             e.file_name()
                 .to_str()
-                .map_or(false, |n| n.ends_with(".wal"))
+                .is_some_and(|n| n.ends_with(".wal"))
         })
         .collect();
 
@@ -411,249 +442,5 @@ fn crc32(data: &[u8]) -> u32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use greplog_core::gen::IngestBatch;
-
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("greplog_wal_test_{}_{}", name, std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        let _ = fs::create_dir_all(&dir);
-        dir
-    }
-
-    fn make_batch(seq: u64) -> IngestBatch {
-        IngestBatch {
-            service_name: "test-svc".into(),
-            instance_id: "inst-1".into(),
-            batch_seq: seq as i64,
-            logs: Vec::new(),
-            spans: Vec::new(),
-            metrics: Vec::new(),
-        }
-    }
-
-    /// Round-trip: append several records, replay, confirm back in order.
-    #[test]
-    fn test_round_trip() {
-        let dir = temp_dir("round_trip");
-        let mut wal = WalWriter::open(&dir).expect("open WAL");
-
-        wal.append(&make_batch(10)).expect("append 10");
-        wal.append(&make_batch(20)).expect("append 20");
-        wal.append(&make_batch(30)).expect("append 30");
-        wal.close().expect("close WAL");
-
-        let replayed = replay_segments(&dir).expect("replay");
-        assert_eq!(replayed.len(), 3);
-        assert_eq!(replayed[0].0.batch_seq, 10i64);
-        assert_eq!(replayed[1].0.batch_seq, 20i64);
-        assert_eq!(replayed[2].0.batch_seq, 30i64);
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// Segment rotation: small threshold forces a new segment, both replay together.
-    #[test]
-    fn test_segment_rotation() {
-        let dir = temp_dir("rotation");
-        let mut wal =
-            WalWriter::with_config(&dir, Duration::from_secs(60), 100).expect("open WAL");
-
-        for i in 0..20 {
-            wal.append(&make_batch(i)).expect("append");
-        }
-        wal.close().expect("close");
-
-        let entries: Vec<_> = fs::read_dir(dir.join("wal"))
-            .expect("read wal dir")
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.file_name()
-                    .to_str()
-                    .map_or(false, |n| n.ends_with(".wal"))
-            })
-            .collect();
-        assert!(
-            entries.len() >= 2,
-            "expected at least 2 segments, got {}",
-            entries.len()
-        );
-
-        let replayed = replay_segments(&dir).expect("replay");
-        assert_eq!(replayed.len(), 20);
-        for (i, (batch, _seq)) in replayed.iter().enumerate() {
-            assert_eq!(batch.batch_seq, i as i64);
-        }
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// Truncation in payload: slice off mid-record, confirm valid records before it survive.
-    #[test]
-    fn test_truncation_recovery() {
-        let dir = temp_dir("truncation_payload");
-        let mut wal =
-            WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open WAL");
-
-        wal.append(&make_batch(1)).expect("append 1");
-        wal.append(&make_batch(2)).expect("append 2");
-
-        let wal_dir = dir.join("wal");
-        let seg_path = wal_dir.join("000001.wal");
-        let original_len = fs::metadata(&seg_path).expect("metadata").len();
-
-        wal.append(&make_batch(3)).expect("append 3");
-        wal.close().expect("close");
-
-        let len_after_3 = fs::metadata(&seg_path).expect("metadata").len();
-        assert!(len_after_3 > original_len, "file should have grown");
-
-        // Truncate the file back to where it was before record 3
-        let file = OpenOptions::new().write(true).open(&seg_path).expect("open");
-        file.set_len(original_len).expect("truncate");
-        drop(file);
-
-        let replayed = replay_segments(&dir).expect("replay");
-        assert_eq!(
-            replayed.len(),
-            2,
-            "only first two records should survive truncation"
-        );
-        assert_eq!(replayed[0].0.batch_seq, 1i64);
-        assert_eq!(replayed[1].0.batch_seq, 2i64);
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// Checksum mismatch: corrupt payload bytes, confirm replay stops before corrupt record.
-    #[test]
-    fn test_checksum_mismatch() {
-        let dir = temp_dir("checksum");
-        let mut wal =
-            WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open WAL");
-
-        wal.append(&make_batch(1)).expect("append 1");
-        wal.append(&make_batch(2)).expect("append 2");
-        wal.append(&make_batch(3)).expect("append 3");
-        wal.close().expect("close");
-
-        let wal_dir = dir.join("wal");
-        let seg_path = wal_dir.join("000001.wal");
-        let mut data = fs::read(&seg_path).expect("read");
-
-        // Skip past frame 1's bytes to land inside frame 2's payload
-        let frame1_total = u32::from_le_bytes(data[0..4].try_into().unwrap()) as usize;
-        let frame2_offset = 4 + frame1_total;
-        let corrupt_at = frame2_offset + 8 + 5; // 8=len+crc header, 5=into payload
-        if corrupt_at < data.len() {
-            data[corrupt_at] ^= 0xFF;
-            fs::write(&seg_path, &data).expect("write corrupted data");
-        }
-
-        let replayed = replay_segments(&dir).expect("replay");
-        assert_eq!(
-            replayed.len(),
-            1,
-            "only first record should survive checksum corruption"
-        );
-        assert_eq!(replayed[0].0.batch_seq, 1i64);
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// Header-boundary truncation: file ends partway through the header bytes
-    /// (not the payload) of the last record. Replay must not panic and must
-    /// return everything parsed before that record.
-    #[test]
-    fn test_header_truncation_recovery() {
-        let dir = temp_dir("truncation_header");
-        let mut wal =
-            WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open WAL");
-
-        wal.append(&make_batch(1)).expect("append 1");
-        wal.append(&make_batch(2)).expect("append 2");
-
-        let wal_dir = dir.join("wal");
-        let seg_path = wal_dir.join("000001.wal");
-        let original_len = fs::metadata(&seg_path).expect("metadata").len();
-
-        wal.append(&make_batch(3)).expect("append 3");
-        wal.close().expect("close");
-
-        let len_after_3 = fs::metadata(&seg_path).expect("metadata").len();
-        assert!(len_after_3 > original_len, "file should have grown");
-
-        // Truncate to original_len + 2 bytes (partway through the header of record 3)
-        let truncate_to = original_len + 2;
-        let file = OpenOptions::new().write(true).open(&seg_path).expect("open");
-        file.set_len(truncate_to).expect("truncate");
-        drop(file);
-
-        let replayed = replay_segments(&dir).expect("replay");
-        assert_eq!(
-            replayed.len(),
-            2,
-            "both valid records should survive header truncation"
-        );
-        assert_eq!(replayed[0].0.batch_seq, 1i64);
-        assert_eq!(replayed[1].0.batch_seq, 2i64);
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// Explicit close() then drop — must not panic or double-join the sync thread.
-    #[test]
-    fn test_close_then_drop() {
-        let dir = temp_dir("close_then_drop");
-        let mut wal = WalWriter::open(&dir).expect("open WAL");
-        wal.append(&make_batch(1)).expect("append");
-        wal.close().expect("close"); // consumes wal, no Drop runs afterward
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    /// Burst-then-idle: the background sync thread should flush a burst even
-    /// when no new appends follow before a crash-style drop.
-    #[test]
-    fn test_background_fsync_before_crash() {
-        let dir = temp_dir("background_fsync");
-        let fsync_interval = Duration::from_millis(20);
-        let mut wal =
-            WalWriter::with_config(&dir, fsync_interval, 999_999).expect("open WAL");
-
-        // Append a burst of records
-        wal.append(&make_batch(100)).expect("append burst");
-        wal.append(&make_batch(200)).expect("append burst");
-        wal.append(&make_batch(300)).expect("append burst");
-
-        // Wait long enough for the background sync to fire at least once
-        // after the last append (2x interval for safety).
-        thread::sleep(fsync_interval * 2);
-
-        // "Crash" — stop the background thread and leak the writer without
-        // calling close() or allowing Drop to run a final sync.
-        wal.stop_flag.store(true, Ordering::Relaxed);
-        if let Some(ref handle) = wal.sync_thread {
-            handle.thread().unpark();
-        }
-        if let Some(handle) = wal.sync_thread.take() {
-            let _ = handle.join();
-        }
-        // Leak the writer — no Drop, no final sync. The data should already
-        // be on disk from the background sync thread's last tick.
-        let _ = std::mem::ManuallyDrop::new(wal);
-
-        let replayed = replay_segments(&dir).expect("replay");
-        assert_eq!(
-            replayed.len(),
-            3,
-            "burst should survive crash because background fsync already synced it"
-        );
-        assert_eq!(replayed[0].0.batch_seq, 100i64);
-        assert_eq!(replayed[1].0.batch_seq, 200i64);
-        assert_eq!(replayed[2].0.batch_seq, 300i64);
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-}
+#[path = "../../tests/modules/store/wal.rs"]
+mod tests;

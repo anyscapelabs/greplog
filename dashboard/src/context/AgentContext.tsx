@@ -1,21 +1,35 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { fetchHealth } from '../hooks/api.ts'
 
 interface AgentContextType {
   connected: boolean
-  setConnected: () => void
 }
 
 const AgentContext = createContext<AgentContextType>({
   connected: false,
-  setConnected: () => {},
 })
 
 export function AgentProvider({ children }: { children: ReactNode }) {
-  const [connected, setConnectedState] = useState(false)
-  const setConnected = useCallback(() => setConnectedState(true), [])
+  const [connected, setConnected] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const poll = async () => {
+      while (!cancelled) {
+        const health = await fetchHealth()
+        if (health?.status === 'ok') {
+          setConnected(true)
+          return
+        }
+        await new Promise((r) => setTimeout(r, 2000))
+      }
+    }
+    poll()
+    return () => { cancelled = true }
+  }, [])
 
   return (
-    <AgentContext.Provider value={{ connected, setConnected }}>
+    <AgentContext.Provider value={{ connected }}>
       {children}
     </AgentContext.Provider>
   )
