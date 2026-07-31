@@ -17,6 +17,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
 
+// ── JSON SQL functions (json_get_str, json_get_int, json_get_float, etc.) ──
+// Enables queries like:
+//   SELECT json_get_str(attributes, 'http.latency_ms') FROM logs
+// Used by the dashboard to extract HTTP metadata from LogEvent.attributes
+// for SDKs (Node.js, Python) that send HTTP data as attributes rather than
+// as Span messages.
+use datafusion_functions_json::register_all;
+
 /// TTL for the DataFusion file-list cache.  Entries are evicted this
 /// many seconds after insertion, forcing a fresh directory listing from
 /// the store on the next query.
@@ -152,7 +160,7 @@ impl QueryEngine {
             .await
             .map_err(|_| anyhow::anyhow!("Query timed out after {:?}", self.timeout_duration))??;
 
-        Ok(batches_to_result(batches))
+        batches_to_result(batches)
     }
 
     // -----------------------------------------------------------------------
@@ -171,7 +179,15 @@ impl QueryEngine {
             .with_memory_pool(pool)
             .with_cache_manager(cache_config)
             .build()?;
-        let ctx = SessionContext::new_with_config_rt(SessionConfig::new(), Arc::new(runtime));
+        let mut ctx = SessionContext::new_with_config_rt(SessionConfig::new(), Arc::new(runtime));
+
+        // Register JSON SQL functions (json_get_str, json_get_int, json_get_float, etc.)
+        // so the dashboard can query LogEvent.attributes for HTTP metadata from
+        // Node.js and Python SDKs via json_get_str(attributes, 'http.latency_ms').
+        // Each string argument is one literal key segment (the attributes JSON is a
+        // flat object whose keys contain dots), not JSONPath syntax.
+        register_all(&mut ctx)?;
+
         Ok(ctx)
     }
 
@@ -224,7 +240,7 @@ impl QueryEngine {
 // RecordBatch → QueryResult conversion
 // ---------------------------------------------------------------------------
 
-fn batches_to_result(batches: Vec<RecordBatch>) -> QueryResult {
+fn batches_to_result(batches: Vec<RecordBatch>) -> Result<QueryResult> {
     let columns: Vec<String> = if let Some(batch) = batches.first() {
         batch
             .schema()
@@ -242,30 +258,36 @@ fn batches_to_result(batches: Vec<RecordBatch>) -> QueryResult {
             let mut row_vals = Vec::with_capacity(batch.num_columns());
             for col_idx in 0..batch.num_columns() {
                 let col = batch.column(col_idx);
-                row_vals.push(arrow_value_to_json(col.as_ref(), row_idx));
+                row_vals.push(arrow_value_to_json(col.as_ref(), row_idx)?);
             }
             rows.push(row_vals);
         }
     }
 
     let row_count = rows.len();
-    QueryResult {
+    Ok(QueryResult {
         columns,
         rows,
         row_count,
-    }
+    })
 }
 
 /// Convert a single cell from a DataFusion / Arrow array to a JSON value.
 ///
 /// Mirrors the existing `arrow_to_json` in `query/mod.rs`, but uses the
 /// non-DuckDB-wrapped arrow types directly.
-fn arrow_value_to_json(col: &dyn Array, row: usize) -> serde_json::Value {
+///
+/// Fails loudly on unhandled Arrow types instead of fabricating a value: a
+/// silent catch-all has caused real corruption here before (DataFusion 54's
+/// `Utf8View` was serialized as the literal string "Utf8View" and rendered as
+/// a bogus status code in the dashboard). An unknown type is a bug that
+/// should surface as a query error, not as a wrong-looking chart.
+fn arrow_value_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value> {
     if col.is_null(row) {
-        return serde_json::Value::Null;
+        return Ok(serde_json::Value::Null);
     }
 
-    match col.data_type() {
+    Ok(match col.data_type() {
         DataType::Boolean => {
             let a = col.as_any().downcast_ref::<BooleanArray>().unwrap();
             serde_json::Value::Bool(a.value(row))
@@ -308,6 +330,15 @@ fn arrow_value_to_json(col: &dyn Array, row: usize) -> serde_json::Value {
             let a = col.as_any().downcast_ref::<LargeStringArray>().unwrap();
             serde_json::Value::String(a.value(row).to_string())
         }
+        DataType::Utf8View => {
+            // DataFusion 54 uses StringView (Utf8View) for string literals and
+            // CAST(.. AS VARCHAR). The downcast always succeeds for a Utf8View
+            // column; the fallback avoids unwrapping on the unreachable case.
+            col.as_any()
+                .downcast_ref::<StringViewArray>()
+                .map(|a| serde_json::Value::String(a.value(row).to_string()))
+                .unwrap_or(serde_json::Value::Null)
+        }
         DataType::Timestamp(_, _) => {
             if let Some(a) = col.as_any().downcast_ref::<TimestampMicrosecondArray>() {
                 serde_json::json!(a.value(row))
@@ -320,12 +351,18 @@ fn arrow_value_to_json(col: &dyn Array, row: usize) -> serde_json::Value {
         DataType::List(_) => {
             let a = col.as_any().downcast_ref::<ListArray>().unwrap();
             let sub = a.value(row);
-            let json_values: Vec<serde_json::Value> =
-                (0..sub.len()).map(|i| arrow_value_to_json(sub.as_ref(), i)).collect();
+            let json_values: Vec<serde_json::Value> = (0..sub.len())
+                .map(|i| arrow_value_to_json(sub.as_ref(), i))
+                .collect::<Result<Vec<_>>>()?;
             serde_json::Value::Array(json_values)
         }
-        _ => serde_json::Value::String(format!("{:?}", col.data_type())),
-    }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "cannot serialize query result: unhandled Arrow type {:?} (add an arm to arrow_value_to_json)",
+                col.data_type()
+            ))
+        }
+    })
 }
 
 #[cfg(test)]

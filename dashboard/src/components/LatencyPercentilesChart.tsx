@@ -9,10 +9,13 @@ interface LatencyPercentilesChartProps {
   labels: string[]
 }
 
+const EMPTY_MESSAGE =
+  'No HTTP metrics — request data depends on SDK capture. Upgrade to a recent SDK for latency/status coverage.'
+
 export default function LatencyPercentilesChart({ p50, p90, p99 }: LatencyPercentilesChartProps) {
   const colors = useChartTheme()
   const hasData = p50.length > 0 || p90.length > 0 || p99.length > 0
-  if (!hasData) return <ChartEmptyState />
+  if (!hasData) return <ChartEmptyState message={EMPTY_MESSAGE} />
 
   const valP50 = p50.length > 0 ? p50[0] : 0
   const valP90 = p90.length > 0 ? p90[0] : 0
@@ -37,7 +40,7 @@ export default function LatencyPercentilesChart({ p50, p90, p99 }: LatencyPercen
         barWidth: '40%',
       },
     ],
-    tooltip: { trigger: 'axis', formatter: (params: any) => `${params[0].name}: ${params[0].value}ms` },
+    tooltip: { trigger: 'axis', formatter: '{b}: {c}ms' },
   }
 
   return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge />

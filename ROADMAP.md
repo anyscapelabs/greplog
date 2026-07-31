@@ -60,7 +60,7 @@ What's built, what's in progress, and what's planned for Greplog.
 | Analytics metrics (error rate %, active services, unhealthy count, total events) | High | ✅ Done — all computed server-side via DataFusion `GROUP BY`/`COUNT`/`SUM`/subquery |
 | `totalLogs`/`totalErrors` correct server-side count (not paginated slice length) | High | ✅ Done — parallel `COUNT(*)` query in `useLogs` + `useErrors` |
 | Metrics computed server-side (error rate ratio, healthy count) | High | ✅ Done — `CAST(errors AS DOUBLE) / CAST(total AS DOUBLE) AS error_rate`, `count(*) - count(*) FILTER(...) AS healthy` in SQL, no frontend ratio computation |
-| Analytics charts: latency percentiles, status codes, avg response time | Medium | ✅ Done — `spans` table was already fully implemented (13-column schema, ingested, flushed to Parquet, queryable via `/query`) |
+| Analytics charts: latency percentiles, status codes, avg response time | Medium | ✅ Done — `spans` table was already fully implemented (13-column schema, ingested, flushed to Parquet, queryable via `/query`); the charts also read HTTP data from `logs.attributes` via DataFusion `json_get_str()` (Node.js/Python SDK coverage). The two sources are combined with server-side `UNION ALL` per chart, so percentiles/sums/counts are computed over the combined population — no client-side merge, correct for mixed-SDK deployments. The user filter is translated per arm so both arms narrow the same population: `timestamp` → `start_time`, `level` → `status_code` bucket (the Node/Python HTTP middleware derives level from status), `message LIKE` → `name`/`route LIKE`, `line` → `status_code` |
 | Analytics chart: system metrics (CPU, memory, disk, network) | Low | 📋 Pending — needs new agent capability (OS-level metric collection), not a query/wiring task |
 | Logs page charts (LogVolume, Errors, StatusCodes) | Medium | 📋 Pending — query engine aggregation confirmed; `volumeTimeseries`/`errorTimeseries` already fetched by `useLogs`, chart components need wiring. `StatusCodesChart` blocked on `spans` table access from Logs page |
 | Errors page charts (ErrorCount, ErrorRate, ErrorByService) | Medium | 📋 Pending — query engine aggregation confirmed; per-date and per-service queries already in `useErrors`, chart components need wiring |
@@ -87,6 +87,25 @@ What's built, what's in progress, and what's planned for Greplog.
 | Python | ✅ Shipped |
 | Go | ✅ Shipped |
 | Rust | ✅ Shipped |
+
+### SDK wire-format reconciliation (backlog)
+
+HTTP request/response capture is semantically the same data across all four SDKs,
+but it is currently sent two different ways on the wire:
+
+- **Go and Rust SDKs** → first-class `Span` messages (`IngestBatch.spans`) with typed
+  `method` / `route` / `status_code` / `start_time_ns` / `end_time_ns` fields.
+- **Node.js and Python SDKs** → `LogEvent.attributes` (`IngestBatch.logs`) as string
+  keys `http.method` / `http.route` / `http.status_code` / `http.latency_ms` with
+  `logger_name = "greplog.http"`.
+
+This violates the sdk-design principle that the same semantic data must not vary per
+language. The dashboard now reads both representations (spans table + `json_get_str`
+on attributes), which is a stopgap, not the permanent design.
+
+| Task | Priority | Status |
+|------|----------|--------|
+| Reconcile HTTP capture onto one wire representation (align Node.js/Python SDKs to send `Span` messages, matching Go/Rust) | Medium | 📋 Planned — needs cross-SDK protocol change (all 4 SDKs) + agent-side verification; dashboard dual-source queries remain a safe fallback until then |
 
 ## Distribution
 

@@ -29,3 +29,4 @@ parquet = "58"
 sysinfo = "0.33"
 uuid = { version = "1.23.5", features = ["v4"] }
 datafusion = "54"
+datafusion-functions-json = "0.54"

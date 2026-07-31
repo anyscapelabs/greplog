@@ -103,6 +103,97 @@ async fn count_rows(engine: &QueryEngine, sql: &str) -> usize {
         .unwrap_or(0)
 }
 
+/// Write a log row with HTTP attributes and `logger_name = 'greplog.http'`,
+/// matching the shape emitted by the Node.js and Python SDKs' HTTP middleware
+/// (whose `level` is derived from the response status: >=500 -> error,
+/// 400-499 -> warn, <400 -> info).
+fn write_http_log_file(base: &Path, service: &str, date: &str, id: &str, latency_ms: &str, status_code: &str) -> PathBuf {
+    let dir = base
+        .join("data")
+        .join("table_type=logs")
+        .join(format!("service={}", service))
+        .join(format!("date={}", date));
+    let schema = greplog_core::arrow_schema::log_schema();
+    let ts = 1_705_276_800_000_000; // 2024-01-15 00:00:00 UTC (µs), matching the date partition
+    let level = match status_code.parse::<u16>() {
+        Ok(code) if code >= 500 => "error",
+        Ok(code) if code >= 400 => "warn",
+        _ => "info",
+    };
+    let attributes = serde_json::json!({
+        "http.method": "GET",
+        "http.route": "/api",
+        "http.status_code": status_code,
+        "http.latency_ms": latency_ms,
+    })
+    .to_string();
+    let mut st_builder = ListBuilder::new(StringBuilder::new());
+    st_builder.append(false);
+    let batch = RecordBatch::try_new(
+        Arc::new(schema),
+        vec![
+            Arc::new(StringArray::from(vec![id])),
+            Arc::new(StringArray::from(vec![service])),
+            Arc::new(TimestampMicrosecondArray::from(vec![ts])),
+            Arc::new(StringArray::from(vec![Some(level)])),
+            Arc::new(StringArray::from(vec![Some("/api")])),
+            Arc::new(StringArray::from(vec![Some("GET /api -> 200")])),
+            Arc::new(StringArray::from(vec![Some(attributes.as_str())])),
+            Arc::new(StringArray::from(vec![Some("greplog.http")])), // logger_name
+            Arc::new(StringArray::from(vec![None::<&str>])),  // file
+            Arc::new(Int32Array::from(vec![None::<i32>])),   // line
+            Arc::new(StringArray::from(vec![None::<&str>])),  // correlation_id
+            Arc::new(st_builder.finish()),                    // stack_trace
+            Arc::new(StringArray::from(vec![None::<&str>])),  // exception_type
+            Arc::new(StringArray::from(vec![None::<&str>])),  // exception_message
+        ],
+    )
+    .expect("build http log batch");
+    write_parquet_atomic(&dir, &batch).expect("write http log parquet");
+    dir
+}
+
+/// Write a span row with typed HTTP metadata, matching the shape emitted by the
+/// Go and Rust SDKs' HTTP middleware (start_time is the spans table's time
+/// column — there is no `timestamp` column).
+fn write_http_span_file(
+    base: &Path,
+    service: &str,
+    date: &str,
+    id: &str,
+    latency_ms: f64,
+    status_code: i32,
+    start_time_us: i64,
+) -> PathBuf {
+    let dir = base
+        .join("data")
+        .join("table_type=spans")
+        .join(format!("service={}", service))
+        .join(format!("date={}", date));
+    let schema = greplog_core::arrow_schema::span_schema();
+    let batch = RecordBatch::try_new(
+        Arc::new(schema),
+        vec![
+            Arc::new(StringArray::from(vec![id])),
+            Arc::new(StringArray::from(vec![None::<&str>])),
+            Arc::new(StringArray::from(vec![None::<&str>])),
+            Arc::new(StringArray::from(vec![service])),
+            Arc::new(StringArray::from(vec![Some("GET /api")])),
+            Arc::new(StringArray::from(vec![Some("/api")])),
+            Arc::new(StringArray::from(vec![Some("GET")])),
+            Arc::new(Int32Array::from(vec![Some(status_code)])),
+            Arc::new(Float64Array::from(vec![Some(latency_ms)])),
+            Arc::new(BooleanArray::from(vec![Some(false)])),
+            Arc::new(TimestampMicrosecondArray::from(vec![start_time_us])),
+            Arc::new(TimestampMicrosecondArray::from(vec![start_time_us])),
+            Arc::new(StringArray::from(vec![None::<&str>])),
+        ],
+    )
+    .expect("build http span batch");
+    write_parquet_atomic(&dir, &batch).expect("write http span parquet");
+    dir
+}
+
 #[tokio::test]
 async fn test_basic_query() {
     let dir = test_dir("basic_query");
@@ -542,6 +633,262 @@ async fn test_non_parquet_files_ignored() {
         .expect("query");
     assert_eq!(result.row_count, 1, "only the real parquet row should appear");
     assert_eq!(result.rows[0][4], serde_json::json!("real data"));
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_json_get_str_http_attributes() {
+    let dir = test_dir("json_get_str_http");
+
+    write_http_log_file(&dir, "web", "2024-01-15", "id-1", "42.5", "200");
+    write_http_log_file(&dir, "web", "2024-01-15", "id-2", "77.0", "500");
+    write_http_log_file(&dir, "api", "2024-01-15", "id-3", "12.5", "200");
+    // A plain log with NULL attributes and no logger_name — its attributes
+    // column must not break json_get_str for the rows that do have JSON.
+    write_log_file(&dir, "web", "2024-01-15", "id-4", "info", "plain log");
+
+    let engine = QueryEngine::new(&dir).expect("new engine");
+
+    // Raw string extraction from the JSON attributes column.
+    let result = engine
+        .query("SELECT json_get_str(attributes, 'http.status_code') AS code FROM logs WHERE logger_name = 'greplog.http' ORDER BY id")
+        .await
+        .expect("query json_get_str");
+    assert_eq!(result.row_count, 3);
+    assert_eq!(result.rows[0][0], serde_json::json!("200"));
+    assert_eq!(result.rows[1][0], serde_json::json!("500"));
+
+    // Cast + aggregate path used by the dashboard's latency percentile chart.
+    let result = engine
+        .query("SELECT approx_percentile_cont(CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE), 0.50) AS p50 FROM logs WHERE logger_name = 'greplog.http'")
+        .await
+        .expect("query latency percentile");
+    assert_eq!(result.rows[0][0], serde_json::json!(42.5));
+
+    // Group-by path used by the dashboard's status-code pie chart.
+    let result = engine
+        .query("SELECT json_get_str(attributes, 'http.status_code') AS code, count(*) AS cnt FROM logs WHERE logger_name = 'greplog.http' GROUP BY json_get_str(attributes, 'http.status_code') ORDER BY cnt DESC")
+        .await
+        .expect("query status codes");
+    assert_eq!(result.row_count, 2, "200 and 500");
+    assert_eq!(result.rows[0][0], serde_json::json!("200"));
+    assert_eq!(result.rows[0][1], serde_json::json!(2i64));
+
+    // Sum + count path used by the dashboard's avg-response-time chart.
+    let result = engine
+        .query("SELECT service, sum(CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE)) AS sum_ms, count(*) AS cnt FROM logs WHERE logger_name = 'greplog.http' GROUP BY service ORDER BY service")
+        .await
+        .expect("query avg response time");
+    assert_eq!(result.row_count, 2);
+    assert_eq!(result.rows[0][0], serde_json::json!("api"));
+    assert_eq!(result.rows[0][1], serde_json::json!(12.5));
+
+    // Missing keys / NULL attributes produce NULL (skipped by aggregates),
+    // not a query error — scan all rows including the plain one.
+    let result = engine
+        .query("SELECT id, json_get_str(attributes, 'http.latency_ms') AS lat FROM logs ORDER BY id")
+        .await
+        .expect("query all rows with json_get_str");
+    assert_eq!(result.row_count, 4);
+    assert_eq!(result.rows[3][1], serde_json::Value::Null, "plain log has no http attributes");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_union_all_http_span_and_log_attributes() {
+    // Mirrors the dashboard's 3 HTTP chart queries: the spans and
+    // logs-attributes sources (Go/Rust SDKs vs Node.js/Python SDKs) are
+    // UNION ALL'd server-side and aggregated over the combined population.
+    // The spans arm uses the translated time predicate (`start_time`, since
+    // the spans table has no `timestamp` column); the logs arm uses
+    // `timestamp`.
+    let dir = test_dir("union_all_http");
+    let day = 1_705_276_800_000_000; // 2024-01-15 00:00:00 UTC (µs)
+    let old_day = day - 86_400_000_000; // 2024-01-14 00:00:00 UTC (µs)
+
+    // Go/Rust SDKs → typed spans (service "web").
+    write_http_span_file(&dir, "web", "2024-01-15", "s-1", 42.5, 200, day);
+    write_http_span_file(&dir, "web", "2024-01-15", "s-2", 77.0, 500, day);
+    // Outside the time-range filter — must be excluded from the spans arm.
+    write_http_span_file(&dir, "web", "2024-01-14", "s-old", 999.0, 200, old_day);
+
+    // Node.js/Python SDKs → log attributes (services "web" + "api").
+    write_http_log_file(&dir, "web", "2024-01-15", "id-4", "150.0", "404");
+    write_http_log_file(&dir, "api", "2024-01-15", "id-3", "12.5", "200");
+
+    let engine = QueryEngine::new(&dir).expect("new engine");
+    let spans_pred = "start_time >= TIMESTAMP '2024-01-15 00:00:00'";
+    let logs_pred = "timestamp >= TIMESTAMP '2024-01-15 00:00:00'";
+
+    // Avg response time per service over BOTH sources: web = (42.5 + 77.0 +
+    // 150.0)/3, api = 12.5/1. The 999ms old span must not leak in.
+    let result = engine
+        .query(&format!(
+            "SELECT service, sum(latency_ms) AS sum_ms, count(*) AS cnt FROM (
+               SELECT service, latency_ms FROM spans WHERE {spans_pred}
+               UNION ALL
+               SELECT service, CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
+               FROM logs WHERE logger_name = 'greplog.http' AND {logs_pred}
+             ) t GROUP BY service ORDER BY service"
+        ))
+        .await
+        .expect("query union avg response time");
+    assert_eq!(result.row_count, 2);
+    assert_eq!(result.rows[0][0], serde_json::json!("api"));
+    assert_eq!(result.rows[0][1], serde_json::json!(12.5));
+    assert_eq!(result.rows[0][2], serde_json::json!(1i64));
+    assert_eq!(result.rows[1][0], serde_json::json!("web"));
+    assert_eq!(result.rows[1][1], serde_json::json!(42.5 + 77.0 + 150.0));
+    assert_eq!(result.rows[1][2], serde_json::json!(3i64));
+
+    // Status codes combined across both sources (old span excluded by filter):
+    // 200 appears twice (s-1 + id-3), 404 and 500 once each.
+    let result = engine
+        .query(&format!(
+            "SELECT status_code, sum(cnt) AS cnt FROM (
+               SELECT CAST(status_code AS VARCHAR) AS status_code, count(*) AS cnt
+               FROM spans WHERE {spans_pred} GROUP BY CAST(status_code AS VARCHAR)
+               UNION ALL
+               SELECT json_get_str(attributes, 'http.status_code') AS status_code, count(*) AS cnt
+               FROM logs WHERE logger_name = 'greplog.http' AND {logs_pred}
+               GROUP BY json_get_str(attributes, 'http.status_code')
+             ) t GROUP BY status_code ORDER BY cnt DESC, status_code"
+        ))
+        .await
+        .expect("query union status codes");
+    assert_eq!(result.row_count, 3, "200, 404 and 500 across both sources");
+    assert_eq!(result.rows[0][0], serde_json::json!("200"));
+    assert_eq!(result.rows[0][1], serde_json::json!(2i64));
+    assert_eq!(result.rows[1][0], serde_json::json!("404"));
+    assert_eq!(result.rows[1][1], serde_json::json!(1i64));
+    assert_eq!(result.rows[2][0], serde_json::json!("500"));
+    assert_eq!(result.rows[2][1], serde_json::json!(1i64));
+
+    // Latency percentile over the combined population. The exact value depends
+    // on the t-digest approximation, so assert the four contributing rows and
+    // that the percentile is inside their range.
+    let result = engine
+        .query(&format!(
+            "SELECT approx_percentile_cont(latency_ms, 0.50) AS p50 FROM (
+               SELECT latency_ms FROM spans WHERE {spans_pred}
+               UNION ALL
+               SELECT CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
+               FROM logs WHERE logger_name = 'greplog.http' AND {logs_pred}
+             ) t"
+        ))
+        .await
+        .expect("query union latency percentile");
+    assert_eq!(result.row_count, 1);
+    let p50 = result.rows[0][0].as_f64().expect("p50 is a number");
+    assert!((12.5..=150.0).contains(&p50), "p50 {p50} must sit between the min and max latency");
+
+    // The UNION source must contain exactly the filtered rows (2 spans + 2
+    // logs), proving both SDK paths contribute and the old span is excluded.
+    let result = engine
+        .query(&format!(
+            "SELECT count(*) AS cnt FROM (
+               SELECT latency_ms FROM spans WHERE {spans_pred}
+               UNION ALL
+               SELECT CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
+               FROM logs WHERE logger_name = 'greplog.http' AND {logs_pred}
+             ) t"
+        ))
+        .await
+        .expect("query union row count");
+    assert_eq!(result.rows[0][0], serde_json::json!(4i64));
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_union_all_http_level_and_status_filters() {
+    // Mirrors the dashboard's per-arm predicate translation (httpArmPredicates
+    // in useAnalytics.ts). A `level IN ('error')` filter stays raw on the logs
+    // arm (greplog.http rows carry the status-derived level, so 'error' IS
+    // status >= 500) and becomes `status_code >= 500` on the spans arm — both
+    // arms must select the SAME error population.
+    let dir = test_dir("union_all_http_filters");
+    let day = 1_705_276_800_000_000; // 2024-01-15 00:00:00 UTC (µs)
+
+    // Spans (Go/Rust SDK shape): a 200 and a 500.
+    write_http_span_file(&dir, "web", "2024-01-15", "s-ok", 42.5, 200, day);
+    write_http_span_file(&dir, "web", "2024-01-15", "s-err", 77.0, 500, day);
+
+    // HTTP logs (Node/Python SDK shape): level derived from status, so the 500
+    // row is level 'error' and the 200 row is level 'info'.
+    write_http_log_file(&dir, "web", "2024-01-15", "id-ok", "12.5", "200");
+    write_http_log_file(&dir, "web", "2024-01-15", "id-err", "150.0", "500");
+
+    let engine = QueryEngine::new(&dir).expect("new engine");
+
+    // `level IN ('error')` → only the two 500 rows across both arms.
+    let result = engine
+        .query("SELECT count(*) AS cnt FROM (
+           SELECT latency_ms FROM spans WHERE status_code >= 500
+           UNION ALL
+           SELECT CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
+           FROM logs WHERE logger_name = 'greplog.http' AND (level IN ('error'))
+         ) t")
+        .await
+        .expect("query level-filtered union count");
+    assert_eq!(result.rows[0][0], serde_json::json!(2i64), "only error-status rows across both arms");
+
+    // Per-service sum/count over the error population.
+    let result = engine
+        .query("SELECT service, sum(latency_ms) AS sum_ms, count(*) AS cnt FROM (
+           SELECT service, latency_ms FROM spans WHERE status_code >= 500
+           UNION ALL
+           SELECT service, CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
+           FROM logs WHERE logger_name = 'greplog.http' AND (level IN ('error'))
+         ) t GROUP BY service ORDER BY service")
+        .await
+        .expect("query level-filtered union avg");
+    assert_eq!(result.row_count, 1);
+    assert_eq!(result.rows[0][0], serde_json::json!("web"));
+    assert_eq!(result.rows[0][1], serde_json::json!(77.0 + 150.0));
+    assert_eq!(result.rows[0][2], serde_json::json!(2i64));
+
+    // Status-chip translation: `line >= 500` becomes a status_code predicate on
+    // BOTH arms (line is null on HTTP rows; the chip means response status).
+    let result = engine
+        .query("SELECT count(*) AS cnt FROM (
+           SELECT latency_ms FROM spans WHERE status_code >= 500
+           UNION ALL
+           SELECT CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
+           FROM logs WHERE logger_name = 'greplog.http'
+             AND (CAST(json_get_str(attributes, 'http.status_code') AS INT) >= 500)
+         ) t")
+        .await
+        .expect("query status-chip union count");
+    assert_eq!(result.rows[0][0], serde_json::json!(2i64));
+
+    // Free-text translation: `message LIKE '%api%'` stays raw on the logs arm
+    // and becomes `name LIKE`/`route LIKE` on the spans arm. All four rows
+    // mention /api, so the combined population is all four.
+    let result = engine
+        .query("SELECT count(*) AS cnt FROM (
+           SELECT latency_ms FROM spans WHERE (name LIKE '%api%' OR route LIKE '%api%')
+           UNION ALL
+           SELECT CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
+           FROM logs WHERE logger_name = 'greplog.http' AND (message LIKE '%api%')
+         ) t")
+        .await
+        .expect("query message-filtered union count");
+    assert_eq!(result.rows[0][0], serde_json::json!(4i64), "all rows mention /api");
+
+    // A search matching nothing must exclude rows on BOTH arms, not just one.
+    let result = engine
+        .query("SELECT count(*) AS cnt FROM (
+           SELECT latency_ms FROM spans WHERE (name LIKE '%nonexistent%' OR route LIKE '%nonexistent%')
+           UNION ALL
+           SELECT CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
+           FROM logs WHERE logger_name = 'greplog.http' AND (message LIKE '%nonexistent%')
+         ) t")
+        .await
+        .expect("query non-matching message union count");
+    assert_eq!(result.rows[0][0], serde_json::json!(0i64));
 
     let _ = fs::remove_dir_all(&dir);
 }

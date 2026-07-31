@@ -156,6 +156,26 @@ something that conflicts with a rule above:
 
 ---
 
+## Rule 8: No silent catch-all fallbacks in data-serialization code
+
+A `_ => ...` (or equivalent) arm that converts an unknown input to a
+placeholder, debug-string, or `0` in any serialization/formatting code path
+has now been the root cause of two "chart looks wrong" bugs in this project
+(most recently: DataFusion 54's `Utf8View` serialized as the literal string
+`"Utf8View"` and rendered as a bogus status code). The bug is invisible — the
+query succeeds, the value just looks wrong.
+
+- Map the concrete input types explicitly. If an unknown type can genuinely
+  reach the code, **fail loudly** (return an error / raise) or return an
+  honest `null`/`None` that downstream code already treats as "absent" — never
+  fabricate a value.
+- This applies to every language: Rust (`match` catch-alls), TypeScript
+  (`default:` / `??`), Python, Go. When you see an existing catch-all in a
+  serialization path, treat it as a likely bug and either fix it or flag it —
+  do not extend or copy it.
+
+---
+
 ## Quick pre-completion checklist for any agent finishing a task here
 
 - [ ] `cargo build --workspace` / lint equivalents: zero warnings, zero errors

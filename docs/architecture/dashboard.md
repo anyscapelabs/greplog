@@ -66,7 +66,59 @@ The `spans` table is fully implemented and queryable:
 - Queryable via the same `/query` endpoint — `FROM spans` works identically to `FROM logs`
 - `approx_percentile_cont` is a built-in DataFusion aggregate function, available out of the box (no custom UDAF registration needed)
 
-Three Analytics charts depend on spans (LatencyPercentiles, StatusCodesPie, AvgResponseTime) — all now wired and live.
+### HTTP metrics: dual source (spans + log attributes)
+
+HTTP request/response data is captured **differently per SDK** (see the SDK
+wire-format reconciliation item in `ROADMAP.md`):
+
+- **Go and Rust SDKs** send HTTP metadata as `Span` messages → `spans` table.
+- **Node.js and Python SDKs** send it as `LogEvent.attributes` (keys `http.method`,
+  `http.route`, `http.status_code`, `http.latency_ms`, `logger_name = "greplog.http"`)
+  → `logs` table, extracted with DataFusion's `json_get_str(attributes, 'http.latency_ms')`.
+
+The three HTTP charts query **both** sources as a single `UNION ALL` per chart
+(`useAnalytics` runs 9 queries total). Each source's rows feed the same
+aggregation, so percentiles, sums and counts are computed over the true combined
+population server-side — no client-side merging:
+
+- **LatencyPercentiles** — `SELECT approx_percentile_cont(latency_ms, …) FROM (SELECT latency_ms FROM spans <where> UNION ALL SELECT CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) FROM logs WHERE logger_name = 'greplog.http' <where>) t`.
+- **StatusCodes** — per-source `GROUP BY` counts, then a second `GROUP BY status_code` summing across both arms.
+- **AvgResponseTime** — both arms project `service` + `latency_ms`; the outer query returns `SUM(latency_ms)` + `COUNT(*)` per service (weighted average is exact even when a service has rows from both sources).
+
+Each arm gets its **own translation of the user's filter predicate**
+(`httpArmPredicates` in `useAnalytics.ts`), so a filter narrows **both** arms
+the same way — a filter that only applied to one arm would aggregate over a
+mathematically wrong mixed population. Translation rules:
+
+- `service IN (...)`, `correlation_id = 'x'` — unchanged on both arms.
+- `timestamp op N` (the time-range filter) — `timestamp` on the logs arm,
+  `start_time` on the spans arm (the spans table has no `timestamp` column).
+- `level IN (...)`, `message LIKE '%x%'`, `line op N` — the `logs`-only
+  columns, translated per arm:
+  - **`level`**: the Node.js/Python HTTP middleware derives `level` from the
+    response status (`>=500` → error, `400-499` → warn, `<400` → info), so for
+    HTTP rows `level` IS a status bucket. The logs arm keeps the raw `level`
+    clause (equivalent by that mapping); the spans arm translates it to a
+    `status_code` predicate (e.g. `level IN ('error','critical','fatal')` →
+    `status_code >= 500`; `warn` → `400 <= status_code < 500`; `info` →
+    `status_code < 400`; `debug` and other levels the middleware never emits
+    match nothing on both arms).
+  - **`message`**: the logs arm keeps `message LIKE`; the spans arm maps it to
+    `name LIKE '%x%' OR route LIKE '%x%'` (span name is `"METHOD route"`).
+  - **`line`** (status chips compile to `line` predicates): `line` is null on
+    HTTP rows, so both arms filter on `status_code` instead — the logs arm via
+    `CAST(json_get_str(attributes, 'http.status_code') AS INT)`.
+- Unrecognized clause shapes — fail loudly (AGENTS.md Rule 8): the three HTTP
+  queries are skipped and a console warning names the unhandled clause, so a
+  future filter type must be added as an explicit case in `httpArmPredicates`
+  instead of silently degrading to a skewed population.
+
+`json_get_str` returns NULL for missing keys/malformed JSON, so bad rows are
+skipped by the aggregates rather than failing the query.
+
+Empty charts for these three show an SDK-version message ("No HTTP metrics —
+request data depends on SDK capture…") rather than the generic not-connected
+state.
 
 ### Analytics Charts (wired status)
 
@@ -74,12 +126,12 @@ Three Analytics charts depend on spans (LatencyPercentiles, StatusCodesPie, AvgR
 |-------|--------|--------|
 | Log Ingestion Over Time | `logs` table, `GROUP BY date` | ✅ Wired |
 | Error Rate Over Time | `logs` table, error-filtered | ✅ Wired |
-| Latency Percentiles | `spans` table, `approx_percentile_cont` | ✅ Wired |
+| Latency Percentiles | `spans` + `logs.attributes` (`json_get_str`) `UNION ALL`, `approx_percentile_cont` | ✅ Wired |
 | Service Health | `logs` table, per-service error breakdown | ✅ Wired |
-| Status Codes | `spans` table, `GROUP BY status_code` | ✅ Wired |
+| Status Codes | `spans` + `logs.attributes` (`json_get_str`) `UNION ALL`, grouped counts | ✅ Wired |
 | Top Noisy Services | `logs` table, top 5 by count | ✅ Wired |
 | Log Severity Distribution | `logs` table, `GROUP BY level` | ✅ Wired |
-| Avg Response Time | `spans` table, `AVG(latency_ms)` per service | ✅ Wired |
+| Avg Response Time | `spans` + `logs.attributes` (`json_get_str`) `UNION ALL`, `SUM`/`COUNT` per service | ✅ Wired |
 | System Metrics | OS-level agent collection needed | 📋 Blocked |
 
 > **Status:** ✅ 8 of 9 Analytics charts wired. System Metrics blocked on new agent capability.

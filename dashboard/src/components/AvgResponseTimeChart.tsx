@@ -9,7 +9,9 @@ interface AvgResponseTimeChartProps {
 
 export default function AvgResponseTimeChart({ data }: AvgResponseTimeChartProps) {
   const colors = useChartTheme()
-  if (!data || data.length === 0) return <ChartEmptyState />
+  if (!data || data.length === 0) {
+    return <ChartEmptyState message="No HTTP metrics — request data depends on SDK capture. Upgrade to a recent SDK for response-time coverage." />
+  }
 
   const sorted = [...data].sort((a, b) => b.value - a.value)
 
@@ -31,7 +33,7 @@ export default function AvgResponseTimeChart({ data }: AvgResponseTimeChartProps
         itemStyle: { color: colors.orange },
       },
     ],
-    tooltip: { trigger: 'axis', formatter: (params: any) => `${params[0].name}: ${params[0].value}ms` },
+    tooltip: { trigger: 'axis', formatter: '{b}: {c}ms' },
   }
 
   return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge />

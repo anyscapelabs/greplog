@@ -9,7 +9,9 @@ interface StatusCodesPieChartProps {
 
 export default function StatusCodesPieChart({ data }: StatusCodesPieChartProps) {
   const colors = useChartTheme()
-  if (!data || data.length === 0) return <ChartEmptyState />
+  if (!data || data.length === 0) {
+    return <ChartEmptyState message="No HTTP metrics — request data depends on SDK capture. Upgrade to a recent SDK for status-code coverage." />
+  }
 
   const option = {
     grid: { left: 0, right: 0, top: 0, bottom: 0 },

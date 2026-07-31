@@ -75,15 +75,19 @@ The dashboard doesn't talk to Parquet directly. The agent exposes a small HTTP q
   - `FLOOR(...)` for bucket arithmetic on timestamp columns
   - Scalar subqueries (`SELECT ... FROM (SELECT ... GROUP BY ...) sub`)
   - `IN (...)` predicates
+  - `UNION ALL` — used by the dashboard's HTTP charts to combine `spans` rows (Go/Rust SDKs) with `logs.attributes` rows (Node.js/Python SDKs) into one aggregate over the combined population
   - `approx_percentile_cont(col, p)` — built-in DataFusion aggregate (no custom UDAF), used by latency percentile chart
+  - JSON extraction via `json_get_str(json, 'key')` (from the `datafusion-functions-json` companion crate, registered in `query_engine.rs`): extracts a key from a JSON string. Missing keys / NULL / malformed input return NULL rather than erroring, so aggregates skip them. Used by the dashboard to read HTTP metadata from `logs.attributes` for Node.js/Python SDKs (e.g. `CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE)`). Note the path is a single literal key segment (`'http.latency_ms'`), not JSONPath syntax (`'$.http.latency_ms'`), because the attributes JSON is a flat object whose keys contain dots.
+  - String results serialize correctly for both `Utf8` and `Utf8View` (DataFusion 54's `StringView` default for string literals and `CAST(... AS VARCHAR)`), so `CAST(status_code AS VARCHAR)` returns real values, not type names
 - **Confirmed not available:**
   - DDL (`CREATE TABLE`, `DROP TABLE`, `ALTER`) — rejected at plan time
   - DML (`INSERT`, `UPDATE`, `DELETE`) — rejected at plan time
   - Exact percentile functions (`PERCENTILE_CONT`, `PERCENTILE_DISC`) — only `approx_percentile_cont` is available
 - **Table status:**
-  - `logs` — fully implemented (14-column schema, ingested, flushed, queryable)
-  - `spans` — fully implemented (13-column schema: `id`, `correlation_id`, `parent_correlation_id`, `service`, `name`, `route`, `method`, `status_code` Int32, `latency_ms` Float64, `is_error` Boolean, `start_time`/`end_time` TimestampMicrosecond, `attributes`; ingested by Rust SDK and benchmark, flushed to Parquet, queryable)
+  - `logs` — fully implemented (14-column schema, ingested, flushed, queryable). Also carries HTTP request metadata for the Node.js and Python SDKs as `LogEvent.attributes` keys (`http.method`, `http.route`, `http.status_code`, `http.latency_ms`, `logger_name = "greplog.http"`) — the dashboard extracts these via `json_get_str()`.
+  - `spans` — fully implemented (13-column schema: `id`, `correlation_id`, `parent_correlation_id`, `service`, `name`, `route`, `method`, `status_code` Int32, `latency_ms` Float64, `is_error` Boolean, `start_time`/`end_time` TimestampMicrosecond, `attributes`; ingested by Rust and Go SDKs plus the benchmark, flushed to Parquet, queryable). The Go/Rust SDKs send HTTP metadata as `Span` messages; Node.js/Python send the same data as log attributes (see SDK wire-format reconciliation in `ROADMAP.md`). The `spans` table has **no `timestamp`, `level`, `message`, or `line` columns** — its time column is `start_time`, and the error signal is `status_code` (the `is_error` flag is derived only from the Span `error` string field, which the HTTP middleware never sets, so it is not a status proxy).
   - `metrics` — registered but empty (no metric ingestion yet)
+- **Filter predicate translation for HTTP charts:** the dashboard's three HTTP charts combine both wire shapes with `UNION ALL`, and translate the user's filter per arm so both arms narrow the same population. Key mapping: the Node.js/Python HTTP middleware derives `level` from the response status (`>=500` → `error`, `400-499` → `warn`, `<400` → `info`), so `level` on a `greplog.http` row IS a status bucket; the spans arm therefore maps `level` filters to `status_code` predicates (e.g. `level IN ('error','critical','fatal')` → `status_code >= 500`), `message LIKE` → `name LIKE`/`route LIKE`, and `line` (status chips) → `status_code`. See `useAnalytics.ts` `httpArmPredicates` and the "HTTP metrics: dual source" section in `docs/architecture/dashboard.md`.
 - **Row cap:** 10,000 rows per query (applied automatically; a smaller `LIMIT` in user SQL takes precedence).
 - **Timeout:** 30 seconds per query.
 - **Memory:** 256 MiB pool; DataFusion returns a clean error rather than OOM-killing on overage.
