@@ -1,10 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { useRef } from 'react'
-import type { ServicesPageProps, ServiceEntry, ServiceCharts } from '../types/index.ts'
+import type { ServicesPageProps, ServiceEntry, ServiceCharts, FilterSectionConfig } from '../types/index.ts'
 import { classifyHealth } from '../types/index.ts'
 import { fetchDetect, postQuery, type DetectEntry } from './api.ts'
 import {
-  placeholderServiceFilterSections,
   placeholderTimeRanges,
   placeholderAutoRefreshOptions,
   placeholderCountRateOptions,
@@ -192,6 +191,35 @@ export function useServices(timeRange?: string): ServicesPageProps {
     sparkline: sparklineMap.get(s.name) ?? [],
   }))
 
+  const healthCounts: Record<ServiceEntry['health'], number> = {
+    healthy: 0,
+    degraded: 0,
+    unhealthy: 0,
+    unknown: 0,
+  }
+  for (const s of services) {
+    healthCounts[s.health] += 1
+  }
+  const HEALTH_META: { id: ServiceEntry['health']; label: string; color: string }[] = [
+    { id: 'healthy', label: 'Healthy', color: '#22c55e' },
+    { id: 'degraded', label: 'Degraded', color: '#eab308' },
+    { id: 'unhealthy', label: 'Unhealthy', color: '#ef4444' },
+    { id: 'unknown', label: 'Unknown', color: 'var(--text-secondary)' },
+  ]
+  const filterSections: FilterSectionConfig[] = [
+    {
+      id: 'health_status',
+      title: 'health_status',
+      defaultOpen: true,
+      items: HEALTH_META.map((h) => ({ id: h.id, label: h.label, count: healthCounts[h.id], color: h.color })),
+    },
+    {
+      id: 'service_name',
+      title: 'service_name',
+      items: services.map((s) => ({ id: s.name, label: s.name, count: s.eventCount })),
+    },
+  ]
+
   const refetchServices = () => {
     void detectQuery.refetch()
     void logQuery.refetch()
@@ -215,7 +243,7 @@ export function useServices(timeRange?: string): ServicesPageProps {
     services,
     totalRows: services.length,
     querySeconds: 0,
-    filterSections: placeholderServiceFilterSections,
+    filterSections,
     serviceCards,
     charts,
     isWaiting: !connected,

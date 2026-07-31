@@ -82,20 +82,21 @@ export default function Services() {
   }, [filters.checked, filters.services])
 
   const filteredServices = useMemo(() => {
-    const healthServiceMap: Record<string, string[]> = {
-      healthy: ['api', 'web'],
-      degraded: ['db'],
+    const healthServiceMap: Record<string, string[]> = {}
+    for (const svc of services) {
+      if (!healthServiceMap[svc.health]) healthServiceMap[svc.health] = []
+      healthServiceMap[svc.health].push(svc.name)
     }
     const checkedIds = Object.entries(filters.checked)
       .filter(([, v]) => v)
       .map(([k]) => k)
     const fromHealth = checkedIds
-      .filter((id) => ['healthy', 'degraded'].includes(id))
-      .flatMap((id) => healthServiceMap[id] || [])
+      .filter((id) => healthServiceMap[id])
+      .flatMap((id) => healthServiceMap[id] ?? [])
     const allChecked = [...new Set([...filters.services, ...fromHealth])]
     if (allChecked.length === 0) return undefined
     return allChecked
-  }, [filters.services, filters.checked])
+  }, [filters.services, filters.checked, services])
 
   return (
     <div className="flex flex-col h-full">

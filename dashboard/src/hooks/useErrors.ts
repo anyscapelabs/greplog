@@ -1,9 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { useCallback, useRef } from 'react'
-import type { ErrorsPageProps, ErrorEntry, ErrorCharts } from '../types/index.ts'
+import type { ErrorsPageProps, ErrorEntry, ErrorCharts, FilterSectionConfig } from '../types/index.ts'
 import { postQuery } from './api.ts'
 import {
-  placeholderErrorFilterSections,
   placeholderTimeRanges,
   placeholderServices,
   placeholderAutoRefreshOptions,
@@ -11,6 +10,7 @@ import {
   placeholderErrorsGroupBy,
 } from './placeholder-data.ts'
 import { useAgent } from '../context/AgentContext.tsx'
+import { buildLevelSection, buildServiceSection, buildErrorTypeSection, buildStatusCodeSections } from '../lib/filterSections.ts'
 
 const EMPTY_CHARTS: ErrorCharts = {
   countTimeseries: [],
@@ -64,7 +64,7 @@ export function useErrors(whereClause?: string): ErrorsPageProps {
     queryKey,
     queryFn: async () => {
       if (!connected) {
-        return { errors: [], totalCount: 0, charts: EMPTY_CHARTS, isWaiting: true }
+        return { errors: [], totalCount: 0, charts: EMPTY_CHARTS, filterSections: [], isWaiting: true }
       }
       const userInitiated = userInitiatedRef.current
       userInitiatedRef.current = false
@@ -73,12 +73,16 @@ export function useErrors(whereClause?: string): ErrorsPageProps {
         const userWhere = whereClause.replace(/^WHERE\s+/i, '')
         where = `WHERE ${BASE_ERROR_FILTER} AND (${userWhere})`
       }
-      const [result, countResult, countTimeseriesResult, totalResult, serviceResult] = await Promise.all([
+      const whereBody = where.replace(/^WHERE\s+/i, '')
+      const [result, countResult, countTimeseriesResult, totalResult, serviceResult, levelResult, errorTypeResult, httpStatusResult] = await Promise.all([
         postQuery(`${BASE_SQL} ${where} ORDER BY timestamp DESC LIMIT 1000`, { userInitiated }),
         postQuery(`SELECT count(*) AS total FROM logs ${where}`, { userInitiated }),
         postQuery(`SELECT date, count(*) AS cnt FROM logs ${where} GROUP BY date ORDER BY date`, { userInitiated }),
         postQuery(`SELECT date, count(*) AS cnt FROM logs ${whereClause ?? ''} GROUP BY date ORDER BY date`, { userInitiated }),
         postQuery(`SELECT service, count(*) AS cnt FROM logs ${where} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT level, count(*) AS cnt FROM logs ${where} GROUP BY level ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT exception_type, count(*) AS cnt FROM logs WHERE exception_type IS NOT NULL AND (${whereBody}) GROUP BY exception_type ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT json_get_str(attributes, 'http.status_code') AS code, count(*) AS cnt FROM logs WHERE logger_name = 'greplog.http' AND (${whereBody}) GROUP BY json_get_str(attributes, 'http.status_code') ORDER BY cnt DESC`, { userInitiated }),
       ])
 
       const errors = result ? rowsToErrors(result.rows, result.columns) : []
@@ -112,6 +116,15 @@ export function useErrors(whereClause?: string): ErrorsPageProps {
           }))
         : []
 
+      const filterSections: FilterSectionConfig[] = []
+      if (serviceResult) filterSections.push(buildServiceSection(serviceResult.rows, serviceResult.columns))
+      if (errorTypeResult) filterSections.push(buildErrorTypeSection(errorTypeResult.rows, errorTypeResult.columns))
+      if (levelResult) filterSections.push(buildLevelSection(levelResult.rows, levelResult.columns))
+      if (httpStatusResult) {
+        const { statusCode, responseStatus } = buildStatusCodeSections(httpStatusResult.rows, httpStatusResult.columns)
+        filterSections.push(statusCode, responseStatus)
+      }
+
       return {
         errors,
         totalCount,
@@ -120,13 +133,14 @@ export function useErrors(whereClause?: string): ErrorsPageProps {
           rateTimeseries,
           byServiceDistribution,
         },
+        filterSections,
         isWaiting: false,
       }
     },
     enabled: connected,
   })
 
-  const data = query.data ?? { errors: [], totalCount: 0, charts: EMPTY_CHARTS, isWaiting: true }
+  const data = query.data ?? { errors: [], totalCount: 0, charts: EMPTY_CHARTS, filterSections: [], isWaiting: true }
 
   const manualRefetch = useCallback(() => {
     userInitiatedRef.current = true
@@ -138,7 +152,7 @@ export function useErrors(whereClause?: string): ErrorsPageProps {
     totalErrors: data.totalCount,
     totalRows: data.totalCount,
     querySeconds: 0,
-    filterSections: placeholderErrorFilterSections,
+    filterSections: data.filterSections,
     charts: data.charts,
     isWaiting: data.isWaiting,
     timeRanges: placeholderTimeRanges,

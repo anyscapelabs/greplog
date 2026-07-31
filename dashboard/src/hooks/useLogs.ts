@@ -1,9 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { useCallback, useRef } from 'react'
-import type { LogsPageProps, LogEntry, LogCharts } from '../types/index.ts'
+import type { LogsPageProps, LogEntry, LogCharts, FilterSectionConfig } from '../types/index.ts'
 import { postQuery } from './api.ts'
 import {
-  placeholderLogFilterSections,
   placeholderTimeRanges,
   placeholderServices,
   placeholderAutoRefreshOptions,
@@ -14,6 +13,7 @@ import {
 } from './placeholder-data.ts'
 import { useAgent } from '../context/AgentContext.tsx'
 import { buildStatusCodesSql, parseStatusCodes } from '../lib/httpQueries.ts'
+import { buildLevelSection, buildServiceSection, buildStatusCodeSections } from '../lib/filterSections.ts'
 
 const EMPTY_CHARTS: LogCharts = {
   volumeTimeseries: [],
@@ -53,7 +53,7 @@ export function useLogs(whereClause?: string): LogsPageProps {
     queryKey,
     queryFn: async () => {
       if (!connected) {
-        return { logs: [], totalCount: 0, charts: EMPTY_CHARTS, isWaiting: true }
+        return { logs: [], totalCount: 0, charts: EMPTY_CHARTS, filterSections: [], isWaiting: true }
       }
       const userInitiated = userInitiatedRef.current
       userInitiatedRef.current = false
@@ -74,12 +74,15 @@ export function useLogs(whereClause?: string): LogsPageProps {
         )
       }
 
-      const [result, volResult, errResult, countResult, statusCodeResult] = await Promise.all([
+      const [result, volResult, errResult, countResult, statusCodeResult, levelResult, serviceResult, httpStatusResult] = await Promise.all([
         postQuery(`${BASE_SQL} ${w} ORDER BY timestamp DESC LIMIT 1000`, { userInitiated }),
         postQuery(`SELECT date, count(*) AS cnt FROM logs ${w} GROUP BY date ORDER BY date`, { userInitiated }),
         postQuery(`SELECT date, count(*) AS cnt FROM logs WHERE level IN ('error','critical','fatal')${andClause} GROUP BY date ORDER BY date`, { userInitiated }),
         postQuery(`SELECT count(*) AS total FROM logs ${w}`, { userInitiated }),
         !statusCodesDual.sql ? Promise.resolve(null) : postQuery(statusCodesDual.sql, { userInitiated }),
+        postQuery(`SELECT level, count(*) AS cnt FROM logs ${w} GROUP BY level ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT service, count(*) AS cnt FROM logs ${w} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT json_get_str(attributes, 'http.status_code') AS code, count(*) AS cnt FROM logs WHERE logger_name = 'greplog.http'${andClause} GROUP BY json_get_str(attributes, 'http.status_code') ORDER BY cnt DESC`, { userInitiated }),
       ])
 
       const logs = result ? rowsToLogs(result.rows, result.columns) : []
@@ -93,6 +96,14 @@ export function useLogs(whereClause?: string): LogsPageProps {
         ? errResult.rows.map((r) => ({ timestamp: String(r[0] ?? ''), count: Number(r[1] ?? 0) }))
         : []
 
+      const filterSections: FilterSectionConfig[] = []
+      if (levelResult) filterSections.push(buildLevelSection(levelResult.rows, levelResult.columns))
+      if (serviceResult) filterSections.push(buildServiceSection(serviceResult.rows, serviceResult.columns))
+      if (httpStatusResult) {
+        const { statusCode, responseStatus } = buildStatusCodeSections(httpStatusResult.rows, httpStatusResult.columns)
+        filterSections.push(statusCode, responseStatus)
+      }
+
       return {
         logs,
         totalCount,
@@ -101,13 +112,14 @@ export function useLogs(whereClause?: string): LogsPageProps {
           errorTimeseries,
           statusCodeDistribution: statusCodeResult ? parseStatusCodes(statusCodeResult) : [],
         },
+        filterSections,
         isWaiting: false,
       }
     },
     enabled: connected,
   })
 
-  const data = query.data ?? { logs: [], totalCount: 0, charts: EMPTY_CHARTS, isWaiting: true }
+  const data = query.data ?? { logs: [], totalCount: 0, charts: EMPTY_CHARTS, filterSections: [], isWaiting: true }
 
   const manualRefetch = useCallback(() => {
     userInitiatedRef.current = true
@@ -119,7 +131,7 @@ export function useLogs(whereClause?: string): LogsPageProps {
     totalLogs: data.totalCount,
     totalRows: data.totalCount,
     querySeconds: 0,
-    filterSections: placeholderLogFilterSections,
+    filterSections: data.filterSections,
     charts: data.charts,
     isWaiting: data.isWaiting,
     timeRanges: placeholderTimeRanges,
