@@ -8,8 +8,8 @@ use tower::{Layer, Service};
 
 use greplog_core::gen::{Span, SpanKind};
 
-use crate::{generate_ulid, is_initialized, send_span, service_name};
 use crate::redact::redact_attributes;
+use crate::{generate_ulid, is_initialized, send_span, service_name};
 
 #[derive(Clone)]
 pub struct GreplogAxumLayer;

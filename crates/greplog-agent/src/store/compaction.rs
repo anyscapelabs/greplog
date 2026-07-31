@@ -119,8 +119,7 @@ pub fn compact_phase1(dir: &Path, sources: &[PathBuf]) -> Result<CompactionManif
     )?;
 
     // 2. Write the merged file to the pre‑registered path.
-    let merged_path =
-        crate::store::io::write_parquet_atomic_with_id(dir, &unique_id, &merged)?;
+    let merged_path = crate::store::io::write_parquet_atomic_with_id(dir, &unique_id, &merged)?;
 
     // 3. Update manifest: pending_merge → pending_delete.
     update_manifest_entry_status(dir, &merged_path, "pending_delete")?;
@@ -140,11 +139,7 @@ pub fn compact_phase2(dir: &Path, manifest: &CompactionManifest) -> Result<()> {
         }
     }
 
-    update_manifest_entry_status(
-        dir,
-        &manifest.merged_file,
-        "completed",
-    )?;
+    update_manifest_entry_status(dir, &manifest.merged_file, "completed")?;
 
     Ok(())
 }
@@ -219,18 +214,12 @@ pub fn reconcile_compactions(base_dir: &Path) -> Result<()> {
                         }
                         entry.status = "completed".into();
                         changed = true;
-                        info!(
-                            "Reconciled pending_merge (merged exists) in {:?}",
-                            part_dir
-                        );
+                        info!("Reconciled pending_merge (merged exists) in {:?}", part_dir);
                     } else {
                         // Pre‑registration that never materialised.
                         entry.status = "removed".into();
                         changed = true;
-                        info!(
-                            "Removed pending_merge (merged missing) in {:?}",
-                            part_dir
-                        );
+                        info!("Removed pending_merge (merged missing) in {:?}", part_dir);
                     }
                 }
                 "pending_delete" => {
@@ -324,10 +313,7 @@ fn get_source_files(dir: &Path) -> Result<Vec<PathBuf>> {
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| {
-            let name = p
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
             name.ends_with(".parquet")
                 && !active_sources.contains(name)
                 && !active_merged.contains(name)
@@ -346,8 +332,7 @@ fn read_parquet_files(paths: &[PathBuf]) -> Result<Vec<RecordBatch>> {
     let mut all = Vec::new();
     for path in paths {
         let file = File::open(path)?;
-        let reader = ParquetRecordBatchReaderBuilder::try_new(file)?
-            .build()?;
+        let reader = ParquetRecordBatchReaderBuilder::try_new(file)?.build()?;
         for batch_result in reader {
             all.push(batch_result?);
         }
@@ -407,11 +392,7 @@ fn add_manifest_entry(dir: &Path, entry: ManifestEntry) -> Result<()> {
 }
 
 /// Update the status of a manifest entry identified by its merged file name.
-fn update_manifest_entry_status(
-    dir: &Path,
-    merged_file: &Path,
-    new_status: &str,
-) -> Result<()> {
+fn update_manifest_entry_status(dir: &Path, merged_file: &Path, new_status: &str) -> Result<()> {
     let mut manifest = read_manifest(dir)?;
     let mname = merged_file
         .file_name()
@@ -451,9 +432,7 @@ pub(crate) fn find_partition_dirs(data_dir: &Path) -> Vec<PathBuf> {
 fn is_date_dir(dir: &Path) -> bool {
     dir.file_name()
         .and_then(|n| n.to_str())
-        .is_some_and(|n| {
-            n.starts_with("date=") && n.len() == 15
-        })
+        .is_some_and(|n| n.starts_with("date=") && n.len() == 15)
 }
 
 /// Return today's UTC date string in `YYYY-MM-DD` format.
@@ -472,10 +451,7 @@ fn today_date_string() -> String {
 
 /// Check if a partition directory is for today's date.
 fn is_today_partition(dir: &Path) -> bool {
-    let dirname = dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let dirname = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let date_str = dirname.strip_prefix("date=").unwrap_or("");
     if date_str.is_empty() || date_str.len() != 10 {
         return false;

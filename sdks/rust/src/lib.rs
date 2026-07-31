@@ -48,13 +48,13 @@
 
 mod axum_layer;
 mod redact;
-mod transport;
 mod tracing_layer;
+mod transport;
 mod ulid;
 
 pub use axum_layer::GreplogAxumLayer;
-pub use tracing_layer::GreplogLayer;
 pub use greplog_core::gen;
+pub use tracing_layer::GreplogLayer;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -98,7 +98,9 @@ impl Level {
 
 pub(crate) fn service_name() -> String {
     let lock = STATE.lock().unwrap();
-    lock.as_ref().map(|s| s.service_name.clone()).unwrap_or_else(|| "unknown".to_string())
+    lock.as_ref()
+        .map(|s| s.service_name.clone())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 pub(crate) fn is_initialized() -> bool {
@@ -242,11 +244,7 @@ pub fn init_with_config(config: Config) {
     );
 }
 
-pub fn init_with_opts(
-    socket_path: Option<&str>,
-    tcp_host: Option<&str>,
-    tcp_port: Option<u16>,
-) {
+pub fn init_with_opts(socket_path: Option<&str>, tcp_host: Option<&str>, tcp_port: Option<u16>) {
     init_internal(None, socket_path, tcp_host, tcp_port);
 }
 
@@ -339,9 +337,7 @@ fn install_tracing_layer() {
 
     let layer = GreplogLayer;
 
-    let _ = tracing_subscriber::registry()
-        .with(layer)
-        .try_init();
+    let _ = tracing_subscriber::registry().with(layer).try_init();
 }
 
 pub fn axum_layer() -> GreplogAxumLayer {

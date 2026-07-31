@@ -18,17 +18,17 @@ use tokio::sync::mpsc;
 use tower::ServiceExt;
 
 fn test_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("greplog_integration_{}_{}", name, std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "greplog_integration_{}_{}",
+        name,
+        std::process::id()
+    ));
     let _ = fs::remove_dir_all(&dir);
     let _ = fs::create_dir_all(dir.join(".greplog"));
     dir
 }
 
-async fn send_frame(
-    stream: &mut TcpStream,
-    batch: &IngestBatch,
-) -> IngestResponse {
+async fn send_frame(stream: &mut TcpStream, batch: &IngestBatch) -> IngestResponse {
     let encoded = batch.encode_to_vec();
     let len = (encoded.len() as u32).to_le_bytes();
     stream.write_all(&len).await.unwrap();
@@ -71,7 +71,11 @@ async fn start_agent(
     TcpStream,
     Arc<QueryEngine>,
     Arc<AtomicUsize>,
-    mpsc::Sender<(IngestBatch, bytes::Bytes, oneshot::Sender<greplog_core::gen::IngestResponse>)>,
+    mpsc::Sender<(
+        IngestBatch,
+        bytes::Bytes,
+        oneshot::Sender<greplog_core::gen::IngestResponse>,
+    )>,
     Router,
 ) {
     let tcp_port = {
@@ -91,19 +95,13 @@ async fn start_agent(
 
     let (batch_tx, batch_rx) = mpsc::channel(INGEST_CHANNEL_CAPACITY);
 
-    let writer = Writer::new(&config.workspace, config.max_buffer_events)
-        .expect("new writer");
+    let writer = Writer::new(&config.workspace, config.max_buffer_events).expect("new writer");
     let dropped_events = writer.dropped_events();
     writer.run_startup(50_000).expect("startup");
-    let _writer_handle = writer.spawn(
-        batch_rx,
-        Duration::from_secs(config.flush_interval_secs),
-    );
+    let _writer_handle = writer.spawn(batch_rx, Duration::from_secs(config.flush_interval_secs));
 
     let _ingest_handle = ingest::IngestServer::new(batch_tx.clone()).spawn(&config);
-    let query_engine = Arc::new(
-        QueryEngine::new(&config.workspace).expect("new query engine"),
-    );
+    let query_engine = Arc::new(QueryEngine::new(&config.workspace).expect("new query engine"));
     let qe = query_engine.clone();
     let de = dropped_events.clone();
     let http_app = axum::Router::new()
@@ -219,7 +217,9 @@ async fn test_cross_sdk_proto_contract() {
         .await
         .expect("HTTP query");
     assert_eq!(http_resp.status(), 200);
-    let body_bytes = axum::body::to_bytes(http_resp.into_body(), usize::MAX).await.unwrap();
+    let body_bytes = axum::body::to_bytes(http_resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(body["row_count"], 1);
     let cnt = body["rows"][0][0].as_i64().unwrap_or(0);
@@ -279,10 +279,7 @@ async fn test_shipped_defaults_smoke() {
         if resp.accepted {
             total_accepted += resp.events_count;
         } else {
-            panic!(
-                "batch rejected at event {}: {}",
-                chunk_start, resp.error
-            );
+            panic!("batch rejected at event {}: {}", chunk_start, resp.error);
         }
     }
 

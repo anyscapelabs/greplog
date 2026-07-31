@@ -9,8 +9,11 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("greplog_flush_test_{}_{}", name, std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "greplog_flush_test_{}_{}",
+        name,
+        std::process::id()
+    ));
     let _ = fs::remove_dir_all(&dir);
     let _ = fs::create_dir_all(&dir);
     dir
@@ -128,8 +131,7 @@ fn test_basic_flush() {
     let batch_schema = batches[0].schema();
     let core_schema = arrow_schema::log_schema();
     assert_eq!(
-        &*batch_schema,
-        &core_schema,
+        &*batch_schema, &core_schema,
         "schema should match core log schema"
     );
 
@@ -145,7 +147,12 @@ fn test_multi_service_grouping() {
         service_name: "api".into(),
         instance_id: "i1".into(),
         batch_seq: 1,
-        logs: vec![make_log("api", 1_700_000_000_000_000_000, "info", "api log")],
+        logs: vec![make_log(
+            "api",
+            1_700_000_000_000_000_000,
+            "info",
+            "api log",
+        )],
         spans: vec![],
         metrics: vec![],
     };
@@ -153,7 +160,12 @@ fn test_multi_service_grouping() {
         service_name: "worker".into(),
         instance_id: "i2".into(),
         batch_seq: 2,
-        logs: vec![make_log("worker", 1_700_000_000_000_000_000, "debug", "worker log")],
+        logs: vec![make_log(
+            "worker",
+            1_700_000_000_000_000_000,
+            "debug",
+            "worker log",
+        )],
         spans: vec![],
         metrics: vec![],
     };
@@ -162,7 +174,10 @@ fn test_multi_service_grouping() {
     assert_eq!(result.files_written, 2);
 
     let api_dir = dir.join("data").join("table_type=logs").join("service=api");
-    let worker_dir = dir.join("data").join("table_type=logs").join("service=worker");
+    let worker_dir = dir
+        .join("data")
+        .join("table_type=logs")
+        .join("service=worker");
     assert!(api_dir.exists(), "api partition dir should exist");
     assert!(worker_dir.exists(), "worker partition dir should exist");
 
@@ -204,14 +219,18 @@ fn test_checkpoint_correctness() {
     let dir = temp_dir("checkpoint");
     let is_flushing = AtomicBool::new(false);
 
-    let mut wal =
-        WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open wal");
+    let mut wal = WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open wal");
 
     let batch = IngestBatch {
         service_name: "svc".into(),
         instance_id: "i1".into(),
         batch_seq: 1,
-        logs: vec![make_log("svc", 1_700_000_000_000_000_000, "info", "flush me")],
+        logs: vec![make_log(
+            "svc",
+            1_700_000_000_000_000_000,
+            "info",
+            "flush me",
+        )],
         spans: vec![],
         metrics: vec![],
     };
@@ -299,8 +318,7 @@ fn make_log_with_event_id(service: &str, ts: i64, msg: &str, eid: &str) -> LogEv
 
 #[test]
 fn test_event_id_present_used_directly() {
-    let dir = std::env::temp_dir()
-        .join(format!("test_eid_present_{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("test_eid_present_{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create dir");
     let is_flushing = AtomicBool::new(false);
@@ -326,7 +344,10 @@ fn test_event_id_present_used_directly() {
     let batches = read_parquet(&parquet_files[0]);
     assert_eq!(batches.len(), 1);
     let id_col = batches[0].column(0);
-    let id_arr = id_col.as_any().downcast_ref::<arrow::array::StringArray>().expect("id col");
+    let id_arr = id_col
+        .as_any()
+        .downcast_ref::<arrow::array::StringArray>()
+        .expect("id col");
     assert_eq!(id_arr.value(0), "my-stable-id-42");
 
     let _ = fs::remove_dir_all(&dir);
@@ -334,8 +355,7 @@ fn test_event_id_present_used_directly() {
 
 #[test]
 fn test_event_id_absent_falls_back_to_content_hash() {
-    let dir = std::env::temp_dir()
-        .join(format!("test_eid_absent_{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("test_eid_absent_{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create dir");
     let is_flushing = AtomicBool::new(false);
@@ -361,15 +381,25 @@ fn test_event_id_absent_falls_back_to_content_hash() {
     let batches = read_parquet(&parquet_files[0]);
     assert_eq!(batches.len(), 1);
     let id_col = batches[0].column(0);
-    let id_arr = id_col.as_any().downcast_ref::<arrow::array::StringArray>().expect("id col");
+    let id_arr = id_col
+        .as_any()
+        .downcast_ref::<arrow::array::StringArray>()
+        .expect("id col");
     let id_value = id_arr.value(0);
 
-    assert_eq!(id_value.len(), 16, "content-hash ID should be 16 hex chars, got: {id_value}");
+    assert_eq!(
+        id_value.len(),
+        16,
+        "content-hash ID should be 16 hex chars, got: {id_value}"
+    );
     assert!(
         id_value.chars().all(|c| c.is_ascii_hexdigit()),
         "ID {id_value} should contain only hex characters"
     );
-    assert!(!id_value.contains('-'), "ID {id_value} should not contain UUID dashes");
+    assert!(
+        !id_value.contains('-'),
+        "ID {id_value} should not contain UUID dashes"
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -378,8 +408,7 @@ fn test_event_id_absent_falls_back_to_content_hash() {
 fn test_crash_simulation() {
     let dir = temp_dir("crash_sim");
 
-    let mut wal =
-        WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open wal");
+    let mut wal = WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open wal");
 
     let batch = IngestBatch {
         service_name: "svc".into(),
@@ -413,7 +442,10 @@ fn test_crash_simulation() {
     cleanup_temp_files(&dir).expect("cleanup");
 
     assert!(!tmp_path.exists(), ".tmp file should be deleted by cleanup");
-    assert!(old_path.exists(), "existing .parquet should survive cleanup");
+    assert!(
+        old_path.exists(),
+        "existing .parquet should survive cleanup"
+    );
 
     let wal_dir = dir.join("wal");
     let segments: Vec<_> = fs::read_dir(&wal_dir)
@@ -427,7 +459,11 @@ fn test_crash_simulation() {
     );
 
     let replayed = crate::store::wal::replay_segments(&dir).expect("replay");
-    assert_eq!(replayed.len(), 1, "WAL should still contain the unflushed batch");
+    assert_eq!(
+        replayed.len(),
+        1,
+        "WAL should still contain the unflushed batch"
+    );
     assert_eq!(replayed[0].0.batch_seq, 1);
 
     wal.close().expect("close wal");

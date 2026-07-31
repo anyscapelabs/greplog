@@ -247,22 +247,30 @@ fn flush_inner(
             } else {
                 Some(serde_json::to_string(&log.attributes).unwrap_or_default())
             };
-            push_group(&mut log_groups, key, LogRow {
-                id,
-                service: service.to_string(),
-                timestamp: ns_to_micros(log.timestamp_ns),
-                level: non_empty(&log.level),
-                route: None,
-                message: non_empty(&log.message),
-                attributes: attrs,
-                logger_name: non_empty(&log.logger_name),
-                file: non_empty(&log.file),
-                line: if log.line != 0 { Some(log.line) } else { None },
-                correlation_id: non_empty(&log.correlation_id),
-                stack_trace: if log.stack_trace.is_empty() { None } else { Some(log.stack_trace.clone()) },
-                exception_type: non_empty(&log.exception_type),
-                exception_message: non_empty(&log.exception_message),
-            });
+            push_group(
+                &mut log_groups,
+                key,
+                LogRow {
+                    id,
+                    service: service.to_string(),
+                    timestamp: ns_to_micros(log.timestamp_ns),
+                    level: non_empty(&log.level),
+                    route: None,
+                    message: non_empty(&log.message),
+                    attributes: attrs,
+                    logger_name: non_empty(&log.logger_name),
+                    file: non_empty(&log.file),
+                    line: if log.line != 0 { Some(log.line) } else { None },
+                    correlation_id: non_empty(&log.correlation_id),
+                    stack_trace: if log.stack_trace.is_empty() {
+                        None
+                    } else {
+                        Some(log.stack_trace.clone())
+                    },
+                    exception_type: non_empty(&log.exception_type),
+                    exception_message: non_empty(&log.exception_message),
+                },
+            );
         }
 
         for span in &batch.spans {
@@ -274,21 +282,25 @@ fn flush_inner(
             } else {
                 Some(serde_json::to_string(&span.attributes).unwrap_or_default())
             };
-            push_group(&mut span_groups, key, SpanRow {
-                id,
-                correlation_id: non_empty(&span.correlation_id),
-                parent_correlation_id: non_empty(&span.parent_correlation_id),
-                service: service.to_string(),
-                name: non_empty(&span.name),
-                route: non_empty(&span.route),
-                method: Some(span.method.clone()).filter(|s| !s.is_empty()),
-                status_code: Some(span.status_code).filter(|&c| c != 0),
-                latency_ms: None,
-                is_error: Some(!span.error.is_empty()),
-                start_time: ns_to_micros(span.start_time_ns),
-                end_time: ns_to_micros(span.end_time_ns),
-                attributes: attrs,
-            });
+            push_group(
+                &mut span_groups,
+                key,
+                SpanRow {
+                    id,
+                    correlation_id: non_empty(&span.correlation_id),
+                    parent_correlation_id: non_empty(&span.parent_correlation_id),
+                    service: service.to_string(),
+                    name: non_empty(&span.name),
+                    route: non_empty(&span.route),
+                    method: Some(span.method.clone()).filter(|s| !s.is_empty()),
+                    status_code: Some(span.status_code).filter(|&c| c != 0),
+                    latency_ms: None,
+                    is_error: Some(!span.error.is_empty()),
+                    start_time: ns_to_micros(span.start_time_ns),
+                    end_time: ns_to_micros(span.end_time_ns),
+                    attributes: attrs,
+                },
+            );
         }
 
         for metric in &batch.metrics {
@@ -300,14 +312,18 @@ fn flush_inner(
             } else {
                 Some(serde_json::to_string(&metric.labels).unwrap_or_default())
             };
-            push_group(&mut metric_groups, key, MetricRow {
-                id,
-                service: service.to_string(),
-                name: metric.name.clone(),
-                timestamp: ns_to_micros(metric.timestamp_ns),
-                value: metric.value,
-                labels,
-            });
+            push_group(
+                &mut metric_groups,
+                key,
+                MetricRow {
+                    id,
+                    service: service.to_string(),
+                    name: metric.name.clone(),
+                    timestamp: ns_to_micros(metric.timestamp_ns),
+                    value: metric.value,
+                    labels,
+                },
+            );
         }
     }
 
@@ -382,20 +398,64 @@ fn build_log_batch(rows: &[LogRow]) -> Result<RecordBatch> {
     RecordBatch::try_new(
         Arc::new(schema),
         vec![
-            Arc::new(StringArray::from(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.service.as_str()).collect::<Vec<_>>())),
-            Arc::new(TimestampMicrosecondArray::from(rows.iter().map(|r| r.timestamp).collect::<Vec<_>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.level.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.route.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.message.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.attributes.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.logger_name.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.file.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(Int32Array::from(rows.iter().map(|r| r.line).collect::<Vec<Option<i32>>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.correlation_id.as_deref()).collect::<Vec<Option<&str>>>())),
+            Arc::new(StringArray::from(
+                rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter().map(|r| r.service.as_str()).collect::<Vec<_>>(),
+            )),
+            Arc::new(TimestampMicrosecondArray::from(
+                rows.iter().map(|r| r.timestamp).collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.level.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.route.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.message.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.attributes.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.logger_name.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.file.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(Int32Array::from(
+                rows.iter().map(|r| r.line).collect::<Vec<Option<i32>>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.correlation_id.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
             Arc::new(st_builder.finish()),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.exception_type.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.exception_message.as_deref()).collect::<Vec<Option<&str>>>())),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.exception_type.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.exception_message.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
         ],
     )
     .map_err(|e| anyhow::anyhow!("build log batch: {}", e))
@@ -406,19 +466,63 @@ fn build_span_batch(rows: &[SpanRow]) -> Result<RecordBatch> {
     RecordBatch::try_new(
         Arc::new(schema),
         vec![
-            Arc::new(StringArray::from(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.correlation_id.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.parent_correlation_id.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.service.as_str()).collect::<Vec<_>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.name.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.route.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.method.as_deref()).collect::<Vec<Option<&str>>>())),
-            Arc::new(Int32Array::from(rows.iter().map(|r| r.status_code).collect::<Vec<Option<i32>>>())),
-            Arc::new(Float64Array::from(rows.iter().map(|r| r.latency_ms).collect::<Vec<Option<f64>>>())),
-            Arc::new(BooleanArray::from(rows.iter().map(|r| r.is_error).collect::<Vec<Option<bool>>>())),
-            Arc::new(TimestampMicrosecondArray::from(rows.iter().map(|r| r.start_time).collect::<Vec<_>>())),
-            Arc::new(TimestampMicrosecondArray::from(rows.iter().map(|r| r.end_time).collect::<Vec<_>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.attributes.as_deref()).collect::<Vec<Option<&str>>>())),
+            Arc::new(StringArray::from(
+                rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.correlation_id.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.parent_correlation_id.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter().map(|r| r.service.as_str()).collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.name.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.route.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.method.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
+            Arc::new(Int32Array::from(
+                rows.iter()
+                    .map(|r| r.status_code)
+                    .collect::<Vec<Option<i32>>>(),
+            )),
+            Arc::new(Float64Array::from(
+                rows.iter()
+                    .map(|r| r.latency_ms)
+                    .collect::<Vec<Option<f64>>>(),
+            )),
+            Arc::new(BooleanArray::from(
+                rows.iter()
+                    .map(|r| r.is_error)
+                    .collect::<Vec<Option<bool>>>(),
+            )),
+            Arc::new(TimestampMicrosecondArray::from(
+                rows.iter().map(|r| r.start_time).collect::<Vec<_>>(),
+            )),
+            Arc::new(TimestampMicrosecondArray::from(
+                rows.iter().map(|r| r.end_time).collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.attributes.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
         ],
     )
     .map_err(|e| anyhow::anyhow!("build span batch: {}", e))
@@ -429,12 +533,26 @@ fn build_metric_batch(rows: &[MetricRow]) -> Result<RecordBatch> {
     RecordBatch::try_new(
         Arc::new(schema),
         vec![
-            Arc::new(StringArray::from(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.service.as_str()).collect::<Vec<_>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>())),
-            Arc::new(TimestampMicrosecondArray::from(rows.iter().map(|r| r.timestamp).collect::<Vec<_>>())),
-            Arc::new(Float64Array::from(rows.iter().map(|r| r.value).collect::<Vec<_>>())),
-            Arc::new(StringArray::from(rows.iter().map(|r| r.labels.as_deref()).collect::<Vec<Option<&str>>>())),
+            Arc::new(StringArray::from(
+                rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter().map(|r| r.service.as_str()).collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+            )),
+            Arc::new(TimestampMicrosecondArray::from(
+                rows.iter().map(|r| r.timestamp).collect::<Vec<_>>(),
+            )),
+            Arc::new(Float64Array::from(
+                rows.iter().map(|r| r.value).collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter()
+                    .map(|r| r.labels.as_deref())
+                    .collect::<Vec<Option<&str>>>(),
+            )),
         ],
     )
     .map_err(|e| anyhow::anyhow!("build metric batch: {}", e))
@@ -479,7 +597,11 @@ pub(crate) fn ns_to_micros(ns: i64) -> i64 {
 }
 
 pub(crate) fn non_empty(s: &str) -> Option<String> {
-    if s.is_empty() { None } else { Some(s.to_string()) }
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
 }
 
 #[cfg(test)]

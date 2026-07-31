@@ -19,6 +19,9 @@ fn test_tracing_layer_capture() {
 
     assert!(!batches.is_empty(), "expected at least one batch");
     let batch = &batches[0];
-    let has_tracing_event = batch.logs.iter().any(|l| l.message.contains("tracing-test-message"));
+    let has_tracing_event = batch
+        .logs
+        .iter()
+        .any(|l| l.message.contains("tracing-test-message"));
     assert!(has_tracing_event, "expected tracing event to be captured");
 }

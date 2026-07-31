@@ -1,12 +1,11 @@
 use super::query_engine::QueryEngine;
 use axum::{
-    Json,
     extract::State,
     http::{header, Method, StatusCode},
     response::sse::{Event, KeepAlive},
     response::Sse,
     routing::{get, post},
-    Router,
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
@@ -95,9 +94,7 @@ pub(crate) async fn health_handler() -> Json<HealthResponse> {
     })
 }
 
-async fn status_handler(
-    State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
+async fn status_handler(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "running",
         "version": env!("CARGO_PKG_VERSION"),
@@ -112,16 +109,11 @@ pub(crate) async fn query_handler(
 ) -> Result<Json<super::query_engine::QueryResult>, (StatusCode, String)> {
     match state.query_engine.query(&req.sql).await {
         Ok(result) => Ok(Json(result)),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            format!("Query failed: {e}"),
-        )),
+        Err(e) => Err((StatusCode::BAD_REQUEST, format!("Query failed: {e}"))),
     }
 }
 
-async fn detect_handler(
-    State(state): State<Arc<AppState>>,
-) -> Json<Vec<super::detect::Detection>> {
+async fn detect_handler(State(state): State<Arc<AppState>>) -> Json<Vec<super::detect::Detection>> {
     let detections = super::detect::detect_workspace(&state.config.workspace);
     Json(detections.unwrap_or_default())
 }

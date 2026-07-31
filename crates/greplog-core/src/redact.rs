@@ -40,5 +40,3 @@ pub fn redact_string(val: &str, mode: RedactionMode) -> String {
         }
     }
 }
-
-

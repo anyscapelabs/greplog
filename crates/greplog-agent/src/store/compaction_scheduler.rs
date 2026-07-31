@@ -59,11 +59,9 @@ pub fn spawn_compaction_scheduler(
         loop {
             ticker.tick().await;
             let dir = data_dir.clone();
-            if let Err(e) = tokio::task::spawn_blocking(move || {
-                compact_eligible_partitions(&dir)
-            })
-            .await
-            .unwrap_or_else(|e| Err(anyhow::anyhow!("spawn_blocking join: {e}")))
+            if let Err(e) = tokio::task::spawn_blocking(move || compact_eligible_partitions(&dir))
+                .await
+                .unwrap_or_else(|e| Err(anyhow::anyhow!("spawn_blocking join: {e}")))
             {
                 tracing::error!("Compaction cycle failed: {e}");
             }

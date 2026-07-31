@@ -15,10 +15,7 @@ fn test_redact_partial() {
         redact_string("password123", RedactionMode::Partial),
         "pa***23"
     );
-    assert_eq!(
-        redact_string("hello", RedactionMode::Partial),
-        "he***lo"
-    );
+    assert_eq!(redact_string("hello", RedactionMode::Partial), "he***lo");
 
     assert_eq!(redact_string("abcd", RedactionMode::Partial), "[***]");
     assert_eq!(redact_string("hi", RedactionMode::Partial), "[***]");

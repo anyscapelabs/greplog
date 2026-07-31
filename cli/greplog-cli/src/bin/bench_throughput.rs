@@ -55,9 +55,7 @@ struct StepResult {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
+    tracing_subscriber::fmt().with_env_filter("info").init();
     let args = Args::parse();
 
     if args.disk_baseline {
@@ -66,14 +64,10 @@ async fn main() -> anyhow::Result<()> {
 
     let n_producers = args.producers as usize;
     let running = Arc::new(AtomicBool::new(true));
-    let all_results: Arc<Mutex<Vec<Vec<StepResult>>>> = Arc::new(Mutex::new(
-        (0..n_producers).map(|_| Vec::new()).collect(),
-    ));
+    let all_results: Arc<Mutex<Vec<Vec<StepResult>>>> =
+        Arc::new(Mutex::new((0..n_producers).map(|_| Vec::new()).collect()));
 
-    let status_handle = spawn_status_poller(
-        args.status_host.clone(),
-        running.clone(),
-    );
+    let status_handle = spawn_status_poller(args.status_host.clone(), running.clone());
 
     // ── Measure average event size ──────────────────────────────────
     let sample = make_batch("sample-svc", args.events_per_batch);
@@ -81,7 +75,8 @@ async fn main() -> anyhow::Result<()> {
     let avg_event_size = sample_encoded.len() as f64 / args.events_per_batch as f64;
     tracing::info!(
         "Avg serialized event size: {:.0} bytes, batch size: {} bytes",
-        avg_event_size, sample_encoded.len(),
+        avg_event_size,
+        sample_encoded.len(),
     );
 
     let mut producer_handles = Vec::new();
@@ -122,7 +117,9 @@ async fn main() -> anyhow::Result<()> {
 
                 tracing::info!(
                     "[producer {p}] step {}/{}: configured {}/s ({} ev/s)",
-                    step + 1, steps, target_rate,
+                    step + 1,
+                    steps,
+                    target_rate,
                     target_rate * events_per_batch as u64,
                 );
 
@@ -209,8 +206,6 @@ async fn main() -> anyhow::Result<()> {
 
             let mut all = results.lock().unwrap();
             all[p] = my_results;
-
-
         });
         producer_handles.push(handle);
     }
@@ -233,8 +228,13 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("  CORRECTED THROUGHPUT (measured from IngestResponse acks over wall time)");
     tracing::info!("======================================================================");
     tracing::info!("");
-    tracing::info!("Configuration: {} producer(s), {} ev/batch, {} steps x {}s each",
-        args.producers, args.events_per_batch, n_steps, args.step_secs);
+    tracing::info!(
+        "Configuration: {} producer(s), {} ev/batch, {} steps x {}s each",
+        args.producers,
+        args.events_per_batch,
+        n_steps,
+        args.step_secs
+    );
     tracing::info!("Avg serialized event size: {:.0} bytes", avg_event_size);
 
     for step in 0..n_steps {
@@ -270,17 +270,26 @@ async fn main() -> anyhow::Result<()> {
         let implied_write_bytes = actual_ev_s * avg_event_size;
 
         tracing::info!("");
-        tracing::info!("  Step {}: target={}/s, actual={:.0} ev/s (wall {:.2}s)",
+        tracing::info!(
+            "  Step {}: target={}/s, actual={:.0} ev/s (wall {:.2}s)",
             step + 1,
             target_ev_s,
             actual_ev_s,
             wall_secs,
         );
-        tracing::info!("    accepted={}, rejected={}, batches_attempted={}, lost_batches={}",
-            total_accepted, total_rejected, total_batches, lost_total);
-        tracing::info!("    actual batch rate: {:.0} batches/s total",
-            responded_batches as f64 / wall_secs.max(0.001));
-        tracing::info!("    implied durable write rate: {:.1} MiB/s ({:.0} bytes/s)",
+        tracing::info!(
+            "    accepted={}, rejected={}, batches_attempted={}, lost_batches={}",
+            total_accepted,
+            total_rejected,
+            total_batches,
+            lost_total
+        );
+        tracing::info!(
+            "    actual batch rate: {:.0} batches/s total",
+            responded_batches as f64 / wall_secs.max(0.001)
+        );
+        tracing::info!(
+            "    implied durable write rate: {:.1} MiB/s ({:.0} bytes/s)",
             implied_write_bytes / (1024.0 * 1024.0),
             implied_write_bytes,
         );
@@ -292,8 +301,8 @@ async fn main() -> anyhow::Result<()> {
     let mut final_total_rejected: u64 = 0;
     let mut final_lost: u64 = 0;
     let mut final_wall: u128 = 0;
-        for p in 0..n_producers {
-            if let Some(r) = results.get(p).and_then(|v| v.get(last_step)) {
+    for p in 0..n_producers {
+        if let Some(r) = results.get(p).and_then(|v| v.get(last_step)) {
             final_total_accepted += r.accepted;
             final_total_rejected += r.rejected;
             final_wall = final_wall.max(r.elapsed_ns);
@@ -322,18 +331,27 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("");
     tracing::info!("--- CEILING ANALYSIS ---");
-    tracing::info!("  Last-step actual throughput: {:.0} ev/s (accepted {})",
-        final_ev_s, final_total_accepted);
+    tracing::info!(
+        "  Last-step actual throughput: {:.0} ev/s (accepted {})",
+        final_ev_s,
+        final_total_accepted
+    );
     if final_total_rejected > 0 {
-        tracing::info!("  Rejections detected ({} events) — agent is dropping at this rate",
-            final_total_rejected);
+        tracing::info!(
+            "  Rejections detected ({} events) — agent is dropping at this rate",
+            final_total_rejected
+        );
     }
     if final_lost > 0 {
-        tracing::info!("  Lost batches: {} (sent but no response received) — agent or network saturated",
-            final_lost);
+        tracing::info!(
+            "  Lost batches: {} (sent but no response received) — agent or network saturated",
+            final_lost
+        );
     }
     if final_total_rejected == 0 && final_lost == 0 {
-        tracing::info!("  No rejections and no lost batches at max tested rate — true ceiling not yet reached");
+        tracing::info!(
+            "  No rejections and no lost batches at max tested rate — true ceiling not yet reached"
+        );
     }
 
     // Rate of change: did throughput plateau?
@@ -352,7 +370,12 @@ async fn main() -> anyhow::Result<()> {
             let ev_s = if ws > 0.0 { ta as f64 / ws } else { 0.0 };
             if step > 0 && prev_ev_s > 0.0 {
                 let pct = ((ev_s / prev_ev_s) - 1.0) * 100.0;
-                tracing::info!("  Step {}→{} throughput change: {:.1}%", step, step + 1, pct);
+                tracing::info!(
+                    "  Step {}→{} throughput change: {:.1}%",
+                    step,
+                    step + 1,
+                    pct
+                );
             }
             prev_ev_s = ev_s;
         }
@@ -388,7 +411,9 @@ async fn run_disk_baseline(args: &Args) {
     tracing::info!("");
     tracing::info!("=== Disk Write+Fsync Baseline ===");
     tracing::info!("  Testing raw sequential write+fsync throughput on the data disk...");
-    tracing::info!("  (dd if=/dev/zero of=<workspace>/.bench_baseline bs=256K conv=fsync oflag=direct)");
+    tracing::info!(
+        "  (dd if=/dev/zero of=<workspace>/.bench_baseline bs=256K conv=fsync oflag=direct)"
+    );
 
     for &size_mb in &[64u64, 256] {
         let count = size_mb * 4; // 256 KB blocks
@@ -415,7 +440,10 @@ async fn run_disk_baseline(args: &Args) {
                 let bytes_s = size_mb as f64 * 1024.0 * 1024.0 / elapsed.as_secs_f64();
                 tracing::info!(
                     "  dd {} MB: {:.1} MiB/s ({:.0} bytes/s, {:.2}s)",
-                    size_mb, mibs, bytes_s, elapsed.as_secs_f64(),
+                    size_mb,
+                    mibs,
+                    bytes_s,
+                    elapsed.as_secs_f64(),
                 );
                 let stderr = String::from_utf8_lossy(&out.stderr);
                 for line in stderr.lines() {
@@ -431,10 +459,7 @@ async fn run_disk_baseline(args: &Args) {
     }
 }
 
-fn spawn_status_poller(
-    host: String,
-    running: Arc<AtomicBool>,
-) -> tokio::task::JoinHandle<()> {
+fn spawn_status_poller(host: String, running: Arc<AtomicBool>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let client = Client::new();
         let mut ticker = interval(Duration::from_secs(5));
@@ -444,18 +469,16 @@ fn spawn_status_poller(
             ticker.tick().await;
             let url = format!("http://{host}/status");
             match client.get(&url).send().await {
-                Ok(resp) => {
-                    match resp.json::<serde_json::Value>().await {
-                        Ok(json) => {
-                            let dropped = json["dropped_events"].as_u64().unwrap_or(0);
-                            let buffer = json["buffer_occupancy"].as_u64().unwrap_or(0);
-                            tracing::info!(
-                                "STATUS: dropped_events={dropped}, buffer_occupancy={buffer}",
-                            );
-                        }
-                        Err(e) => tracing::warn!("status parse err: {e}"),
+                Ok(resp) => match resp.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        let dropped = json["dropped_events"].as_u64().unwrap_or(0);
+                        let buffer = json["buffer_occupancy"].as_u64().unwrap_or(0);
+                        tracing::info!(
+                            "STATUS: dropped_events={dropped}, buffer_occupancy={buffer}",
+                        );
                     }
-                }
+                    Err(e) => tracing::warn!("status parse err: {e}"),
+                },
                 Err(e) => tracing::warn!("status fetch err: {e}"),
             }
         }

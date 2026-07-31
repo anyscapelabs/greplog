@@ -6,8 +6,11 @@ use std::fs;
 use std::path::PathBuf;
 
 fn test_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("greplog_dedup_test_{}_{}", name, std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "greplog_dedup_test_{}_{}",
+        name,
+        std::process::id()
+    ));
     let _ = fs::remove_dir_all(&dir);
     let _ = fs::create_dir_all(&dir);
     dir
@@ -31,9 +34,7 @@ fn make_log(service: &str, timestamp_ns: i64, level: &str, msg: &str) -> LogEven
     }
 }
 
-fn make_span(
-    service: &str, start_ns: i64, end_ns: i64, name: &str,
-) -> Span {
+fn make_span(service: &str, start_ns: i64, end_ns: i64, name: &str) -> Span {
     Span {
         service_name: service.into(),
         name: name.into(),
@@ -79,8 +80,18 @@ fn test_seed_from_parquet() {
         service_name: "svc".into(),
         instance_id: "i1".into(),
         batch_seq: 1,
-        logs: vec![make_log("svc", 1_700_000_000_000_000_000, "info", "seed me")],
-        spans: vec![make_span("svc", 1_700_000_000_000_000_000, 1_700_000_000_010_000_000, "op")],
+        logs: vec![make_log(
+            "svc",
+            1_700_000_000_000_000_000,
+            "info",
+            "seed me",
+        )],
+        spans: vec![make_span(
+            "svc",
+            1_700_000_000_000_000_000,
+            1_700_000_000_010_000_000,
+            "op",
+        )],
         metrics: vec![make_metric("svc", 1_700_000_000_000_000_000, "cpu", 0.5)],
     };
     flush_parquet_only(&dir, &[batch]).expect("flush to seed");
@@ -88,9 +99,14 @@ fn test_seed_from_parquet() {
     let mut cache = DedupCache::new(1000);
     cache.seed_from_recent_files(&dir).expect("seed");
 
-    assert!(cache.contains(&crate::store::flush::log_content_id(&make_log(
-        "svc", 1_700_000_000_000_000_000, "info", "seed me",
-    ))));
+    assert!(
+        cache.contains(&crate::store::flush::log_content_id(&make_log(
+            "svc",
+            1_700_000_000_000_000_000,
+            "info",
+            "seed me",
+        )))
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -108,10 +124,7 @@ fn test_filter_batch_dedup() {
         service_name: "svc".into(),
         instance_id: "i1".into(),
         batch_seq: 1,
-        logs: vec![
-            known_log,
-            make_log("svc", 2_000_000, "debug", "unique"),
-        ],
+        logs: vec![known_log, make_log("svc", 2_000_000, "debug", "unique")],
         spans: vec![],
         metrics: vec![],
     };
@@ -153,7 +166,14 @@ fn test_seed_respects_limit() {
     let dir = test_dir("seed_limit");
 
     let logs: Vec<LogEvent> = (0..10)
-        .map(|i| make_log("svc", 1_700_000_000_000_000_000 + i as i64, "info", &format!("m{i}")))
+        .map(|i| {
+            make_log(
+                "svc",
+                1_700_000_000_000_000_000 + i as i64,
+                "info",
+                &format!("m{i}"),
+            )
+        })
         .collect();
     let batch = IngestBatch {
         service_name: "svc".into(),

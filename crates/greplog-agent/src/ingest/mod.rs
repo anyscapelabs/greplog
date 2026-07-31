@@ -17,7 +17,9 @@ pub struct IngestServer {
 }
 
 impl IngestServer {
-    pub fn new(batch_tx: mpsc::Sender<(IngestBatch, bytes::Bytes, oneshot::Sender<IngestResponse>)>) -> Self {
+    pub fn new(
+        batch_tx: mpsc::Sender<(IngestBatch, bytes::Bytes, oneshot::Sender<IngestResponse>)>,
+    ) -> Self {
         Self { batch_tx }
     }
 

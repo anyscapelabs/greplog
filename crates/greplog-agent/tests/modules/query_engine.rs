@@ -6,8 +6,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 fn test_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("greplog_query_test_{}_{}", name, std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "greplog_query_test_{}_{}",
+        name,
+        std::process::id()
+    ));
     let _ = fs::remove_dir_all(&dir);
     let _ = fs::create_dir_all(&dir);
     dir
@@ -40,13 +43,13 @@ fn write_log_file(
             Arc::new(StringArray::from(vec![None::<&str>])),
             Arc::new(StringArray::from(vec![Some(message)])),
             Arc::new(StringArray::from(vec![None::<&str>])),
-            Arc::new(StringArray::from(vec![None::<&str>])),  // logger_name
-            Arc::new(StringArray::from(vec![None::<&str>])),  // file
+            Arc::new(StringArray::from(vec![None::<&str>])), // logger_name
+            Arc::new(StringArray::from(vec![None::<&str>])), // file
             Arc::new(Int32Array::from(vec![None::<i32>])),   // line
-            Arc::new(StringArray::from(vec![None::<&str>])),  // correlation_id
-            Arc::new(st_builder.finish()),                    // stack_trace
-            Arc::new(StringArray::from(vec![None::<&str>])),  // exception_type
-            Arc::new(StringArray::from(vec![None::<&str>])),  // exception_message
+            Arc::new(StringArray::from(vec![None::<&str>])), // correlation_id
+            Arc::new(st_builder.finish()),                   // stack_trace
+            Arc::new(StringArray::from(vec![None::<&str>])), // exception_type
+            Arc::new(StringArray::from(vec![None::<&str>])), // exception_message
         ],
     )
     .expect("build log batch");
@@ -55,13 +58,7 @@ fn write_log_file(
 }
 
 #[allow(dead_code)]
-fn write_span_file(
-    base: &Path,
-    service: &str,
-    date: &str,
-    id: &str,
-    name: &str,
-) -> PathBuf {
+fn write_span_file(base: &Path, service: &str, date: &str, id: &str, name: &str) -> PathBuf {
     let dir = base
         .join("data")
         .join("table_type=spans")
@@ -107,7 +104,14 @@ async fn count_rows(engine: &QueryEngine, sql: &str) -> usize {
 /// matching the shape emitted by the Node.js and Python SDKs' HTTP middleware
 /// (whose `level` is derived from the response status: >=500 -> error,
 /// 400-499 -> warn, <400 -> info).
-fn write_http_log_file(base: &Path, service: &str, date: &str, id: &str, latency_ms: &str, status_code: &str) -> PathBuf {
+fn write_http_log_file(
+    base: &Path,
+    service: &str,
+    date: &str,
+    id: &str,
+    latency_ms: &str,
+    status_code: &str,
+) -> PathBuf {
     let dir = base
         .join("data")
         .join("table_type=logs")
@@ -140,12 +144,12 @@ fn write_http_log_file(base: &Path, service: &str, date: &str, id: &str, latency
             Arc::new(StringArray::from(vec![Some("GET /api -> 200")])),
             Arc::new(StringArray::from(vec![Some(attributes.as_str())])),
             Arc::new(StringArray::from(vec![Some("greplog.http")])), // logger_name
-            Arc::new(StringArray::from(vec![None::<&str>])),  // file
-            Arc::new(Int32Array::from(vec![None::<i32>])),   // line
-            Arc::new(StringArray::from(vec![None::<&str>])),  // correlation_id
-            Arc::new(st_builder.finish()),                    // stack_trace
-            Arc::new(StringArray::from(vec![None::<&str>])),  // exception_type
-            Arc::new(StringArray::from(vec![None::<&str>])),  // exception_message
+            Arc::new(StringArray::from(vec![None::<&str>])),         // file
+            Arc::new(Int32Array::from(vec![None::<i32>])),           // line
+            Arc::new(StringArray::from(vec![None::<&str>])),         // correlation_id
+            Arc::new(st_builder.finish()),                           // stack_trace
+            Arc::new(StringArray::from(vec![None::<&str>])),         // exception_type
+            Arc::new(StringArray::from(vec![None::<&str>])),         // exception_message
         ],
     )
     .expect("build http log batch");
@@ -258,9 +262,7 @@ async fn test_limit_injection_no_existing() {
     let services: Vec<&str> = (0..n).map(|_| "svc").collect();
     let ts: Vec<i64> = (0..n).map(|_| 1_700_000_000_000_000).collect();
     let levels: Vec<&str> = (0..n).map(|_| "info").collect();
-    let messages: Vec<Option<String>> = (0..n)
-        .map(|i| Some(format!("msg {}", i)))
-        .collect();
+    let messages: Vec<Option<String>> = (0..n).map(|i| Some(format!("msg {}", i))).collect();
     let none_str: Vec<Option<&str>> = (0..n).map(|_| None).collect();
     let msg_arr: StringArray = messages.iter().map(|m| m.as_deref()).collect();
     let mut st_builder = ListBuilder::new(StringBuilder::new());
@@ -291,10 +293,7 @@ async fn test_limit_injection_no_existing() {
     let engine = QueryEngine::new(&dir).expect("new engine");
     assert_eq!(engine.row_limit, DEFAULT_ROW_LIMIT);
 
-    let result = engine
-        .query("SELECT * FROM logs")
-        .await
-        .expect("query");
+    let result = engine.query("SELECT * FROM logs").await.expect("query");
     assert_eq!(
         result.row_count, DEFAULT_ROW_LIMIT,
         "should be capped at row limit"
@@ -454,8 +453,7 @@ async fn test_limit_injection_over_cap() {
     let services: Vec<&str> = (0..n).map(|_| "svc").collect();
     let ts: Vec<i64> = (0..n).map(|_| 1_700_000_000_000_000).collect();
     let levels: Vec<&str> = (0..n).map(|_| "info").collect();
-    let messages: Vec<Option<String>> =
-        (0..n).map(|i| Some(format!("msg {}", i))).collect();
+    let messages: Vec<Option<String>> = (0..n).map(|i| Some(format!("msg {}", i))).collect();
     let none_str: Vec<Option<&str>> = (0..n).map(|_| None).collect();
     let msg_arr: StringArray = messages.iter().map(|m| m.as_deref()).collect();
     let mut st_builder = ListBuilder::new(StringBuilder::new());
@@ -503,7 +501,10 @@ async fn test_empty_database() {
     let dir = test_dir("empty_db");
     let engine = QueryEngine::new(&dir).expect("new engine");
 
-    let result = engine.query("SELECT * FROM logs").await.expect("query on empty db");
+    let result = engine
+        .query("SELECT * FROM logs")
+        .await
+        .expect("query on empty db");
     assert_eq!(result.row_count, 0, "empty db returns zero rows");
     assert!(result.columns.is_empty() || result.columns.len() == 15);
 
@@ -516,23 +517,28 @@ async fn test_mutation_rejection() {
     write_log_file(&dir, "api", "2024-01-15", "id-1", "info", "hello");
     let engine = QueryEngine::new(&dir).expect("new engine");
 
-    async fn try_mutation(
-        engine: &QueryEngine,
-        sql: &str,
-    ) -> Result<String, String> {
+    async fn try_mutation(engine: &QueryEngine, sql: &str) -> Result<String, String> {
         match engine.query(sql).await {
             Err(e) => Ok(format!("rejected: {}", e)),
             Ok(_) => Err(sql.to_string()),
         }
     }
 
-    let r = try_mutation(&engine, "INSERT INTO logs VALUES ('x', 'svc', 0, 'info', 'msg')").await;
+    let r = try_mutation(
+        &engine,
+        "INSERT INTO logs VALUES ('x', 'svc', 0, 'info', 'msg')",
+    )
+    .await;
     assert!(r.is_ok(), "INSERT should be rejected: {:?}", r);
 
     let r = try_mutation(&engine, "DELETE FROM logs WHERE id = 'id-1'").await;
     assert!(r.is_ok(), "DELETE should be rejected: {:?}", r);
 
-    let r = try_mutation(&engine, "UPDATE logs SET message = 'hacked' WHERE id = 'id-1'").await;
+    let r = try_mutation(
+        &engine,
+        "UPDATE logs SET message = 'hacked' WHERE id = 'id-1'",
+    )
+    .await;
     assert!(r.is_ok(), "UPDATE should be rejected: {:?}", r);
 
     let r = try_mutation(&engine, "DROP TABLE logs").await;
@@ -541,11 +547,7 @@ async fn test_mutation_rejection() {
     let r = try_mutation(&engine, "CREATE TABLE evil AS SELECT * FROM logs").await;
     assert!(r.is_ok(), "CREATE TABLE AS should be rejected: {:?}", r);
 
-    let r = try_mutation(
-        &engine,
-        "COPY logs TO '/tmp/greplog_exfil_test.parquet'",
-    )
-    .await;
+    let r = try_mutation(&engine, "COPY logs TO '/tmp/greplog_exfil_test.parquet'").await;
     assert!(r.is_ok(), "COPY TO should be rejected: {:?}", r);
 
     let r = try_mutation(&engine, "SELECT 1; DROP TABLE logs;").await;
@@ -609,29 +611,18 @@ async fn test_new_data_visibility_within_staleness_window() {
 #[tokio::test]
 async fn test_non_parquet_files_ignored() {
     let dir = test_dir("non_parquet_ignored");
-    let part_dir = write_log_file(
-        &dir,
-        "svc",
-        "2024-01-15",
-        "id-real",
-        "info",
-        "real data",
-    );
+    let part_dir = write_log_file(&dir, "svc", "2024-01-15", "id-real", "info", "real data");
 
     fs::write(part_dir.join(".compaction_manifest"), b"{}").expect("write manifest");
-    fs::write(
-        part_dir.join("stray.tmp"),
-        b"not parquet data",
-    )
-    .expect("write tmp");
+    fs::write(part_dir.join("stray.tmp"), b"not parquet data").expect("write tmp");
 
     let engine = QueryEngine::new(&dir).expect("new engine");
 
-    let result = engine
-        .query("SELECT * FROM logs")
-        .await
-        .expect("query");
-    assert_eq!(result.row_count, 1, "only the real parquet row should appear");
+    let result = engine.query("SELECT * FROM logs").await.expect("query");
+    assert_eq!(
+        result.row_count, 1,
+        "only the real parquet row should appear"
+    );
     assert_eq!(result.rows[0][4], serde_json::json!("real data"));
 
     let _ = fs::remove_dir_all(&dir);
@@ -687,11 +678,17 @@ async fn test_json_get_str_http_attributes() {
     // Missing keys / NULL attributes produce NULL (skipped by aggregates),
     // not a query error — scan all rows including the plain one.
     let result = engine
-        .query("SELECT id, json_get_str(attributes, 'http.latency_ms') AS lat FROM logs ORDER BY id")
+        .query(
+            "SELECT id, json_get_str(attributes, 'http.latency_ms') AS lat FROM logs ORDER BY id",
+        )
         .await
         .expect("query all rows with json_get_str");
     assert_eq!(result.row_count, 4);
-    assert_eq!(result.rows[3][1], serde_json::Value::Null, "plain log has no http attributes");
+    assert_eq!(
+        result.rows[3][1],
+        serde_json::Value::Null,
+        "plain log has no http attributes"
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -782,7 +779,10 @@ async fn test_union_all_http_span_and_log_attributes() {
         .expect("query union latency percentile");
     assert_eq!(result.row_count, 1);
     let p50 = result.rows[0][0].as_f64().expect("p50 is a number");
-    assert!((12.5..=150.0).contains(&p50), "p50 {p50} must sit between the min and max latency");
+    assert!(
+        (12.5..=150.0).contains(&p50),
+        "p50 {p50} must sit between the min and max latency"
+    );
 
     // The UNION source must contain exactly the filtered rows (2 spans + 2
     // logs), proving both SDK paths contribute and the old span is excluded.
@@ -825,24 +825,32 @@ async fn test_union_all_http_level_and_status_filters() {
 
     // `level IN ('error')` → only the two 500 rows across both arms.
     let result = engine
-        .query("SELECT count(*) AS cnt FROM (
+        .query(
+            "SELECT count(*) AS cnt FROM (
            SELECT latency_ms FROM spans WHERE status_code >= 500
            UNION ALL
            SELECT CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
            FROM logs WHERE logger_name = 'greplog.http' AND (level IN ('error'))
-         ) t")
+         ) t",
+        )
         .await
         .expect("query level-filtered union count");
-    assert_eq!(result.rows[0][0], serde_json::json!(2i64), "only error-status rows across both arms");
+    assert_eq!(
+        result.rows[0][0],
+        serde_json::json!(2i64),
+        "only error-status rows across both arms"
+    );
 
     // Per-service sum/count over the error population.
     let result = engine
-        .query("SELECT service, sum(latency_ms) AS sum_ms, count(*) AS cnt FROM (
+        .query(
+            "SELECT service, sum(latency_ms) AS sum_ms, count(*) AS cnt FROM (
            SELECT service, latency_ms FROM spans WHERE status_code >= 500
            UNION ALL
            SELECT service, CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
            FROM logs WHERE logger_name = 'greplog.http' AND (level IN ('error'))
-         ) t GROUP BY service ORDER BY service")
+         ) t GROUP BY service ORDER BY service",
+        )
         .await
         .expect("query level-filtered union avg");
     assert_eq!(result.row_count, 1);
@@ -853,13 +861,15 @@ async fn test_union_all_http_level_and_status_filters() {
     // Status-chip translation: `line >= 500` becomes a status_code predicate on
     // BOTH arms (line is null on HTTP rows; the chip means response status).
     let result = engine
-        .query("SELECT count(*) AS cnt FROM (
+        .query(
+            "SELECT count(*) AS cnt FROM (
            SELECT latency_ms FROM spans WHERE status_code >= 500
            UNION ALL
            SELECT CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
            FROM logs WHERE logger_name = 'greplog.http'
              AND (CAST(json_get_str(attributes, 'http.status_code') AS INT) >= 500)
-         ) t")
+         ) t",
+        )
         .await
         .expect("query status-chip union count");
     assert_eq!(result.rows[0][0], serde_json::json!(2i64));
@@ -868,15 +878,21 @@ async fn test_union_all_http_level_and_status_filters() {
     // and becomes `name LIKE`/`route LIKE` on the spans arm. All four rows
     // mention /api, so the combined population is all four.
     let result = engine
-        .query("SELECT count(*) AS cnt FROM (
+        .query(
+            "SELECT count(*) AS cnt FROM (
            SELECT latency_ms FROM spans WHERE (name LIKE '%api%' OR route LIKE '%api%')
            UNION ALL
            SELECT CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
            FROM logs WHERE logger_name = 'greplog.http' AND (message LIKE '%api%')
-         ) t")
+         ) t",
+        )
         .await
         .expect("query message-filtered union count");
-    assert_eq!(result.rows[0][0], serde_json::json!(4i64), "all rows mention /api");
+    assert_eq!(
+        result.rows[0][0],
+        serde_json::json!(4i64),
+        "all rows mention /api"
+    );
 
     // A search matching nothing must exclude rows on BOTH arms, not just one.
     let result = engine

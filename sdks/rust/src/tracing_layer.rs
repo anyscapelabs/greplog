@@ -1,13 +1,13 @@
 use std::time::SystemTime;
 
 use tracing::Subscriber;
-use tracing_subscriber::Layer;
 use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::Layer;
 
 use greplog_core::gen::{LogEvent, Span, SpanKind};
 
-use crate::{generate_ulid, is_initialized, send_event, send_span, service_name};
 use crate::redact::redact_attributes;
+use crate::{generate_ulid, is_initialized, send_event, send_span, service_name};
 
 pub struct GreplogLayer;
 
@@ -56,11 +56,7 @@ where
         send_event(log);
     }
 
-    fn on_close(
-        &self,
-        id: tracing::span::Id,
-        ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
+    fn on_close(&self, id: tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
         if !is_initialized() {
             return;
         }
@@ -122,7 +118,9 @@ where
             .unwrap_or_default()
             .as_nanos() as i64;
 
-        span_ref.extensions_mut().insert(SpanTiming { start_ns: start });
+        span_ref
+            .extensions_mut()
+            .insert(SpanTiming { start_ns: start });
     }
 }
 
@@ -136,7 +134,10 @@ struct GreplogVisitor<'a> {
 }
 
 impl<'a> GreplogVisitor<'a> {
-    fn new(message: &'a mut String, attrs: &'a mut std::collections::HashMap<String, String>) -> Self {
+    fn new(
+        message: &'a mut String,
+        attrs: &'a mut std::collections::HashMap<String, String>,
+    ) -> Self {
         GreplogVisitor { message, attrs }
     }
 }
@@ -149,7 +150,8 @@ impl<'a> tracing::field::Visit for GreplogVisitor<'a> {
             }
             self.message.push_str(value);
         } else {
-            self.attrs.insert(field.name().to_string(), value.to_string());
+            self.attrs
+                .insert(field.name().to_string(), value.to_string());
         }
     }
 
@@ -166,14 +168,17 @@ impl<'a> tracing::field::Visit for GreplogVisitor<'a> {
     }
 
     fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.attrs.insert(field.name().to_string(), value.to_string());
+        self.attrs
+            .insert(field.name().to_string(), value.to_string());
     }
 
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.attrs.insert(field.name().to_string(), value.to_string());
+        self.attrs
+            .insert(field.name().to_string(), value.to_string());
     }
 
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.attrs.insert(field.name().to_string(), value.to_string());
+        self.attrs
+            .insert(field.name().to_string(), value.to_string());
     }
 }

@@ -54,7 +54,11 @@ pub async fn run(port: u16) -> Result<()> {
                     println!("  {}  Detected Services:", "🔍".bold());
                     for det in &detections {
                         let name = det.service_name.as_deref().unwrap_or("(unnamed)");
-                        println!("     {} · {}", name.bright_white().bold(), det.language.bright_cyan());
+                        println!(
+                            "     {} · {}",
+                            name.bright_white().bold(),
+                            det.language.bright_cyan()
+                        );
                     }
                 }
             }

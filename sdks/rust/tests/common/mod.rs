@@ -52,5 +52,3 @@ pub fn wait_for_frames(rx: &mpsc::Receiver<IngestBatch>, count: usize) -> Vec<In
 
     batches
 }
-
-

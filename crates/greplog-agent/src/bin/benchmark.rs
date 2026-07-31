@@ -44,8 +44,14 @@ struct Scale {
 }
 
 const SCALES: &[Scale] = &[
-    Scale { name: "1-week", days: 7 },
-    Scale { name: "12-weeks", days: 84 },
+    Scale {
+        name: "1-week",
+        days: 7,
+    },
+    Scale {
+        name: "12-weeks",
+        days: 84,
+    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -53,8 +59,7 @@ const SCALES: &[Scale] = &[
 // ---------------------------------------------------------------------------
 
 fn test_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("greplog_bench_{}_{}", name, std::process::id()));
+    let dir = std::env::temp_dir().join(format!("greplog_bench_{}_{}", name, std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     dir
 }
@@ -77,7 +82,11 @@ fn ns_to_date(_ns: i64) -> String {
     let secs = _ns / 1_000_000_000;
     let days = secs / 86400;
     // crude but deterministic
-    format!("2024-{:02}-{:02}", 1 + ((days as i32 / 28) % 12), 1 + (days % 28))
+    format!(
+        "2024-{:02}-{:02}",
+        1 + ((days as i32 / 28) % 12),
+        1 + (days % 28)
+    )
 }
 
 fn day_start_ns(offset_days: i64) -> i64 {
@@ -88,7 +97,9 @@ fn day_start_ns(offset_days: i64) -> i64 {
 
 fn random_usize(max: usize, seed: u64) -> usize {
     // Simple LCG — deterministic
-    let state = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    let state = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
     (state as usize) % max
 }
 
@@ -111,12 +122,17 @@ struct DatasetGenerator {
 
 impl DatasetGenerator {
     fn new() -> Self {
-        Self { seed: bench_seed(), call_count: 0 }
+        Self {
+            seed: bench_seed(),
+            call_count: 0,
+        }
     }
 
     fn next_seed(&mut self) -> u64 {
         self.call_count += 1;
-        self.seed.wrapping_add(self.call_count).wrapping_mul(2654435761)
+        self.seed
+            .wrapping_add(self.call_count)
+            .wrapping_mul(2654435761)
     }
 
     #[allow(dead_code)]
@@ -136,17 +152,30 @@ impl DatasetGenerator {
 
     fn random_message(&mut self, level: &str) -> String {
         let errors = [
-            "connection timeout", "database query failed", "permission denied",
-            "rate limit exceeded", "invalid request body", "upstream timeout",
+            "connection timeout",
+            "database query failed",
+            "permission denied",
+            "rate limit exceeded",
+            "invalid request body",
+            "upstream timeout",
         ];
         let warns = [
-            "slow query detected", "high memory usage", "retrying failed operation",
-            "deprecated endpoint called", "rate limit approaching",
+            "slow query detected",
+            "high memory usage",
+            "retrying failed operation",
+            "deprecated endpoint called",
+            "rate limit approaching",
         ];
         let infos = [
-            "request completed", "user logged in", "order created",
-            "payment processed", "cache refreshed", "health check passed",
-            "configuration reloaded", "session started", "batch job finished",
+            "request completed",
+            "user logged in",
+            "order created",
+            "payment processed",
+            "cache refreshed",
+            "health check passed",
+            "configuration reloaded",
+            "session started",
+            "batch job finished",
         ];
         let pool = match level {
             "error" => &errors[..],
@@ -160,9 +189,15 @@ impl DatasetGenerator {
         let level = self.random_level();
         let mut attrs = HashMap::new();
         attrs.insert("env".into(), "production".into());
-        attrs.insert("host".into(), format!("host-{}", random_usize(20, self.next_seed())));
+        attrs.insert(
+            "host".into(),
+            format!("host-{}", random_usize(20, self.next_seed())),
+        );
         if level == "error" {
-            attrs.insert("error_code".into(), format!("ERR-{}", 1000 + random_usize(999, self.next_seed())));
+            attrs.insert(
+                "error_code".into(),
+                format!("ERR-{}", 1000 + random_usize(999, self.next_seed())),
+            );
         }
         LogEvent {
             service_name: service.to_string(),
@@ -184,20 +219,47 @@ impl DatasetGenerator {
     fn generate_span(&mut self, service: &str, ts: i64, idx: usize) -> Span {
         let methods = ["GET", "POST", "PUT", "DELETE"];
         let routes = match service {
-            "checkout" => &["/checkout", "/checkout/cart", "/checkout/payment", "/checkout/confirm"][..],
-            "catalog" => &["/catalog/items", "/catalog/search", "/catalog/categories", "/catalog/item/{id}"][..],
-            "auth" => &["/auth/login", "/auth/logout", "/auth/refresh", "/auth/register"][..],
+            "checkout" => &[
+                "/checkout",
+                "/checkout/cart",
+                "/checkout/payment",
+                "/checkout/confirm",
+            ][..],
+            "catalog" => &[
+                "/catalog/items",
+                "/catalog/search",
+                "/catalog/categories",
+                "/catalog/item/{id}",
+            ][..],
+            "auth" => &[
+                "/auth/login",
+                "/auth/logout",
+                "/auth/refresh",
+                "/auth/register",
+            ][..],
             "api-gateway" => &["/api/v1/*", "/api/v2/*", "/graphql"][..],
-            "payment" => &["/payment/charge", "/payment/refund", "/payment/methods", "/payment/webhook"][..],
+            "payment" => &[
+                "/payment/charge",
+                "/payment/refund",
+                "/payment/methods",
+                "/payment/webhook",
+            ][..],
             _ => &["/unknown"][..],
         };
         let method = methods[random_usize(methods.len(), self.next_seed())];
         let route = routes[random_usize(routes.len(), self.next_seed())];
-        let status = if self.random_level() == "error" { 500 } else { [200, 200, 200, 201, 204][random_usize(5, self.next_seed())] };
+        let status = if self.random_level() == "error" {
+            500
+        } else {
+            [200, 200, 200, 201, 204][random_usize(5, self.next_seed())]
+        };
         let duration_ns = (1_000_000 + random_usize(500_000_000, self.next_seed())) as i64;
 
         let mut attrs = HashMap::new();
-        attrs.insert("db.queries".into(), format!("{}", random_usize(10, self.next_seed())));
+        attrs.insert(
+            "db.queries".into(),
+            format!("{}", random_usize(10, self.next_seed())),
+        );
         attrs.insert("content_type".into(), "application/json".into());
 
         Span {
@@ -210,7 +272,11 @@ impl DatasetGenerator {
             route: route.to_string(),
             method: method.to_string(),
             status_code: status,
-            error: if status >= 400 { "error".to_string() } else { String::new() },
+            error: if status >= 400 {
+                "error".to_string()
+            } else {
+                String::new()
+            },
             attributes: attrs,
             kind: SpanKind::Server as i32,
             event_id: format!("spn-{:020}", idx),
@@ -218,11 +284,7 @@ impl DatasetGenerator {
     }
 
     /// Generate all data for the given number of days and send via TCP.
-    async fn generate(
-        &mut self,
-        tcp_stream: &mut TcpStream,
-        days: u32,
-    ) -> Result<u64> {
+    async fn generate(&mut self, tcp_stream: &mut TcpStream, days: u32) -> Result<u64> {
         let base = day_start_ns(0);
         let day_ns = 86_400_000_000_000i64;
         let mut total_events = 0u64;
@@ -244,7 +306,11 @@ impl DatasetGenerator {
                     let logs: Vec<LogEvent> = (chunk_start..chunk_end)
                         .map(|i| {
                             let offset_ns = random_usize(day_ns as usize, self.next_seed()) as i64;
-                            self.generate_log_event(service, day_ts + offset_ns, total_events as usize + i)
+                            self.generate_log_event(
+                                service,
+                                day_ts + offset_ns,
+                                total_events as usize + i,
+                            )
                         })
                         .collect();
 
@@ -260,7 +326,11 @@ impl DatasetGenerator {
 
                     let resp = send_frame(tcp_stream, &batch).await;
                     if !resp.accepted {
-                        anyhow::bail!("batch rejected at log chunk {}: {}", chunk_start, resp.error);
+                        anyhow::bail!(
+                            "batch rejected at log chunk {}: {}",
+                            chunk_start,
+                            resp.error
+                        );
                     }
                 }
 
@@ -270,7 +340,11 @@ impl DatasetGenerator {
                     let spans: Vec<Span> = (chunk_start..chunk_end)
                         .map(|i| {
                             let offset_ns = random_usize(day_ns as usize, self.next_seed()) as i64;
-                            self.generate_span(service, day_ts + offset_ns, total_events as usize + i)
+                            self.generate_span(
+                                service,
+                                day_ts + offset_ns,
+                                total_events as usize + i,
+                            )
                         })
                         .collect();
 
@@ -286,7 +360,11 @@ impl DatasetGenerator {
 
                     let resp = send_frame(tcp_stream, &batch).await;
                     if !resp.accepted {
-                        anyhow::bail!("batch rejected at span chunk {}: {}", chunk_start, resp.error);
+                        anyhow::bail!(
+                            "batch rejected at span chunk {}: {}",
+                            chunk_start,
+                            resp.error
+                        );
                     }
                 }
 
@@ -294,7 +372,9 @@ impl DatasetGenerator {
             }
 
             let elapsed = gen_start.elapsed();
-            if elapsed.saturating_sub(last_report) > Duration::from_secs(REPORT_INTERVAL_SECS) || day + 1 == days {
+            if elapsed.saturating_sub(last_report) > Duration::from_secs(REPORT_INTERVAL_SECS)
+                || day + 1 == days
+            {
                 info!(
                     "Generated day {}/{} — {:.1}K events so far ({:.0} evt/s)",
                     day + 1,
@@ -415,7 +495,10 @@ fn print_results(heading: &str, results: &[QueryPatternResults]) {
         "{:<15} | {:<12} | {:<8} {:<8} {:<8} {:<8} {:<8}",
         "Pattern", "Metric", "min(ms)", "p50(ms)", "p95(ms)", "p99(ms)", "mean(ms)"
     );
-    println!("{:-<15}-+-{:-<12}-+-{:-<8}-{:-<8}-{:-<8}-{:-<8}-{:-<8}", "", "", "", "", "", "", "");
+    println!(
+        "{:-<15}-+-{:-<12}-+-{:-<8}-{:-<8}-{:-<8}-{:-<8}-{:-<8}",
+        "", "", "", "", "", "", ""
+    );
 
     for r in results {
         for (name, stats) in [
@@ -425,13 +508,7 @@ fn print_results(heading: &str, results: &[QueryPatternResults]) {
         ] {
             println!(
                 "{:<15} | {:<12} | {:<8.1} {:<8.1} {:<8.1} {:<8.1} {:<8.1}",
-                r.label,
-                name,
-                stats.min,
-                stats.p50,
-                stats.p95,
-                stats.p99,
-                stats.mean,
+                r.label, name, stats.min, stats.p50, stats.p95, stats.p99, stats.mean,
             );
         }
     }
@@ -448,8 +525,16 @@ fn print_results(heading: &str, results: &[QueryPatternResults]) {
         println!("{:-<27} {:-<8} {:-<8} {:-<8} {:-<8}", "", "", "", "", "");
 
         for (name, stats1, stats2) in [
-            ("filtered_scan", &results[0].filtered_scan, &results[1].filtered_scan),
-            ("latency_pctl", &results[0].latency_percentile, &results[1].latency_percentile),
+            (
+                "filtered_scan",
+                &results[0].filtered_scan,
+                &results[1].filtered_scan,
+            ),
+            (
+                "latency_pctl",
+                &results[0].latency_percentile,
+                &results[1].latency_percentile,
+            ),
             ("error_rate", &results[0].error_rate, &results[1].error_rate),
         ] {
             let dp50 = stats2.p50 - stats1.p50;
@@ -473,10 +558,7 @@ async fn run_benchmark_for_scale(
     gen: &mut DatasetGenerator,
 ) -> Result<QueryPatternResults> {
     let dir = test_dir(scale.name);
-    info!(
-        "=== Scale: {} ({} days) ===",
-        scale.name, scale.days
-    );
+    info!("=== Scale: {} ({} days) ===", scale.name, scale.days);
     info!("Workspace: {}", dir.display());
 
     fs::create_dir_all(dir.join(".greplog"))?;
@@ -507,10 +589,7 @@ async fn run_benchmark_for_scale(
     let writer = Writer::new(&config.workspace, config.max_buffer_events)?;
     let dropped_events = writer.dropped_events();
     writer.run_startup(50_000)?;
-    let _writer_handle = writer.spawn(
-        batch_rx,
-        Duration::from_secs(config.flush_interval_secs),
-    );
+    let _writer_handle = writer.spawn(batch_rx, Duration::from_secs(config.flush_interval_secs));
 
     let _ingest_handle = ingest::IngestServer::new(batch_tx.clone()).spawn(&config);
     let query_engine = QueryEngine::new(&config.workspace)?;
@@ -528,7 +607,11 @@ async fn run_benchmark_for_scale(
     {
         let mut stream = TcpStream::connect(("127.0.0.1", tcp_port)).await?;
         let total = gen.generate(&mut stream, scale.days).await?;
-        info!("Generated {:.1}K events in {} days", total as f64 / 1000.0, scale.days);
+        info!(
+            "Generated {:.1}K events in {} days",
+            total as f64 / 1000.0,
+            scale.days
+        );
     }
 
     // ── Wait for flush ──
@@ -552,8 +635,7 @@ async fn run_benchmark_for_scale(
     let span_count = engine.query("SELECT count(*) AS cnt FROM spans").await?;
     info!(
         "Store: {} log rows, {} span rows",
-        count.rows[0][0],
-        span_count.rows[0][0],
+        count.rows[0][0], span_count.rows[0][0],
     );
 
     // ── Run query benchmarks ──
@@ -571,8 +653,7 @@ async fn run_benchmark_for_scale(
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -630,7 +711,10 @@ async fn main() -> Result<()> {
                     service_name: "bench-load".to_string(),
                     message: "concurrent ingest event".to_string(),
                     level: "info".to_string(),
-                    timestamp_ns: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as i64,
+                    timestamp_ns: SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos() as i64,
                     logger_name: "bench".to_string(),
                     file: "benchmark.rs".to_string(),
                     line: 0,
@@ -698,8 +782,10 @@ async fn main() -> Result<()> {
     }
 
     let conc_stats = compute_percentiles(conc_results);
-    info!("Concurrent ingest query latency: p50={:.1}ms p95={:.1}ms p99={:.1}ms", 
-          conc_stats.p50, conc_stats.p95, conc_stats.p99);
+    info!(
+        "Concurrent ingest query latency: p50={:.1}ms p95={:.1}ms p99={:.1}ms",
+        conc_stats.p50, conc_stats.p95, conc_stats.p99
+    );
 
     // Check event drops
     let drops = dropped_events.load(Ordering::SeqCst);
@@ -716,7 +802,10 @@ async fn main() -> Result<()> {
     println!("{}", "=".repeat(80));
     println!("Seed: {}", bench_seed());
     println!("Services: {:?}", SERVICES);
-    println!("Events/service/day: ~{} logs + ~{} spans", EVENTS_PER_SERVICE_PER_DAY, SPANS_PER_SERVICE_PER_DAY);
+    println!(
+        "Events/service/day: ~{} logs + ~{} spans",
+        EVENTS_PER_SERVICE_PER_DAY, SPANS_PER_SERVICE_PER_DAY
+    );
     println!("Flush interval: {}s", FLUSH_INTERVAL_SECS);
     println!("Compaction interval: {}s", COMPACTION_INTERVAL_SECS);
     println!("Query runs: 20 warm, 20 measured per pattern");
@@ -729,9 +818,21 @@ async fn main() -> Result<()> {
         println!("{}", "-".repeat(80));
         println!("Delta analysis:");
         for (name, s1, s2) in [
-            ("filtered_scan", &all_results[0].filtered_scan, &all_results[1].filtered_scan),
-            ("latency_pctl", &all_results[0].latency_percentile, &all_results[1].latency_percentile),
-            ("error_rate", &all_results[0].error_rate, &all_results[1].error_rate),
+            (
+                "filtered_scan",
+                &all_results[0].filtered_scan,
+                &all_results[1].filtered_scan,
+            ),
+            (
+                "latency_pctl",
+                &all_results[0].latency_percentile,
+                &all_results[1].latency_percentile,
+            ),
+            (
+                "error_rate",
+                &all_results[0].error_rate,
+                &all_results[1].error_rate,
+            ),
         ] {
             let dp50 = s2.p50 - s1.p50;
             let dp95 = s2.p95 - s1.p95;
@@ -749,12 +850,17 @@ async fn main() -> Result<()> {
     println!();
     println!("{}", "-".repeat(80));
     println!("Concurrent ingestion during query:");
-    println!("  Query latency: p50={:.1}ms p95={:.1}ms p99={:.1}ms", 
-             conc_stats.p50, conc_stats.p95, conc_stats.p99);
+    println!(
+        "  Query latency: p50={:.1}ms p95={:.1}ms p99={:.1}ms",
+        conc_stats.p50, conc_stats.p95, conc_stats.p99
+    );
     println!("  Events dropped: {}", drops);
 
     println!();
-    println!("Total benchmark duration: {:.1}s", start.elapsed().as_secs_f64());
+    println!(
+        "Total benchmark duration: {:.1}s",
+        start.elapsed().as_secs_f64()
+    );
 
     Ok(())
 }

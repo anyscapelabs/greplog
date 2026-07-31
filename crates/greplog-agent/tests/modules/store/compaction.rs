@@ -34,8 +34,11 @@ fn make_log_batch(service: &str, message: &str) -> RecordBatch {
 }
 
 fn test_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("greplog_compaction_test_{}_{}", name, std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "greplog_compaction_test_{}_{}",
+        name,
+        std::process::id()
+    ));
     let _ = fs::remove_dir_all(&dir);
     let _ = fs::create_dir_all(&dir);
     dir
@@ -44,7 +47,9 @@ fn test_dir(name: &str) -> PathBuf {
 fn make_small_batch(service: &str, file_idx: usize, rows: usize) -> RecordBatch {
     let schema = arrow_schema::log_schema();
     let ts = 1_700_000_000_000_000;
-    let ids: Vec<String> = (0..rows).map(|_| uuid::Uuid::new_v4().to_string()).collect();
+    let ids: Vec<String> = (0..rows)
+        .map(|_| uuid::Uuid::new_v4().to_string())
+        .collect();
     let services: Vec<&str> = (0..rows).map(|_| service).collect();
     let timestamps: Vec<i64> = (0..rows).map(|_| ts).collect();
     let levels: Vec<Option<&str>> = (0..rows).map(|_| Some("info")).collect();
@@ -161,8 +166,7 @@ fn test_basic_merge() {
 
     assert_eq!(count_parquet_files(&part_dir), 3);
 
-    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false)
-        .expect("compact");
+    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false).expect("compact");
     assert_eq!(result.files_compacted, 3);
 
     let remaining = count_parquet_files(&part_dir);
@@ -280,7 +284,10 @@ fn test_reconciliation_idempotent() {
     reconcile_compactions(&dir).expect("reconcile first");
 
     for src in &manifest.source_files {
-        assert!(!src.exists(), "source must be deleted after first reconcile");
+        assert!(
+            !src.exists(),
+            "source must be deleted after first reconcile"
+        );
     }
     assert!(manifest.merged_file.exists());
 
@@ -302,8 +309,7 @@ fn test_small_partition() {
         .join("date=2024-01-01");
     write_files(&part_dir, 2, 1, "test");
 
-    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false)
-        .expect("compact");
+    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false).expect("compact");
     assert_eq!(result.files_compacted, 2);
 
     assert_eq!(count_parquet_files(&part_dir), 1);
@@ -327,15 +333,16 @@ fn test_skip_today_partition() {
 
     assert_eq!(count_parquet_files(&part_dir), 3);
 
-    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, true)
-        .expect("compact");
+    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, true).expect("compact");
     assert_eq!(result.files_compacted, 0, "should skip today's partition");
 
     assert_eq!(count_parquet_files(&part_dir), 3);
 
-    let result2 = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false)
-        .expect("compact");
-    assert_eq!(result2.files_compacted, 3, "should compact when not skipping");
+    let result2 = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false).expect("compact");
+    assert_eq!(
+        result2.files_compacted, 3,
+        "should compact when not skipping"
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -401,9 +408,12 @@ fn test_crash_after_merge_write_before_manifest_update() {
     let parsed: Manifest = serde_json::from_str(&data).expect("parse manifest");
     assert_eq!(parsed.entries[0].status, "completed");
 
-    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false)
-        .expect("second compact pass");
-    assert_eq!(result.files_compacted, 0, "no files to compact on second pass");
+    let result =
+        compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false).expect("second compact pass");
+    assert_eq!(
+        result.files_compacted, 0,
+        "no files to compact on second pass"
+    );
     assert_eq!(count_parquet_files(&part_dir), 1, "still one file");
     let rows = read_all_rows_from_partition(&part_dir);
     assert_eq!(rows.len(), 6, "no duplication after second pass");

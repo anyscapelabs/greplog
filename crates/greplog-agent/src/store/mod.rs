@@ -121,19 +121,23 @@ impl Writer {
 
         // Replace the shared cache with a properly-seeded instance.
         {
-            let mut guard = self.dedup_cache.lock().map_err(|e| anyhow::anyhow!("dedup lock: {e}"))?;
+            let mut guard = self
+                .dedup_cache
+                .lock()
+                .map_err(|e| anyhow::anyhow!("dedup lock: {e}"))?;
             let mut fresh = dedup::DedupCache::new(dedup_seed_limit);
             fresh.seed_from_recent_files(&self.data_dir)?;
             *guard = fresh;
         }
 
-        let mut dedup_guard = self.dedup_cache.lock().map_err(|e| anyhow::anyhow!("dedup lock: {e}"))?;
+        let mut dedup_guard = self
+            .dedup_cache
+            .lock()
+            .map_err(|e| anyhow::anyhow!("dedup lock: {e}"))?;
         let mut deduped: Vec<IngestBatch> = Vec::with_capacity(replayed.len());
         for (batch, _meta) in replayed {
             let filtered = dedup_guard.filter_batch(&batch);
-            if filtered.logs.is_empty()
-                && filtered.spans.is_empty()
-                && filtered.metrics.is_empty()
+            if filtered.logs.is_empty() && filtered.spans.is_empty() && filtered.metrics.is_empty()
             {
                 continue;
             }
@@ -618,8 +622,11 @@ mod tests {
     use tokio::sync::oneshot;
 
     fn test_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("greplog_writer_test_{}_{}", name, std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "greplog_writer_test_{}_{}",
+            name,
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::create_dir_all(&dir);
         dir
@@ -695,8 +702,15 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(250)).await;
 
         let engine = crate::query_engine::QueryEngine::new(&dir).expect("new engine");
-        let result = engine.query("SELECT count(*) AS cnt FROM logs").await.expect("query");
-        assert_eq!(result.rows[0][0], serde_json::json!(5i64), "5 events flushed");
+        let result = engine
+            .query("SELECT count(*) AS cnt FROM logs")
+            .await
+            .expect("query");
+        assert_eq!(
+            result.rows[0][0],
+            serde_json::json!(5i64),
+            "5 events flushed"
+        );
 
         assert_eq!(dropped.load(Ordering::SeqCst), 0, "no drops");
 
@@ -734,16 +748,14 @@ mod tests {
             send_handles.push(tokio::spawn(async move {
                 for b in 0..batches_per_producer {
                     let (resp_tx, resp_rx) = oneshot::channel();
-                    let batch = make_batch(&service, (b + p * batches_per_producer) as i64, events_per_batch);
+                    let batch = make_batch(
+                        &service,
+                        (b + p * batches_per_producer) as i64,
+                        events_per_batch,
+                    );
                     use prost::Message;
                     let raw_bytes = bytes::Bytes::from(batch.encode_to_vec());
-                    tx.send((
-                        batch,
-                        raw_bytes,
-                        resp_tx,
-                    ))
-                    .await
-                    .expect("send");
+                    tx.send((batch, raw_bytes, resp_tx)).await.expect("send");
                     let resp = resp_rx.await.expect("response");
                     assert!(resp.accepted, "all batches under test should be accepted");
                 }
@@ -759,7 +771,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(500)).await;
 
         let engine = crate::query_engine::QueryEngine::new(&dir).expect("new engine");
-        let result = engine.query("SELECT count(*) AS cnt FROM logs").await.expect("query");
+        let result = engine
+            .query("SELECT count(*) AS cnt FROM logs")
+            .await
+            .expect("query");
         assert_eq!(
             result.rows[0][0],
             serde_json::json!(total_expected),
@@ -826,7 +841,10 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(300)).await;
 
         let engine = crate::query_engine::QueryEngine::new(&dir).expect("new engine");
-        let result = engine.query("SELECT count(*) AS cnt FROM logs").await.expect("query");
+        let result = engine
+            .query("SELECT count(*) AS cnt FROM logs")
+            .await
+            .expect("query");
         assert_eq!(
             result.rows[0][0],
             serde_json::json!(accepted),
@@ -861,7 +879,17 @@ mod tests {
             let batch = make_batch("svc", i, 3);
             use prost::Message;
             let raw_bytes = bytes::Bytes::from(batch.encode_to_vec());
-            handle_batch(&wal, &buffer, &dedup_cache, batch, raw_bytes, 100_000, &dropped, &startup_done, None);
+            handle_batch(
+                &wal,
+                &buffer,
+                &dedup_cache,
+                batch,
+                raw_bytes,
+                100_000,
+                &dropped,
+                &startup_done,
+                None,
+            );
         }
 
         // Phase 1: simulate the atomic section of a flush
@@ -906,7 +934,17 @@ mod tests {
         let batch = make_batch("svc", 100, 1);
         use prost::Message;
         let raw_bytes = bytes::Bytes::from(batch.encode_to_vec());
-        let resp = handle_batch(&wal, &buffer, &dedup_cache, batch, raw_bytes, 100_000, &dropped, &startup_done, None);
+        let resp = handle_batch(
+            &wal,
+            &buffer,
+            &dedup_cache,
+            batch,
+            raw_bytes,
+            100_000,
+            &dropped,
+            &startup_done,
+            None,
+        );
         let elapsed = start.elapsed();
 
         assert!(
@@ -949,7 +987,10 @@ mod tests {
             flush::flush_parquet_only(&dir, &batches).expect("flush");
 
             let engine = crate::query_engine::QueryEngine::new(&dir).expect("new engine");
-            let result = engine.query("SELECT count(*) AS cnt FROM logs").await.expect("query");
+            let result = engine
+                .query("SELECT count(*) AS cnt FROM logs")
+                .await
+                .expect("query");
             let expected: i64 = 4 * 50 * 2;
             assert_eq!(
                 result.rows[0][0],
@@ -1036,12 +1077,17 @@ mod tests {
         // Verify data is in Parquet.
         let engine = crate::query_engine::QueryEngine::new(&dir).expect("new engine");
         let rt = tokio::runtime::Runtime::new().expect("runtime");
-        let result = rt.block_on(engine.query("SELECT count(*) AS cnt FROM logs")).expect("query");
+        let result = rt
+            .block_on(engine.query("SELECT count(*) AS cnt FROM logs"))
+            .expect("query");
         assert_eq!(result.rows[0][0], serde_json::json!(3i64));
 
         // WAL should be empty after checkpoint.
         let replayed = wal::replay_segments(&dir).expect("replay");
-        assert!(replayed.is_empty(), "WAL should be empty after startup recovery");
+        assert!(
+            replayed.is_empty(),
+            "WAL should be empty after startup recovery"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1079,7 +1125,9 @@ mod tests {
         // Phase 4: verify — only the NEW event (id=4) was added.
         let engine = crate::query_engine::QueryEngine::new(&dir).expect("new engine");
         let rt = tokio::runtime::Runtime::new().expect("runtime");
-        let result = rt.block_on(engine.query("SELECT count(*) AS cnt FROM logs")).expect("query");
+        let result = rt
+            .block_on(engine.query("SELECT count(*) AS cnt FROM logs"))
+            .expect("query");
         assert_eq!(
             result.rows[0][0],
             serde_json::json!(4i64),
@@ -1123,7 +1171,9 @@ mod tests {
         // Phase 4: verify — only events 4 and 5 are new.
         let engine = crate::query_engine::QueryEngine::new(&dir).expect("new engine");
         let rt = tokio::runtime::Runtime::new().expect("runtime");
-        let result = rt.block_on(engine.query("SELECT count(*) AS cnt FROM logs")).expect("query");
+        let result = rt
+            .block_on(engine.query("SELECT count(*) AS cnt FROM logs"))
+            .expect("query");
         assert_eq!(
             result.rows[0][0],
             serde_json::json!(5i64),
@@ -1150,7 +1200,11 @@ mod tests {
         }
 
         // Manually create .tmp file in the data directory.
-        let tmp_dir = dir.join("data").join("table_type=logs").join("service=svc").join("date=2023-11-15");
+        let tmp_dir = dir
+            .join("data")
+            .join("table_type=logs")
+            .join("service=svc")
+            .join("date=2023-11-15");
         fs::create_dir_all(&tmp_dir).expect("create tmp dir");
         let tmp_file = tmp_dir.join("orphan.tmp");
         fs::write(&tmp_file, b"garbage").expect("write tmp");
@@ -1162,12 +1216,17 @@ mod tests {
         }
 
         // Verify .tmp is gone.
-        assert!(!tmp_file.exists(), ".tmp file should be removed during startup");
+        assert!(
+            !tmp_file.exists(),
+            ".tmp file should be removed during startup"
+        );
 
         // Verify data is in Parquet.
         let engine = crate::query_engine::QueryEngine::new(&dir).expect("new engine");
         let rt = tokio::runtime::Runtime::new().expect("runtime");
-        let result = rt.block_on(engine.query("SELECT count(*) AS cnt FROM logs")).expect("query");
+        let result = rt
+            .block_on(engine.query("SELECT count(*) AS cnt FROM logs"))
+            .expect("query");
         assert_eq!(result.rows[0][0], serde_json::json!(2i64));
 
         let _ = fs::remove_dir_all(&dir);
@@ -1209,7 +1268,9 @@ mod tests {
         // Phase 4: all 7 events present, no more, no less.
         let engine = crate::query_engine::QueryEngine::new(&dir).expect("new engine");
         let rt = tokio::runtime::Runtime::new().expect("runtime");
-        let result = rt.block_on(engine.query("SELECT count(*) AS cnt FROM logs")).expect("query");
+        let result = rt
+            .block_on(engine.query("SELECT count(*) AS cnt FROM logs"))
+            .expect("query");
         assert_eq!(
             result.rows[0][0],
             serde_json::json!(7i64),
@@ -1249,7 +1310,17 @@ mod tests {
         let batch1 = make_batch("svc", 1, 1);
         use prost::Message;
         let raw_bytes1 = bytes::Bytes::from(batch1.encode_to_vec());
-        let resp1 = handle_batch(&wal, &buffer, &dedup_cache, batch1, raw_bytes1, 100_000, &dropped, &writer.startup_done, None);
+        let resp1 = handle_batch(
+            &wal,
+            &buffer,
+            &dedup_cache,
+            batch1,
+            raw_bytes1,
+            100_000,
+            &dropped,
+            &writer.startup_done,
+            None,
+        );
         assert!(!resp1.accepted, "ingest should be rejected during recovery");
         assert_eq!(resp1.error, "startup_recovery_in_progress");
 
@@ -1259,7 +1330,17 @@ mod tests {
         // Attempt 2: startup done → must accept.
         let batch2 = make_batch("svc", 2, 2);
         let raw_bytes2 = bytes::Bytes::from(batch2.encode_to_vec());
-        let resp2 = handle_batch(&wal, &buffer, &dedup_cache, batch2, raw_bytes2, 100_000, &dropped, &writer.startup_done, None);
+        let resp2 = handle_batch(
+            &wal,
+            &buffer,
+            &dedup_cache,
+            batch2,
+            raw_bytes2,
+            100_000,
+            &dropped,
+            &writer.startup_done,
+            None,
+        );
         assert!(resp2.accepted, "ingest should be accepted after recovery");
 
         let _ = fs::remove_dir_all(&dir);
@@ -1274,11 +1355,15 @@ mod tests {
 
         // Create a compaction manifest with invalid JSON.
         // Note: the manifest file is `.compaction_manifest` (hidden file).
-        let compaction_dir = dir.join("data").join("table_type=logs")
-            .join("service=svc").join("date=2023-01-01");
+        let compaction_dir = dir
+            .join("data")
+            .join("table_type=logs")
+            .join("service=svc")
+            .join("date=2023-01-01");
         fs::create_dir_all(&compaction_dir).expect("create partition");
         let manifest_path = compaction_dir.join(".compaction_manifest");
-        fs::write(&manifest_path, b"not valid json at all { broken").expect("write corrupt manifest");
+        fs::write(&manifest_path, b"not valid json at all { broken")
+            .expect("write corrupt manifest");
 
         let writer = Writer::new(&dir, 100_000).expect("new writer");
         let result = writer.run_startup(1000);
@@ -1311,8 +1396,11 @@ mod tests {
         let dir = test_dir("startup_tmp_reconcile");
 
         // Create a partition directory (same structure compaction v2 expects).
-        let partition_dir = dir.join("data").join("table_type=logs")
-            .join("service=svc").join("date=2023-06-15");
+        let partition_dir = dir
+            .join("data")
+            .join("table_type=logs")
+            .join("service=svc")
+            .join("date=2023-06-15");
         fs::create_dir_all(&partition_dir).expect("create partition");
 
         // Write a "source" Parquet file (undeleted — simulating a crash
@@ -1326,9 +1414,11 @@ mod tests {
             use parquet::arrow::ArrowWriter;
             use std::sync::Arc;
 
-            let schema = Arc::new(arrow::datatypes::Schema::new(vec![
-                Field::new("id", DataType::Utf8, false),
-            ]));
+            let schema = Arc::new(arrow::datatypes::Schema::new(vec![Field::new(
+                "id",
+                DataType::Utf8,
+                false,
+            )]));
             let batch = RecordBatch::try_new(
                 schema.clone(),
                 vec![Arc::new(StringArray::from(vec!["evt-1"]))],
@@ -1349,9 +1439,11 @@ mod tests {
             use parquet::arrow::ArrowWriter;
             use std::sync::Arc;
 
-            let schema = Arc::new(arrow::datatypes::Schema::new(vec![
-                Field::new("id", DataType::Utf8, false),
-            ]));
+            let schema = Arc::new(arrow::datatypes::Schema::new(vec![Field::new(
+                "id",
+                DataType::Utf8,
+                false,
+            )]));
             let batch = RecordBatch::try_new(
                 schema.clone(),
                 vec![Arc::new(StringArray::from(vec!["evt-1"]))],
@@ -1375,8 +1467,11 @@ mod tests {
                 "status": "pending_merge"
             }]
         });
-        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest_content).unwrap())
-            .expect("write manifest");
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest_content).unwrap(),
+        )
+        .expect("write manifest");
 
         // Write a stray .tmp file in the same partition directory.
         let tmp_path = partition_dir.join("orphan.tmp");
@@ -1384,10 +1479,15 @@ mod tests {
 
         // Run startup — should clean .tmp AND reconcile the compaction.
         let writer = Writer::new(&dir, 100_000).expect("new writer");
-        writer.run_startup(1000).expect("run_startup should succeed");
+        writer
+            .run_startup(1000)
+            .expect("run_startup should succeed");
 
         // Assert: .tmp file is gone.
-        assert!(!tmp_path.exists(), "stray .tmp should be removed during startup");
+        assert!(
+            !tmp_path.exists(),
+            "stray .tmp should be removed during startup"
+        );
 
         // Assert: after reconciliation the manifest entry progressed
         // (status changed from pending_merge to something else).

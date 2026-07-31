@@ -123,20 +123,18 @@ async fn main() -> Result<()> {
                 report_interval.tick().await;
                 let url = format!("http://{}/status", host);
                 match client.get(&url).send().await {
-                    Ok(resp) => {
-                        match resp.json::<serde_json::Value>().await {
-                            Ok(json) => {
-                                let dropped = json["dropped_events"].as_u64().unwrap_or(0);
-                                let active = json["active_queries"].as_u64().unwrap_or(0);
-                                let buffer = json["buffer_occupancy"].as_u64().unwrap_or(0);
-                                info!(
-                                    "STATUS: dropped_events={}, active_queries={}, buffer_occupancy={}",
-                                    dropped, active, buffer
-                                );
-                            }
-                            Err(e) => error!("Failed to parse status JSON: {}", e),
+                    Ok(resp) => match resp.json::<serde_json::Value>().await {
+                        Ok(json) => {
+                            let dropped = json["dropped_events"].as_u64().unwrap_or(0);
+                            let active = json["active_queries"].as_u64().unwrap_or(0);
+                            let buffer = json["buffer_occupancy"].as_u64().unwrap_or(0);
+                            info!(
+                                "STATUS: dropped_events={}, active_queries={}, buffer_occupancy={}",
+                                dropped, active, buffer
+                            );
                         }
-                    }
+                        Err(e) => error!("Failed to parse status JSON: {}", e),
+                    },
                     Err(e) => error!("Failed to fetch status: {}", e),
                 }
             }
@@ -163,7 +161,11 @@ async fn main() -> Result<()> {
     info!("Accepted events: {}", accepted_total);
     info!("Rejected events: {}", rejected_total);
     info!("Throughput: {:.0} events/sec", throughput);
-    info!("Target rate: {}/s batches ({} events/s)", target_rate, target_rate * events_per_batch as u64);
+    info!(
+        "Target rate: {}/s batches ({} events/s)",
+        target_rate,
+        target_rate * events_per_batch as u64
+    );
 
     if rejected_total > 0 {
         warn!("DROPS DETECTED: {} events were rejected!", rejected_total);

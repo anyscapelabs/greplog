@@ -23,7 +23,11 @@ pub async fn run(workspace: Option<PathBuf>) -> Result<()> {
         return Ok(());
     }
 
-    println!("  {}  Detected {} service(s):\n", "✓".bright_green().bold(), detections.len());
+    println!(
+        "  {}  Detected {} service(s):\n",
+        "✓".bright_green().bold(),
+        detections.len()
+    );
 
     for (i, det) in detections.iter().enumerate() {
         let name = det.service_name.as_deref().unwrap_or("(unnamed)");

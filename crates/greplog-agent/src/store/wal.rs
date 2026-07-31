@@ -343,11 +343,7 @@ pub fn replay_segments(dir: &Path) -> Result<Vec<(IngestBatch, u64)>> {
 
     let mut entries: Vec<_> = fs::read_dir(&wal_dir)?
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_name()
-                .to_str()
-                .is_some_and(|n| n.ends_with(".wal"))
-        })
+        .filter(|e| e.file_name().to_str().is_some_and(|n| n.ends_with(".wal")))
         .collect();
 
     entries.sort_by_key(|e| {
@@ -378,10 +374,7 @@ pub fn replay_segments(dir: &Path) -> Result<Vec<(IngestBatch, u64)>> {
                 Err(_) => break,
             };
 
-            let end = match offset
-                .checked_add(4)
-                .and_then(|v| v.checked_add(total_len))
-            {
+            let end = match offset.checked_add(4).and_then(|v| v.checked_add(total_len)) {
                 Some(v) => v,
                 None => break,
             };
@@ -432,7 +425,9 @@ fn highest_segment(dir: &Path) -> Result<u64> {
 }
 
 fn lock_inner(inner: &Arc<Mutex<WalInner>>) -> Result<std::sync::MutexGuard<'_, WalInner>> {
-    inner.lock().map_err(|e| anyhow::anyhow!("WAL mutex poisoned: {}", e))
+    inner
+        .lock()
+        .map_err(|e| anyhow::anyhow!("WAL mutex poisoned: {}", e))
 }
 
 fn crc32(data: &[u8]) -> u32 {

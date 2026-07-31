@@ -69,11 +69,17 @@ fn print_ready(workspace: &std::path::Path, ui_port: u16, tcp_port: u16) {
         "⚡".bold(),
         "Greplog is ready!".bright_green().bold(),
         "  Dashboard:".dimmed(),
-        format!("http://localhost:{}", ui_port).bright_cyan().underline(),
+        format!("http://localhost:{}", ui_port)
+            .bright_cyan()
+            .underline(),
         "  Workspace:".dimmed(),
         workspace.display().to_string().bright_white(),
         "  Socket:".dimmed(),
-        workspace.join(".greplog/greplog.sock").display().to_string().dimmed(),
+        workspace
+            .join(".greplog/greplog.sock")
+            .display()
+            .to_string()
+            .dimmed(),
         "  TCP ingest:".dimmed(),
         format!("127.0.0.1:{}", tcp_port).dimmed(),
     );
@@ -86,8 +92,7 @@ async fn wait_for_health(port: u16, timeout_secs: u64) -> bool {
         .build()
         .unwrap_or_default();
 
-    let deadline =
-        tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(timeout_secs);
 
     loop {
         if tokio::time::Instant::now() >= deadline {

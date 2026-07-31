@@ -48,8 +48,7 @@ enum Commands {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "warn".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
         )
         .init();
 
@@ -66,7 +65,18 @@ async fn main() -> anyhow::Result<()> {
             max_buffer_events,
             flush_interval_secs,
             compaction_interval_secs,
-        } => commands::dev::run(foreground, port, tcp_port, workspace, max_buffer_events, flush_interval_secs, compaction_interval_secs).await,
+        } => {
+            commands::dev::run(
+                foreground,
+                port,
+                tcp_port,
+                workspace,
+                max_buffer_events,
+                flush_interval_secs,
+                compaction_interval_secs,
+            )
+            .await
+        }
         Commands::Init { workspace } => commands::init::run(workspace).await,
         Commands::Status { port } => commands::status::run(port).await,
     }

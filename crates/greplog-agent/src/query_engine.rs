@@ -7,7 +7,7 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::execution::cache::cache_manager::CacheManagerConfig;
-use datafusion::execution::context::{SessionContext, SQLOptions};
+use datafusion::execution::context::{SQLOptions, SessionContext};
 use datafusion::execution::memory_pool::GreedyMemoryPool;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::prelude::SessionConfig;
@@ -116,12 +116,26 @@ impl QueryEngine {
 
         type SchemaFn = fn() -> arrow::datatypes::Schema;
         let schema_fns: [(&str, SchemaFn, &str); 3] = [
-            ("logs", greplog_core::arrow_schema::log_schema as SchemaFn, "logs"),
-            ("spans", greplog_core::arrow_schema::span_schema as SchemaFn, "spans"),
-            ("metrics", greplog_core::arrow_schema::metric_schema as SchemaFn, "metrics"),
+            (
+                "logs",
+                greplog_core::arrow_schema::log_schema as SchemaFn,
+                "logs",
+            ),
+            (
+                "spans",
+                greplog_core::arrow_schema::span_schema as SchemaFn,
+                "spans",
+            ),
+            (
+                "metrics",
+                greplog_core::arrow_schema::metric_schema as SchemaFn,
+                "metrics",
+            ),
         ];
         for (name, schema_fn, table_type) in &schema_fns {
-            let dir = base_dir.join("data").join(format!("table_type={}", table_type));
+            let dir = base_dir
+                .join("data")
+                .join(format!("table_type={}", table_type));
             std::fs::create_dir_all(&dir)?;
             Self::register_table(&ctx, name, &dir, schema_fn())?;
         }
@@ -233,7 +247,6 @@ impl QueryEngine {
     pub(crate) fn ctx(&self) -> &SessionContext {
         &self.ctx
     }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -368,5 +381,3 @@ fn arrow_value_to_json(col: &dyn Array, row: usize) -> Result<serde_json::Value>
 #[cfg(test)]
 #[path = "../tests/modules/query_engine.rs"]
 mod tests;
-
-

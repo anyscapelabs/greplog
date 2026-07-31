@@ -14,17 +14,18 @@ fn test_axum_middleware_capture() {
     // Use tower::Service + ServiceBuilder to exercise the middleware directly
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-use std::convert::Infallible;
-use tower::Service;
-use tower::ServiceBuilder;
-use http::{Request, Response};
+        use http::{Request, Response};
+        use std::convert::Infallible;
+        use tower::Service;
+        use tower::ServiceBuilder;
 
-        let mut svc = ServiceBuilder::new()
-            .layer(greplog::axum_layer())
-            .service(tower::service_fn(|req: Request<String>| async move {
-                let _ = req;
-                Ok::<_, Infallible>(Response::new("hello".to_string()))
-            }));
+        let mut svc =
+            ServiceBuilder::new()
+                .layer(greplog::axum_layer())
+                .service(tower::service_fn(|req: Request<String>| async move {
+                    let _ = req;
+                    Ok::<_, Infallible>(Response::new("hello".to_string()))
+                }));
 
         let req = Request::builder()
             .method("GET")
@@ -40,7 +41,10 @@ use http::{Request, Response};
     thread::sleep(Duration::from_millis(500));
     let batches = common::wait_for_frames(&rx, 1);
 
-    assert!(!batches.is_empty(), "expected at least one batch from axum middleware");
+    assert!(
+        !batches.is_empty(),
+        "expected at least one batch from axum middleware"
+    );
     let batch = &batches[0];
     assert!(!batch.spans.is_empty(), "expected at least one span");
     let span = &batch.spans[0];

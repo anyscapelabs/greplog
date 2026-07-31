@@ -9,10 +9,22 @@ struct Rule {
 
 fn rules() -> &'static [Rule] {
     &[
-        Rule { patterns: &["password"], mode: RedactionMode::Full },
-        Rule { patterns: &["token"], mode: RedactionMode::Full },
-        Rule { patterns: &["secret"], mode: RedactionMode::Full },
-        Rule { patterns: &["email"], mode: RedactionMode::Partial },
+        Rule {
+            patterns: &["password"],
+            mode: RedactionMode::Full,
+        },
+        Rule {
+            patterns: &["token"],
+            mode: RedactionMode::Full,
+        },
+        Rule {
+            patterns: &["secret"],
+            mode: RedactionMode::Full,
+        },
+        Rule {
+            patterns: &["email"],
+            mode: RedactionMode::Partial,
+        },
     ]
 }
 

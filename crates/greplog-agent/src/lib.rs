@@ -54,10 +54,11 @@ pub async fn run(config: Config) -> Result<()> {
 
     tokio::fs::create_dir_all(config.socket_dir()).await?;
 
-    let (batch_tx, batch_rx) =
-        mpsc::channel::<(IngestBatch, bytes::Bytes, oneshot::Sender<greplog_core::gen::IngestResponse>)>(
-            INGEST_CHANNEL_CAPACITY,
-        );
+    let (batch_tx, batch_rx) = mpsc::channel::<(
+        IngestBatch,
+        bytes::Bytes,
+        oneshot::Sender<greplog_core::gen::IngestResponse>,
+    )>(INGEST_CHANNEL_CAPACITY);
 
     let (live_tx, _live_rx) = broadcast::channel::<String>(1024);
 
@@ -70,10 +71,7 @@ pub async fn run(config: Config) -> Result<()> {
     let dropped_events = writer.dropped_events();
     let writer_handle = writer
         .with_live_tail(live_tx.clone())
-        .spawn(
-            batch_rx,
-            Duration::from_secs(config.flush_interval_secs),
-        );
+        .spawn(batch_rx, Duration::from_secs(config.flush_interval_secs));
 
     let ingest_handle = ingest::IngestServer::new(batch_tx).spawn(&config);
 

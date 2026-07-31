@@ -8,8 +8,11 @@ use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
 
 fn test_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("greplog_compact_sched_test_{}_{}", name, std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "greplog_compact_sched_test_{}_{}",
+        name,
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::create_dir_all(&dir);
     dir
@@ -100,7 +103,11 @@ fn make_log_event(service: &str, msg: &str, ts_ns: i64) -> greplog_core::gen::Lo
     }
 }
 
-fn make_batch(service: &str, events_per_batch: usize, ts_ns: i64) -> greplog_core::gen::IngestBatch {
+fn make_batch(
+    service: &str,
+    events_per_batch: usize,
+    ts_ns: i64,
+) -> greplog_core::gen::IngestBatch {
     let logs: Vec<_> = (0..events_per_batch)
         .map(|i| make_log_event(service, &format!("msg-{i}"), ts_ns + i as i64))
         .collect();
@@ -119,7 +126,11 @@ fn today_date() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     let secs = now.as_secs() as i64;
-    let days = if secs >= 0 { secs / 86400 } else { (secs + 1) / 86400 - 1 };
+    let days = if secs >= 0 {
+        secs / 86400
+    } else {
+        (secs + 1) / 86400 - 1
+    };
     super::super::compaction::civil_days_to_ymd(days)
 }
 
@@ -205,12 +216,14 @@ async fn test_no_ingest_interference() {
     }
 
     let compact_dir = dir.clone();
-    let compacted =
-        tokio::task::spawn_blocking(move || compact_eligible_partitions(&compact_dir))
-            .await
-            .expect("spawn_blocking")
-            .expect("compact");
-    assert!(compacted >= 1, "compaction should have merged at least 1 partition");
+    let compacted = tokio::task::spawn_blocking(move || compact_eligible_partitions(&compact_dir))
+        .await
+        .expect("spawn_blocking")
+        .expect("compact");
+    assert!(
+        compacted >= 1,
+        "compaction should have merged at least 1 partition"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -232,15 +245,16 @@ async fn test_query_correctness_before_and_after_compaction() {
     }
     assert_eq!(count_parquet_files(&part_dir), 3);
 
-    let engine_before =
-        crate::query_engine::QueryEngine::new(&dir).expect("new engine");
+    let engine_before = crate::query_engine::QueryEngine::new(&dir).expect("new engine");
     let result_before = engine_before
         .query("SELECT count(*) AS cnt FROM logs WHERE service = 'svc'")
         .await
         .expect("query before compaction");
-    let rows_before: i64 =
-        serde_json::from_value(result_before.rows[0][0].clone()).expect("count");
-    assert_eq!(rows_before, total_rows, "pre‑compaction query must see all rows");
+    let rows_before: i64 = serde_json::from_value(result_before.rows[0][0].clone()).expect("count");
+    assert_eq!(
+        rows_before, total_rows,
+        "pre‑compaction query must see all rows"
+    );
 
     let compact_dir = dir.clone();
     tokio::task::spawn_blocking(move || compact_eligible_partitions(&compact_dir))
@@ -249,14 +263,12 @@ async fn test_query_correctness_before_and_after_compaction() {
         .expect("compact");
     assert_eq!(count_parquet_files(&part_dir), 1);
 
-    let engine_after =
-        crate::query_engine::QueryEngine::new(&dir).expect("new engine");
+    let engine_after = crate::query_engine::QueryEngine::new(&dir).expect("new engine");
     let result_after = engine_after
         .query("SELECT count(*) AS cnt FROM logs WHERE service = 'svc'")
         .await
         .expect("query after compaction");
-    let rows_after: i64 =
-        serde_json::from_value(result_after.rows[0][0].clone()).expect("count");
+    let rows_after: i64 = serde_json::from_value(result_after.rows[0][0].clone()).expect("count");
     assert_eq!(
         rows_after, total_rows,
         "post‑compaction query must see all rows — atomic rename preserves data",

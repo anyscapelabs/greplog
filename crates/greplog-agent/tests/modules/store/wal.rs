@@ -2,8 +2,8 @@ use super::*;
 use greplog_core::gen::IngestBatch;
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("greplog_wal_test_{}_{}", name, std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("greplog_wal_test_{}_{}", name, std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     let _ = fs::create_dir_all(&dir);
     dir
@@ -42,8 +42,7 @@ fn test_round_trip() {
 #[test]
 fn test_segment_rotation() {
     let dir = temp_dir("rotation");
-    let mut wal =
-        WalWriter::with_config(&dir, Duration::from_secs(60), 100).expect("open WAL");
+    let mut wal = WalWriter::with_config(&dir, Duration::from_secs(60), 100).expect("open WAL");
 
     for i in 0..20 {
         wal.append(&make_batch(i)).expect("append");
@@ -53,11 +52,7 @@ fn test_segment_rotation() {
     let entries: Vec<_> = fs::read_dir(dir.join("wal"))
         .expect("read wal dir")
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_name()
-                .to_str()
-                .is_some_and(|n| n.ends_with(".wal"))
-        })
+        .filter(|e| e.file_name().to_str().is_some_and(|n| n.ends_with(".wal")))
         .collect();
     assert!(
         entries.len() >= 2,
@@ -77,8 +72,7 @@ fn test_segment_rotation() {
 #[test]
 fn test_truncation_recovery() {
     let dir = temp_dir("truncation_payload");
-    let mut wal =
-        WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open WAL");
+    let mut wal = WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open WAL");
 
     wal.append(&make_batch(1)).expect("append 1");
     wal.append(&make_batch(2)).expect("append 2");
@@ -93,7 +87,10 @@ fn test_truncation_recovery() {
     let len_after_3 = fs::metadata(&seg_path).expect("metadata").len();
     assert!(len_after_3 > original_len, "file should have grown");
 
-    let file = OpenOptions::new().write(true).open(&seg_path).expect("open");
+    let file = OpenOptions::new()
+        .write(true)
+        .open(&seg_path)
+        .expect("open");
     file.set_len(original_len).expect("truncate");
     drop(file);
 
@@ -112,8 +109,7 @@ fn test_truncation_recovery() {
 #[test]
 fn test_checksum_mismatch() {
     let dir = temp_dir("checksum");
-    let mut wal =
-        WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open WAL");
+    let mut wal = WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open WAL");
 
     wal.append(&make_batch(1)).expect("append 1");
     wal.append(&make_batch(2)).expect("append 2");
@@ -146,8 +142,7 @@ fn test_checksum_mismatch() {
 #[test]
 fn test_header_truncation_recovery() {
     let dir = temp_dir("truncation_header");
-    let mut wal =
-        WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open WAL");
+    let mut wal = WalWriter::with_config(&dir, Duration::from_secs(60), 999_999).expect("open WAL");
 
     wal.append(&make_batch(1)).expect("append 1");
     wal.append(&make_batch(2)).expect("append 2");
@@ -163,7 +158,10 @@ fn test_header_truncation_recovery() {
     assert!(len_after_3 > original_len, "file should have grown");
 
     let truncate_to = original_len + 2;
-    let file = OpenOptions::new().write(true).open(&seg_path).expect("open");
+    let file = OpenOptions::new()
+        .write(true)
+        .open(&seg_path)
+        .expect("open");
     file.set_len(truncate_to).expect("truncate");
     drop(file);
 
@@ -192,8 +190,7 @@ fn test_close_then_drop() {
 fn test_background_fsync_before_crash() {
     let dir = temp_dir("background_fsync");
     let fsync_interval = Duration::from_millis(20);
-    let mut wal =
-        WalWriter::with_config(&dir, fsync_interval, 999_999).expect("open WAL");
+    let mut wal = WalWriter::with_config(&dir, fsync_interval, 999_999).expect("open WAL");
 
     wal.append(&make_batch(100)).expect("append burst");
     wal.append(&make_batch(200)).expect("append burst");

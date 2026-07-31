@@ -1,7 +1,9 @@
 use super::*;
 use crate::query_engine::LIST_FILES_CACHE_TTL_SECS;
 use crate::store::io::write_parquet_atomic;
-use arrow::array::{Int32Array, ListBuilder, StringBuilder, StringArray, TimestampMicrosecondArray};
+use arrow::array::{
+    Int32Array, ListBuilder, StringArray, StringBuilder, TimestampMicrosecondArray,
+};
 use arrow::record_batch::RecordBatch;
 use axum::body::Body;
 use std::path::PathBuf;
@@ -11,8 +13,11 @@ use std::{fs, path::Path};
 use tower::ServiceExt;
 
 fn test_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
-        .join(format!("greplog_server_test_{}_{}", name, std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "greplog_server_test_{}_{}",
+        name,
+        std::process::id()
+    ));
     let _ = fs::remove_dir_all(&dir);
     let _ = fs::create_dir_all(&dir);
     dir
@@ -52,8 +57,7 @@ fn write_log_file(base: &Path, service: &str, date: &str, id: &str, level: &str,
 }
 
 fn make_state(dir: &Path) -> Arc<AppState> {
-    let engine = super::super::query_engine::QueryEngine::new(dir)
-        .expect("new engine");
+    let engine = super::super::query_engine::QueryEngine::new(dir).expect("new engine");
     Arc::new(AppState {
         config: Arc::new(super::super::Config {
             workspace: dir.to_path_buf(),
@@ -125,10 +129,7 @@ async fn test_new_data_visibility() {
         .query("SELECT message FROM logs ORDER BY id")
         .await
         .expect("second query (stale)");
-    assert_eq!(
-        result.row_count, 1,
-        "stale cache: new file not yet visible",
-    );
+    assert_eq!(result.row_count, 1, "stale cache: new file not yet visible",);
 
     tokio::time::sleep(Duration::from_secs(LIST_FILES_CACHE_TTL_SECS + 1)).await;
 
@@ -175,8 +176,14 @@ async fn test_status_endpoint() {
 
     assert_eq!(result["status"], "running");
     assert_eq!(result["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(result["dropped_events"], 0, "no drops expected in this test");
-    assert!(result.get("buffer_occupancy").is_some(), "buffer_occupancy should be present");
+    assert_eq!(
+        result["dropped_events"], 0,
+        "no drops expected in this test"
+    );
+    assert!(
+        result.get("buffer_occupancy").is_some(),
+        "buffer_occupancy should be present"
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }

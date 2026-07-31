@@ -1,5 +1,5 @@
 use arrow::array::{
-    BooleanArray, Float64Array, Int32Array, ListBuilder, StringBuilder, StringArray,
+    BooleanArray, Float64Array, Int32Array, ListBuilder, StringArray, StringBuilder,
     TimestampMicrosecondArray,
 };
 use arrow::record_batch::RecordBatch;
@@ -12,7 +12,9 @@ fn test_log_schema() {
 
     let mut st_builder = ListBuilder::new(StringBuilder::new());
     st_builder.append(true);
-    st_builder.values().append_value("Traceback (most recent call last):");
+    st_builder
+        .values()
+        .append_value("Traceback (most recent call last):");
     st_builder.values().append_value("  line 1, in <module>");
     st_builder.append(false);
 
@@ -38,10 +40,7 @@ fn test_log_schema() {
             Arc::new(StringArray::from(vec![Some("corr-123"), None])),
             Arc::new(st_builder.finish()),
             Arc::new(StringArray::from(vec![Some("ValueError"), None])),
-            Arc::new(StringArray::from(vec![
-                Some("invalid value"),
-                None,
-            ])),
+            Arc::new(StringArray::from(vec![Some("invalid value"), None])),
         ],
     )
     .expect("log RecordBatch should validate against schema");
