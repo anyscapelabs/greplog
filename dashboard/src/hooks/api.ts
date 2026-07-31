@@ -1,3 +1,5 @@
+import { toastStore } from '../lib/toastStore.ts'
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
 export interface QueryResult {
@@ -49,6 +51,7 @@ export async function fetchDetect(): Promise<DetectEntry[] | null> {
 }
 
 export async function postQuery(sql: string): Promise<QueryResult | null> {
+  const endpoint = '/query'
   try {
     const res = await fetch(`${API_BASE}/query`, {
       method: 'POST',
@@ -59,11 +62,15 @@ export async function postQuery(sql: string): Promise<QueryResult | null> {
     if (!res.ok) {
       const body = await res.text().catch(() => '(unreadable)')
       console.error(`[api] /query failed (${res.status}): SQL="${sql.slice(0, 200)}" — ${body}`)
+      toastStore.showError('Query failed — showing no data', { dedupeKey: `query-error:${endpoint}` })
       return null
     }
-    return (await res.json()) as QueryResult
+    const data = (await res.json()) as QueryResult
+    toastStore.showSuccess('Query succeeded again', { dedupeKey: `query-error:${endpoint}` })
+    return data
   } catch (err) {
     console.error('[api] /query error:', err)
+    toastStore.showError('Query failed — showing no data', { dedupeKey: `query-error:${endpoint}` })
     return null
   }
 }

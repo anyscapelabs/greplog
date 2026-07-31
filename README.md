@@ -6,12 +6,12 @@
 </p>
 
 <p align="center">
-  [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
 </p>
 
-<p align="center">Open-source observability for backend services — built for small dev teams and AI-assisted coders.</p>
+Open-source observability for backend services — built for small dev teams and AI-assisted coders.
 
-<p align="center">`npm i -g greplog && greplog dev` → dashboard in <60s. Zero Docker, zero config.</p>
+`npm i -g greplog && greplog dev` → dashboard in <60s. Zero Docker, zero config.
 
 - New to Greplog? Start with [What is Greplog?](#what-is-greplog) and [Quick start](#quick-start)
 - Ready to build from source? Jump to [Build from source](#build-from-source)
