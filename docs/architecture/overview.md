@@ -3,7 +3,7 @@
 > **Status:** ✅ Shipped (v0.1)
 
 Open-source observability for backend services — built for small dev teams and AI-assisted coders.
-Core promise: `npm i -g greplog && greplog dev` → dashboard in <60s, zero Docker, zero config.
+Core promise: `curl -sSL https://raw.githubusercontent.com/greplog/greplog/main/install.sh | sh && greplog dev` → dashboard in <60s, zero Docker, zero config.
 
 ## High-Level System Map
 

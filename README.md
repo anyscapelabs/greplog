@@ -11,7 +11,7 @@
 
 Open-source observability for backend services — built for small dev teams and AI-assisted coders.
 
-`npm i -g greplog && greplog dev` → dashboard in <60s. Zero Docker, zero config.
+`curl -sSL https://raw.githubusercontent.com/greplog/greplog/main/install.sh | sh && greplog dev` → dashboard in <60s. Zero Docker, zero config.
 
 - New to Greplog? Start with [What is Greplog?](#what-is-greplog) and [Quick start](#quick-start)
 - Ready to build from source? Jump to [Build from source](#build-from-source)
@@ -35,7 +35,7 @@ Greplog is designed for the **gap between `console.log` and a full observability
 ## Quick start
 
 ```sh
-npm install -g greplog
+curl -sSL https://raw.githubusercontent.com/greplog/greplog/main/install.sh | sh
 greplog dev
 ```
 
@@ -43,7 +43,7 @@ Open `http://localhost:4317` in your browser.
 
 ### What just happened
 
-1. `greplog` downloaded the precompiled agent binary for your platform.
+1. The installer script downloaded the precompiled agent binary for your platform.
 2. The agent detected your project's frameworks and service identity.
 3. It started a local UDS socket at `.greplog/greplog.sock` and an HTTP server at `:4317`.
 4. SDKs in your services auto-connect and stream logs, errors, and HTTP metrics.

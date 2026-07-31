@@ -5,15 +5,15 @@ Get Greplog running on your machine in under 60 seconds.
 ## Prerequisites
 
 - **macOS, Linux, or WSL2** (Windows native pending — see ADR-0002)
-- **Node.js 18+** (for the CLI, or use the [precompiled binary](distribution/precompiled-binaries.md))
+- **`curl`** (present on macOS/Linux by default)
 
 ## Install
 
 ```bash
-npm install -g greplog
+curl -sSL https://raw.githubusercontent.com/greplog/greplog/main/install.sh | sh
 ```
 
-Or download the precompiled binary for your platform from the [latest release](distribution/precompiled-binaries.md).
+The installer downloads the precompiled agent binary for your platform into `~/.greplog/bin/` and puts it on your `PATH`. See [distribution/precompiled-binaries.md](distribution/precompiled-binaries.md) for details.
 
 ## Start
 

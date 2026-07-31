@@ -51,44 +51,26 @@ multi-user concept, no remote deployment — `greplog dev` on localhost only.
 
 Everything currently being worked on: dashboard filter/chart wiring,
 service health computation, drawer real-data fixes, SDK DX unification,
-toast notifications, query-engine correctness fixes. **No new capability
-ships in this range** — only fixes and polish to what `0.1.0` already
-promised. Once this range is stable (no major open bugs, the per-component
-table below mostly ✅), that's the signal to start `0.2.0`.
+query-engine correctness fixes. **No new capability ships in this range** —
+only fixes and polish to what `0.1.0` already promised. Once this range is
+stable (no major open bugs, the per-component table below mostly ✅),
+that's the signal to start `0.2.0`.
 
-**Positioning change, effective now:** the product pitch is narrowing from
-general "observability" to **backend services specifically** — cleaner
-scope, no obligation to support pure client-side/browser logging or
-frontend-only codebases. This affects several already-written docs and
-should be swept through before `0.1.x` is considered closed:
-- `README.md`'s tagline and use-case copy.
-- `docs/architecture/overview.md`'s system-map diagram — should show backend
-  service examples (API/worker), not a frontend app.
-- `docs/architecture/dashboard.md`'s Unified Timeline description — the
-  frontend-request framing should be dropped.
-- `docs/sdk/auto-detection.md`'s Node framework list includes `next` — worth
-  an explicit decision on whether Next.js stays in scope (it runs real
-  backend code via API routes/SSR, so there's a reasonable argument it's
-  still "backend" even under the narrowed pitch) or is removed. This is a
-  judgment call, not an automatic removal — flag it rather than silently
-  dropping or silently keeping it.
+**Positioning change, in progress:** the product pitch is narrowing from
+general "observability" to **backend services specifically**. `README.md`'s
+tagline, use cases, and architecture diagram have been updated (backend
+service examples, no frontend-app framing). **Remaining doc sweep — tracked
+in the new Documentation section below**, not yet closed.
 
-**Also flagged for this range:** broader framework auto-detection support
-*within the four already-shipped SDKs* (distinct from `0.2.0`'s new
-*languages*). Candidates per language: Node (Koa, Hapi, beyond the
-current Express/Fastify/NestJS/Next.js list), Python (Tornado, Sanic,
-beyond Flask/Django/FastAPI), Go (Chi, Gorilla Mux, beyond
-Gin/Echo/Fiber), Rust (Rocket, Warp, beyond Axum/Actix). This is additive
-detection-signature work on existing SDKs, not new SDK infrastructure —
-reasonable to land within this hardening range or as its own short-lived
-`0.1.x`-adjacent effort, rather than waiting for `0.2.0`'s larger
-new-language scope.
+**Framework auto-detection expansion** (within the four already-shipped
+SDKs, distinct from `0.2.0`'s new *languages*) — tracked as its own backlog
+in the SDK section below.
 
 ## 3. `0.2.0` — Expanded SDK Language Support
 
 Additional SDKs beyond the initial Node/Python/Go/Rust set. Candidates,
 roughly in likely-priority order based on ecosystem size and overlap with
-the "AI-assisted coders and small dev teams" audience:
+the target audience:
 
 - **Java/Kotlin** (Spring Boot is extremely common in the small-team backend
   space)
@@ -112,9 +94,7 @@ already consistent.
 deployment** ("remote" mode), not a managed SaaS product. **"Cloud" is
 reserved** for a possible future managed offering (Greplog operating
 infrastructure for customers, with its own billing/multi-tenancy/SLA
-scope) — that's explicitly not this phase, and shouldn't be named "cloud"
-anywhere until that product actually exists, to avoid the name meaning two
-different things at two different points in the project's history.
+scope) — that's explicitly not this phase. See §7 for the placeholder note.
 
 **Scope:**
 - New deployment mode: `greplog remote` (or equivalent — e.g. `greplog
@@ -125,19 +105,13 @@ different things at two different points in the project's history.
   storage, needing its own ADR (does not conflict with the existing "no
   embedded OLAP database" decision, which was scoped to log data
   specifically).
-- **API keys: created in the dashboard, not the CLI.** Confirmed as the
-  cleaner approach — key management (creation, scoping, revocation)
-  belongs in the same UI where a user manages their account and
-  permissions, not scattered across a CLI command a user has to remember.
-  Local `greplog dev` mode remains keyless/zero-config, per the existing
-  "zero config" promise — API keys are a remote-mode-only concept.
-- **Scoped to dashboard-level permissions** (confirmed) — keys carry
-  permission scopes (e.g., ingest-only vs. ingest+query vs. admin),
-  managed alongside whatever role/permission model `0.3.0` establishes for
-  users generally. This keeps a leaked ingest key from also granting
-  dashboard read access, and ties key scope directly to the same
-  permission system users themselves have, rather than maintaining two
-  separate authorization concepts.
+- **API keys: created in the dashboard, not the CLI.** Key management
+  (creation, scoping, revocation) belongs in the same UI where a user
+  manages their account and permissions. Local `greplog dev` mode remains
+  keyless/zero-config — API keys are a remote-mode-only concept.
+- **Scoped to dashboard-level permissions** — keys carry permission scopes
+  (e.g., ingest-only vs. ingest+query vs. admin), managed alongside
+  whatever role/permission model `0.3.0` establishes for users generally.
 
 ## 5. `0.4.0` — Settings & Retention
 
@@ -182,28 +156,34 @@ what already exists vs. how much new ground they'd break:
 - **Native OTLP ingestion** — accept standard OpenTelemetry protocol
   logs/traces directly, so users with existing OTel instrumentation can
   point at Greplog without installing a Greplog-specific SDK. Potentially
-  high-leverage for adoption — meets users where their existing
-  instrumentation already is, rather than requiring a migration.
+  high-leverage for adoption.
 - **Distributed tracing (W3C trace-context propagation)** — this is what
   ADR-0004 actually deferred (not the lightweight HTTP `Span` capture
-  already shipped). Worth revisiting once `0.2.0`/`0.3.0` are stable,
-  since the HTTP span infrastructure from earlier rounds is a real,
-  if partial, foundation for it.
+  already shipped). Worth revisiting once `0.2.0`/`0.3.0` are stable.
 - **Log-based alert rules** — "notify if error rate > X% for Y minutes,"
   building on the same health computation as alerting above.
 - **Structured-logging-library transports** — first-class Winston/Pino
-  transports (Node), `structlog` integration (Python), rather than relying
-  solely on root-logger/console patching — gives power users a more direct
-  integration path.
+  transports (Node), `structlog` integration (Python).
 - **Team roles/permissions** — once `0.3.0`'s auth exists, admin vs.
   viewer roles for self-hosted multi-user deployments.
-- **SSO (OIDC/SAML)** — later-stage enterprise self-hosted requirement;
-  sequence after basic auth is proven, not alongside it.
+- **SSO (OIDC/SAML)** — later-stage enterprise self-hosted requirement.
 - **CI/CD log capture** — point a CI pipeline at a short-lived Greplog
-  agent instance to capture test-run logs/failures, distinct from the
-  local-dev use case but reusing the same core.
+  agent instance to capture test-run logs/failures.
 - **Audit logging for self-hosted deployments** — who queried what, once
-  multi-user auth exists; relevant for compliance-minded self-hosters.
+  multi-user auth exists.
+- **Managed hosting ("Greplog Cloud")** — a fully-hosted SaaS offering
+  where Greplog operates infrastructure for customers, distinct from
+  self-hosted remote mode (`0.3.0`). Name reserved, not scoped — would need
+  its own roadmap phase, business model, and billing/multi-tenancy design
+  if pursued.
+- **In-app toast notifications (error/success)** — a full spec exists
+  (top-right, red/green, anti-spam dedupe rules) but is **not implemented**
+  (confirmed via repo-wide search — zero hits). Originally scoped to
+  surface silent query failures to end users, not just to developers via
+  console. Status: shelved pending a decision on whether the problem it
+  solves is still live in practice, or whether existing empty-state UI +
+  console logging has proven sufficient. Revisit explicitly rather than
+  letting the spec quietly expire unaddressed.
 
 ## 8. `1.0.0` — General Availability: Exit Criteria
 
@@ -211,9 +191,7 @@ Not scheduled by date — gated on:
 - `0.1.x` through `0.5.0` shipped and stable (no major open correctness
   bugs across auth, storage, retention).
 - Wire protocol and storage format considered stable enough to commit to
-  backward compatibility going forward (a `1.0.0` bump implies future
-  breaking changes get their own major version, which is a real
-  commitment worth only making once the format has proven itself).
+  backward compatibility going forward.
 - Documentation (per `docs/style-guide.md`) fully current against actual
   shipped behavior — no known status-marker drift.
 
@@ -226,6 +204,7 @@ Not scheduled by date — gated on:
 - ✅ **Shipped** — complete and tested
 - 🚧 **In progress** — actively being worked on
 - 📋 **Planned** — designed but not started
+- ⏸️ **On hold** — deliberately deprioritized, not scheduled; kept visible rather than deleted so the decision isn't silently lost
 
 ## Agent
 
@@ -240,13 +219,14 @@ Not scheduled by date — gated on:
 | UDS + TCP ingest | High | ✅ Done |
 | Framework workspace detection (/detect) | High | ✅ Done |
 | System resources endpoint (/resources) | High | ✅ Done |
+| Query engine aggregation (`GROUP BY`/`COUNT`/`SUM`, `json_get_str` on attributes) | High | ✅ Done |
 | Metric aggregation & rollups | Medium | 📋 Pending |
-| Span trace tree queries | Medium | 📋 Pending |
-| Retention policies | Medium | 📋 Pending |
+| Span trace tree queries | Medium | 📋 Pending — needed only if Traces page (below) is reactivated |
+| Retention policies | Medium | 📋 Pending — targeted for `0.4.0` |
 | More language detection | Medium | 📋 Pending |
 | Compression options (Zstd/snappy) | Medium | 📋 Pending |
 | TLS support | Low | 📋 Pending |
-| Auth / API keys | Low | 📋 Pending |
+| Auth / API keys | Low | 📋 Pending — targeted for `0.3.0` |
 
 ## CLI
 
@@ -267,6 +247,20 @@ Not scheduled by date — gated on:
 | PII redaction | High | ✅ Done |
 | ULID generation | High | ✅ Done |
 
+## Documentation
+
+Tracked explicitly — these were identified as needed during the backend-only
+positioning change and elsewhere, but weren't previously in a trackable
+table.
+
+| Item | Priority | Status |
+|------|----------|--------|
+| `README.md` tagline, use cases, architecture diagram → backend-only framing | High | ✅ Done |
+| `docs/architecture/overview.md` system-map diagram — replace frontend-app example with a backend service example | Medium | ✅ Done — "Node App (UI)" → "Node API", tagline updated |
+| `docs/architecture/dashboard.md` Unified Timeline description — drop "frontend requests" framing | Medium | ✅ Done — now reads "aligns requests and responses across services" |
+| `docs/sdk/auto-detection.md` — explicit decision on whether Next.js stays in scope under the backend-only pitch (it runs real server-side code via API routes/SSR, so there's a legitimate case either way) | Medium | 📋 Pending — needs a decision, not an automatic removal |
+| ESLint backlog: 26 problems (25 errors + 1 warning) in untouched files (`AgentContext.tsx`, `ThemeContext.tsx`, `Errors.tsx`, `Logs.tsx`, `Services.tsx`) | Low | 📋 Pending — flagged twice, not yet scheduled; worth its own short cleanup round |
+
 ## Dashboard
 
 | Feature | Priority | Status |
@@ -276,15 +270,15 @@ Not scheduled by date — gated on:
 | Live/refresh/auto-refresh unified mechanism | High | ✅ Done |
 | No fabricated chart data (honest empty states) | High | ✅ Done |
 | Analytics: ingestion, error rate, service health, noisy services, severity | High | ✅ Done (queries + server-side aggregation) |
-| Analytics metrics (error rate %, active services, unhealthy count, total events) | High | ✅ Done — all computed server-side via DataFusion `GROUP BY`/`COUNT`/`SUM`/subquery |
-| `totalLogs`/`totalErrors` correct server-side count (not paginated slice length) | High | ✅ Done — parallel `COUNT(*)` query in `useLogs` + `useErrors` |
-| Metrics computed server-side (error rate ratio, healthy count) | High | ✅ Done — `CAST(errors AS DOUBLE) / CAST(total AS DOUBLE) AS error_rate`, `count(*) - count(*) FILTER(...) AS healthy` in SQL, no frontend ratio computation |
-| Analytics charts: latency percentiles, status codes, avg response time | Medium | ✅ Done — `spans` table was already fully implemented (13-column schema, ingested, flushed to Parquet, queryable via `/query`); the charts also read HTTP data from `logs.attributes` via DataFusion `json_get_str()` (Node.js/Python SDK coverage). The two sources are combined with server-side `UNION ALL` per chart, so percentiles/sums/counts are computed over the combined population — no client-side merge, correct for mixed-SDK deployments. The user filter is translated per arm so both arms narrow the same population: `timestamp` → `start_time`, `level` → `status_code` bucket (the Node/Python HTTP middleware derives level from status), `message LIKE` → `name`/`route LIKE`, `line` → `status_code` |
+| Analytics metrics (error rate %, active services, unhealthy count, total events) | High | ✅ Done — all computed server-side |
+| `totalLogs`/`totalErrors` correct server-side count (not paginated slice length) | High | ✅ Done |
+| Metrics computed server-side (error rate ratio, healthy count) | High | ✅ Done — no frontend ratio computation |
+| Analytics charts: latency percentiles, status codes, avg response time | Medium | ✅ Done — dual-source: `spans` table (Go/Rust) `UNION ALL` `logs.attributes` via `json_get_str()` (Node.js/Python), combined server-side so percentiles/sums/counts are computed over the full population, not per-SDK. Filter predicates translated per arm (`timestamp`→`start_time`, `level`→status-code bucket, `message LIKE`→`name`/`route LIKE`, `line`→`status_code`). Unrecognized filter shapes fail loud (HTTP queries skipped, `console.warn`) rather than silently narrowing one arm and not the other. |
 | Analytics chart: system metrics (CPU, memory, disk, network) | Low | 📋 Pending — needs new agent capability (OS-level metric collection), not a query/wiring task |
-| Logs page charts (LogVolume, Errors, StatusCodes) | Medium | 📋 Pending — query engine aggregation confirmed; `volumeTimeseries`/`errorTimeseries` already fetched by `useLogs`, chart components need wiring. `StatusCodesChart` blocked on `spans` table access from Logs page |
+| Logs page charts (LogVolume, Errors, StatusCodes) | Medium | 📋 Pending — `LogVolume`/`Errors` query engine aggregation confirmed, `volumeTimeseries`/`errorTimeseries` already fetched by `useLogs`, chart components need wiring. **`StatusCodes` needs the same dual-source (`spans` `UNION ALL` `attributes`) treatment as the Analytics page — not spans-only** — wiring this as spans-only would silently show empty status-code data for every Node/Python service, repeating the exact bug fixed on Analytics. |
 | Errors page charts (ErrorCount, ErrorRate, ErrorByService) | Medium | 📋 Pending — query engine aggregation confirmed; per-date and per-service queries already in `useErrors`, chart components need wiring |
 | Services page charts (RequestsByService, ErrorRateByService) | Medium | 📋 Pending — query engine aggregation confirmed; data available via health query, chart components need wiring |
-| Services page chart: AvgLatencyByService | Medium | 📋 Pending — needs `FROM spans` query wired into `useServices` |
+| Services page chart: AvgLatencyByService | Medium | 📋 Pending — **needs the same dual-source (`spans` `UNION ALL` `logs.attributes` via `json_get_str`) approach already implemented for Analytics, not a plain `FROM spans` query.** A spans-only implementation would show zero/empty average latency for every Node and Python service — reuse the shared predicate-translation logic from Analytics rather than reimplementing a single-source version here. |
 | Errors page (wired filtering) | Medium | ✅ Done |
 | Services page (sidebar filtering) | Medium | ✅ Done |
 | Service Cards: sparklines from time-bucketed queries | Medium | ✅ Done |
@@ -292,11 +286,12 @@ Not scheduled by date — gated on:
 | Service Details: honest "Streaming since" proxy from `MIN(timestamp)` | Medium | ✅ Done |
 | Sidebar filter real counts from query | Medium | 📋 Next — aggregation groundwork now in place; requires `GROUP BY level`, `GROUP BY service` queries wired into filter sidebar |
 | Service version/hostname in Service Details | Low | 📋 Pending — requires cross-SDK protocol change (new handshake field) |
-| Traces page | Medium | 📋 Pending |
-| Views page (saved filters) | Medium | 📋 Pending |
+| Traces page | Medium | ⏸️ **On hold — deprioritized, not scheduled.** Requires span trace-tree query support (Agent table, above) which isn't being pursued right now. Kept visible rather than deleted; revisit if/when distributed tracing (§7) is picked up. |
+| Views page (saved filters) | Medium | ⏸️ **On hold — deprioritized, not scheduled.** Still blocked on the unresolved question of whether saved-view persistence needs a new agent-side CRUD surface, per earlier discovery — not being pursued right now. |
 | Patterns page (log pattern detection) | Low | 📋 Pending |
 | Live tail (SSE streaming) | Low | 🚧 In progress (endpoint shipped, dashboard not yet consuming) |
 | Chart click-to-filter | Low | 📋 Planned (deferred to post-Round 15) |
+| In-app toast notifications | Low | 📋 Spec written, not implemented — see §7. Not started, not scheduled; decision pending on whether it's still needed. |
 
 ## SDKs
 
@@ -320,20 +315,36 @@ but it is currently sent two different ways on the wire:
 
 This violates the sdk-design principle that the same semantic data must not vary per
 language. The dashboard now reads both representations (spans table + `json_get_str`
-on attributes), which is a stopgap, not the permanent design.
+on attributes) via a shared dual-source query pattern, which is a stopgap, not the
+permanent design. **Every current and future HTTP-derived chart must use this
+dual-source pattern, not a spans-only query, until this reconciliation lands.**
 
 | Task | Priority | Status |
 |------|----------|--------|
 | Reconcile HTTP capture onto one wire representation (align Node.js/Python SDKs to send `Span` messages, matching Go/Rust) | Medium | 📋 Planned — needs cross-SDK protocol change (all 4 SDKs) + agent-side verification; dashboard dual-source queries remain a safe fallback until then |
 
+### Framework auto-detection expansion (backlog)
+
+Additive detection-signature work *within* the four already-shipped SDKs —
+distinct from `0.2.0`'s new *languages*. Reasonable to land during `0.1.x`
+hardening or as a short-lived adjacent effort.
+
+| Language | Currently detected | Candidates to add |
+|---|---|---|
+| Node | Express, Fastify, NestJS, Next.js | Koa, Hapi |
+| Python | Flask, Django, FastAPI | Tornado, Sanic |
+| Go | Gin, Echo, Fiber | Chi, Gorilla Mux |
+| Rust | Axum, Actix | Rocket, Warp |
+
 ## Distribution
 
 | Feature | Priority | Status |
 |---------|----------|--------|
-| npm package (CLI) | High | ✅ Done |
+| Shell-script installer (`curl \| sh`) downloading precompiled binary | High | ✅ Done |
 | Precompiled binaries (Linux, macOS) | High | ✅ Done |
 | Homebrew formula | Medium | 📋 Pending |
 | Windows native (non-WSL2) | Low | 📋 Pending |
+| npm package (CLI) | Low | ⏸️ On hold — superseded by the `curl \| sh` installer; no npm wrapper for the CLI. Revisit only if a use case genuinely requires npm-based CLI distribution. |
 
 ## Performance (baseline)
 

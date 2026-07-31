@@ -27,6 +27,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   )
 }
 
+// react-refresh: co-locating the provider and its consumer hook is this repo's
+// established context pattern (see AgentContext/ThemeContext); the hook is not
+// a component and the provider gains nothing from fast-refresh replacement.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useToast(): ToastApi {
   const api = useContext(ToastContext)
   if (!api) {

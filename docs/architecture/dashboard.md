@@ -44,6 +44,46 @@ SSE endpoint at `GET /tail` streams new log entries in real time. The dashboard'
 
 > **Status:** ✅ Shipped (v0.1)
 
+## Toast Notifications
+
+Failed requests are no longer silent. The §0 wiring-audit fix (failed `/query`
+surfaces a toast instead of being masked by placeholder-data fallback) and the
+toast mechanism that renders it are built together:
+
+- **One shared mechanism** — `ToastProvider`/`useToast()` wraps the app in
+  `main.tsx`, alongside `ThemeProvider`/`QueryProvider`. Every consumer calls
+  `useToast()` (or the store directly) — no per-component toast implementations.
+  The underlying logic lives in `src/lib/toastStore.ts` as a module singleton,
+  so non-React code (`hooks/api.ts`, `context/AgentContext.tsx`) can raise
+  toasts without a component; React renders it via `useSyncExternalStore`.
+- **Placement/visual** — fixed top-right, newest-on-top stack, `--error`/
+  `--success` tokens (theme-aware), icon + message + dismiss button, and an
+  auto-dismiss progress bar (thin shrinking bar matching the dismiss timer;
+  persistent toasts show no bar). Container is `aria-live="polite"`; error
+  toasts get `role="alert"`.
+- **Timing** — success auto-dismisses after 4s, error after 8s. `durationMs: 0`
+  marks an error as ongoing-state (e.g. "Agent unreachable") requiring manual
+  dismissal.
+- **Anti-spam (load-bearing)** — see the dedupe/rate-limit rules in
+  `toastStore.ts`. Background failures (`postQuery`, agent health polling) carry
+  a `dedupeKey` and are deduped (never two identical toasts) and rate-limited to
+  at most one re-toast per 60s while the failure persists. User-initiated action
+  failures pass no key and always show. Recovery is keyed: `showSuccess(msg,
+  { dedupeKey })` only surfaces when that key is in an error state — closing the
+  loop ("Query succeeded again" / "Reconnected to agent") instead of the error
+  silently expiring.
+- **Triggers today** — any failed `/query` (via `postQuery`), agent
+  disconnection mid-session (persistent error toast, distinct from the
+  onboarding `WaitingOverlay`), and recovery from either. Not toasting: every
+  successful background poll, initial onboarding, clear-filters (self-evident
+  from the UI). Export/CSV has no UI yet — when it lands it should call
+  `showError`/`showSuccess` directly (no dedupe key) for always-show semantics.
+- **Tests** — `test/toastStore.test.ts` covers dedupe, cooldown re-toasting,
+  recovery transitions, persistent toasts, and snapshot stability, run via
+  `npm test` (Node's built-in runner, injected fake clock/timers — no deps).
+
+> **Status:** ✅ Shipped
+
 ## Saved Views
 
 Filter definitions stored as JSON (`~/.greplog/views.json`). FilterState's URL-param encoding naturally supports serialization.

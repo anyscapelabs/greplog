@@ -126,7 +126,9 @@ export function createToastStore(deps: ToastStoreDeps = {}): ToastStore {
       const state = keyState.get(dedupeKey)
       if (!state?.inError) return
       dismissByKey(dedupeKey)
-      keyState.set(dedupeKey, { lastShownAt: 0, inError: false })
+      // Forget the key entirely: the next failure is a fresh event, not a
+      // rate-limited repeat of the old one (no stale cooldown).
+      keyState.delete(dedupeKey)
     }
     pushToast('success', message, dedupeKey, durationMs ?? DEFAULT_SUCCESS_DURATION_MS)
   }
