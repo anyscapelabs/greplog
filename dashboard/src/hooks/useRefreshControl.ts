@@ -13,15 +13,16 @@ interface UseRefreshControlOptions {
 export function useRefreshControl(refetch: () => void, opts?: UseRefreshControlOptions) {
   const [isLive, setIsLive] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState('Off')
+  const { defaultLiveIntervalMs, manualRefetch } = opts ?? {}
 
   const intervalMs = useMemo(() => {
-    if (isLive) return opts?.defaultLiveIntervalMs ?? 5000
+    if (isLive) return defaultLiveIntervalMs ?? 5000
     if (autoRefresh === 'Off') return null
     const m = autoRefresh.match(/^(\d+)([sm])$/)
     if (!m) return null
     const n = parseInt(m[1])
     return m[2] === 'm' ? n * 60000 : n * 1000
-  }, [isLive, autoRefresh, opts?.defaultLiveIntervalMs])
+  }, [isLive, autoRefresh, defaultLiveIntervalMs])
 
   useEffect(() => {
     if (intervalMs === null) return
@@ -30,9 +31,9 @@ export function useRefreshControl(refetch: () => void, opts?: UseRefreshControlO
   }, [intervalMs, refetch])
 
   const manualRefresh = useCallback(() => {
-    if (opts?.manualRefetch) opts.manualRefetch()
+    if (manualRefetch) manualRefetch()
     else refetch()
-  }, [refetch, opts?.manualRefetch])
+  }, [refetch, manualRefetch])
   const toggleLive = useCallback((value?: boolean) => setIsLive(v => value ?? !v), [])
 
   return { isLive, toggleLive, manualRefresh, autoRefresh, setAutoRefresh }

@@ -11,6 +11,7 @@ import AnalyticsChartPanel from '../components/AnalyticsChartPanel.tsx'
 import RequestsByServiceChart from '../components/RequestsByServiceChart.tsx'
 import ErrorRateByServiceChart from '../components/ErrorRateByServiceChart.tsx'
 import AvgLatencyByServiceChart from '../components/AvgLatencyByServiceChart.tsx'
+import type { ServiceEntry } from '../types/index.ts'
 export default function Services() {
   const { connected } = useAgent()
 
@@ -43,7 +44,7 @@ export default function Services() {
   } = useRefreshControl(refetch, { manualRefetch })
 
   const [filterOpen, setFilterOpen] = useState(true)
-  const [drawerService, setDrawerService] = useState<any>(null)
+  const [drawerService, setDrawerService] = useState<ServiceEntry | null>(null)
   const [requestsMetric, setRequestsMetric] = useState('count')
   const [errorRateMetric, setErrorRateMetric] = useState('rate')
   const [latencyMetric, setLatencyMetric] = useState('avg')
@@ -95,7 +96,7 @@ export default function Services() {
     const allChecked = [...new Set([...filters.services, ...fromHealth])]
     if (allChecked.length === 0) return undefined
     return allChecked
-  }, [filters.services, filters.checked])
+  }, [filters.services, filters.checked, healthServiceMap])
 
   return (
     <div className="flex flex-col h-full">

@@ -10,6 +10,7 @@ import LogsTable from '../components/LogsTable.tsx'
 import LogsDrawer from '../components/LogsDrawer.tsx'
 import WaitingOverlay, { SDK_SETUP_TERMINAL } from '../components/WaitingOverlay.tsx'
 import Dropdown from '../components/Dropdown.tsx'
+import type { LogEntry } from '../types/index.ts'
 
 export default function Logs() {
   const { connected } = useAgent()
@@ -54,7 +55,7 @@ export default function Logs() {
   const [chart2Group, setChart2Group] = useState('nothing')
   const [chart3Metric, setChart3Metric] = useState('count')
   const [chart3Group, setChart3Group] = useState('nothing')
-  const [drawerLog, setDrawerLog] = useState<any>(null)
+  const [drawerLog, setDrawerLog] = useState<LogEntry | null>(null)
 
   function handleCheck(id: string) {
     const section = filterSections.find((s) => s.items.some((i) => i.id === id))

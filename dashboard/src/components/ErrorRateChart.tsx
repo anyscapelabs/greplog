@@ -7,6 +7,7 @@ export default function ErrorRateChart({ data }: ErrorRateChartProps) {
   const colors = useChartTheme()
   if (!data || data.length === 0) return <ChartEmptyState />
 
+  const { axisLabel: defaultAxisLabel, ...restGrid } = commonGrid(colors)
   const option = {
     grid: { left: 40, right: 8, top: 8, bottom: 24 },
     xAxis: {
@@ -19,8 +20,8 @@ export default function ErrorRateChart({ data }: ErrorRateChartProps) {
     },
     yAxis: {
       type: 'value',
-      axisLabel: { ...commonGrid(colors).axisLabel, formatter: (v: number) => `${(v * 100).toFixed(1)}%` },
-      ...commonGrid(colors),
+      ...restGrid,
+      axisLabel: { ...defaultAxisLabel, formatter: (v: number) => `${(v * 100).toFixed(1)}%` },
     },
     series: [
       {

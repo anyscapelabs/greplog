@@ -203,7 +203,7 @@ export function useServices(timeRange?: string): ServicesPageProps {
   const manualRefetch = useCallback(() => {
     userInitiatedRef.current = true
     refetchServices()
-  }, [userInitiatedRef])
+  }, [userInitiatedRef, refetchServices])
 
   const charts: ServiceCharts = {
     requests: services.map((s) => ({ service: s.name, count: s.eventCount, rate: s.eventCount })),

@@ -9,12 +9,13 @@ export default function ErrorRateByServiceChart({ data }: ErrorRateByServiceChar
 
   const sorted = [...data].sort((a, b) => b.value - a.value)
 
+  const { axisLabel: defaultAxisLabel, ...restGrid } = commonGrid(colors)
   const option = {
     grid: { left: 80, right: 8, top: 8, bottom: 24 },
     xAxis: {
       type: 'value',
-      axisLabel: { ...commonGrid(colors).axisLabel, formatter: (v: number) => `${(v * 100).toFixed(0)}%` },
-      ...commonGrid(colors),
+      ...restGrid,
+      axisLabel: { ...defaultAxisLabel, formatter: (v: number) => `${(v * 100).toFixed(0)}%` },
     },
     yAxis: {
       type: 'category',

@@ -10,6 +10,7 @@ import ErrorsTable from '../components/ErrorsTable.tsx'
 import ErrorsDrawer from '../components/ErrorsDrawer.tsx'
 import WaitingOverlay, { SDK_SETUP_TERMINAL } from '../components/WaitingOverlay.tsx'
 import Dropdown from '../components/Dropdown.tsx'
+import type { ErrorEntry } from '../types/index.ts'
 
 export default function Errors() {
   const { connected } = useAgent()
@@ -54,7 +55,7 @@ export default function Errors() {
   const [chart2Group, setChart2Group] = useState('nothing')
   const [chart3Metric, setChart3Metric] = useState('count')
   const [chart3Group, setChart3Group] = useState('nothing')
-  const [drawerError, setDrawerError] = useState<any>(null)
+  const [drawerError, setDrawerError] = useState<ErrorEntry | null>(null)
 
   function handleCheck(id: string) {
     const section = filterSections.find((s) => s.items.some((i) => i.id === id))
