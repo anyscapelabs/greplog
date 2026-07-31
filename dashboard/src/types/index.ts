@@ -116,6 +116,7 @@ export interface LogsPageProps {
   }
   onViewLog?: (log: LogEntry) => void
   refetch: () => void
+  manualRefetch?: () => void
 }
 
 /* ── Errors ── */
@@ -162,6 +163,7 @@ export interface ErrorsPageProps {
   }
   onViewError?: (error: ErrorEntry) => void
   refetch: () => void
+  manualRefetch?: () => void
 }
 
 /* ── Services ── */
@@ -229,6 +231,7 @@ export interface ServicesPageProps {
   latencyOptions: DropdownOption[]
   onViewService?: (service: ServiceEntry) => void
   refetch: () => void
+  manualRefetch?: () => void
 }
 
 /* ── Analytics ── */
@@ -267,6 +270,7 @@ export interface AnalyticsPageProps {
   noisySort: string
   onNoisySortChange: (v: string) => void
   refetch: () => void
+  manualRefetch?: () => void
 }
 
 /* ── Drawer Props ── */
@@ -364,37 +368,37 @@ export interface AvgResponseTimeChartProps {
 export interface LogVolumeChartProps {
   metric: string
   groupBy: string
-  data: Record<string, unknown>
+  data: TimeseriesPoint[]
 }
 
 export interface ErrorsChartProps {
   metric: string
   groupBy: string
-  data: Record<string, unknown>
+  data: { timestamp: string; count: number }[]
 }
 
 export interface StatusCodesChartProps {
   metric: string
   groupBy: string
-  data: Record<string, unknown>
+  data: PieSlice[]
 }
 
 export interface ErrorCountChartProps {
   metric: string
   groupBy: string
-  data: Record<string, unknown>
+  data: TimeseriesPoint[]
 }
 
 export interface ErrorRateChartProps {
   metric: string
   groupBy: string
-  data: Record<string, unknown>
+  data: { timestamp: string; rate: number }[]
 }
 
 export interface ErrorByServiceChartProps {
   metric: string
   groupBy: string
-  data: Record<string, unknown>
+  data: PieSlice[]
 }
 
 export interface RequestsByServiceChartProps {

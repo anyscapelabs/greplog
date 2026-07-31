@@ -197,12 +197,18 @@ export function useServices(timeRange?: string): ServicesPageProps {
     void logQuery.refetch()
     void healthQuery.refetch()
     void sparklineQuery.refetch()
+    void latencyQuery.refetch()
   }
+
+  const manualRefetch = useCallback(() => {
+    userInitiatedRef.current = true
+    refetchServices()
+  }, [userInitiatedRef])
 
   const charts: ServiceCharts = {
     requests: services.map((s) => ({ service: s.name, count: s.eventCount, rate: s.eventCount })),
     errorRates: services.map((s) => ({ service: s.name, count: Math.round(s.errorRate * s.eventCount), rate: s.errorRate })),
-    latencies: [],
+    latencies: latencyQuery.data ?? [],
   }
 
   return {
@@ -219,5 +225,6 @@ export function useServices(timeRange?: string): ServicesPageProps {
     latencyOptions: placeholderLatencyOptions,
     onViewService: undefined,
     refetch: refetchServices,
+    manualRefetch,
   }
 }
