@@ -259,7 +259,7 @@ table.
 | `docs/architecture/overview.md` system-map diagram — replace frontend-app example with a backend service example | Medium | ✅ Done — "Node App (UI)" → "Node API", tagline updated |
 | `docs/architecture/dashboard.md` Unified Timeline description — drop "frontend requests" framing | Medium | ✅ Done — now reads "aligns requests and responses across services" |
 | `docs/sdk/auto-detection.md` — explicit decision on whether Next.js stays in scope under the backend-only pitch (it runs real server-side code via API routes/SSR, so there's a legitimate case either way) | Medium | 📋 Pending — needs a decision, not an automatic removal |
-| ESLint backlog: 26 problems (25 errors + 1 warning) in untouched files (`AgentContext.tsx`, `ThemeContext.tsx`, `Errors.tsx`, `Logs.tsx`, `Services.tsx`) | Low | 📋 Pending — flagged twice, not yet scheduled; worth its own short cleanup round |
+| ESLint backlog: 12 errors (all `react-refresh/only-export-components`, 0 warnings) in untouched files (`AnalyticsMetricCard.tsx`, `ErrorsDrawer.tsx`, `ErrorsTable.tsx`, `HealthTimeline.tsx`, `LogsDrawer.tsx`, `LogsTable.tsx`, `ServiceCard.tsx`, `ServicesTable.tsx`, `WaitingOverlay.tsx`, `ThemeContext.tsx`) | Low | 📋 Pending — flagged twice, not yet scheduled; worth its own short cleanup round. `Errors.tsx`, `Logs.tsx`, `Services.tsx`, `AgentContext.tsx` were on the original list but are now clean. |
 
 ## Dashboard
 
@@ -284,14 +284,14 @@ table.
 | Service Cards: sparklines from time-bucketed queries | Medium | ✅ Done |
 | ServicesDrawer: Recent Errors from `useErrors` + Related Logs from `useLogs` | Medium | ✅ Done |
 | Service Details: honest "Streaming since" proxy from `MIN(timestamp)` | Medium | ✅ Done |
-| Sidebar filter real counts from query | Medium | 📋 Next — aggregation groundwork now in place; requires `GROUP BY level`, `GROUP BY service` queries wired into filter sidebar |
+| Sidebar filter real counts from query | Medium | ✅ Done — `GROUP BY level`, `GROUP BY service`, per-status-code (HTTP logs), `exception_type`, and per-service health counts wired into the filter sidebar; Logs/Errors compute them in-hook (respecting the active filter), Services derives them from the live health query. Counts update with the filtered result set. |
 | Service version/hostname in Service Details | Low | 📋 Pending — requires cross-SDK protocol change (new handshake field) |
 | Traces page | Medium | ⏸️ **On hold — deprioritized, not scheduled.** Requires span trace-tree query support (Agent table, above) which isn't being pursued right now. Kept visible rather than deleted; revisit if/when distributed tracing (§7) is picked up. |
 | Views page (saved filters) | Medium | ⏸️ **On hold — deprioritized, not scheduled.** Still blocked on the unresolved question of whether saved-view persistence needs a new agent-side CRUD surface, per earlier discovery — not being pursued right now. |
 | Patterns page (log pattern detection) | Low | 📋 Pending |
 | Live tail (SSE streaming) | Low | 🚧 In progress (endpoint shipped, dashboard not yet consuming) |
 | Chart click-to-filter | Low | 📋 Planned (deferred to post-Round 15) |
-| In-app toast notifications | Low | 📋 Spec written, not implemented — see §7. Not started, not scheduled; decision pending on whether it's still needed. |
+| In-app toast notifications | Low | ✅ Done — `toastStore` (module singleton + `useSyncExternalStore`) rendered via `ToastProvider`/`ToastViewport`; error toasts on query failure, success on recovery, agent reconnect toasts, 60s background dedupe/cooldown, and §0 user-initiated bypass (manual-refresh errors show immediately without mutating background key-state) |
 
 ## SDKs
 

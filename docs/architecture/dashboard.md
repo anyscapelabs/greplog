@@ -1,6 +1,6 @@
 # Dashboard (React)
 
-> **Status:** Dashboard UI is functional with real agent API queries. Filter state is synced to URL search params. Service drawer shows real errors/logs per service. Sparklines wired from time-bucketed queries. Chart click-to-filter is deferred.
+> **Status:** Dashboard UI is functional with real agent API queries. Filter state is synced to URL search params. All ROADMAP chart rows wired to real data (Logs/Errors/Services/Analytics incl. dual-source status codes + per-service latency and system metrics). Filter sidebar counts come from real aggregation queries. Service drawer shows real errors/logs per service. Sparklines wired from time-bucketed queries. Chart click-to-filter is deferred.
 
 ## Unified Timeline
 
@@ -9,7 +9,7 @@ The core UX revolves around interleaved logs:
 - **Interleaved Log Explorer:** A single, chronological stream of all events from all connected services in the workspace. Sorting by timestamp ASC naturally aligns requests and responses across services.
 - **Service Badges:** Every log row features a distinct color tag based on its `service_name` (e.g., a green `[web]` badge, blue `[api]` badge).
 
-> **Status:** ✅ Shipped (v0.1) — UI rendering complete, currently powered by placeholder data.
+> **Status:** ✅ Shipped (v0.1)
 
 ## Global Filter Bar
 
@@ -23,6 +23,15 @@ Filter state is synced to URL search params (`?q=`, `?c=`, `?s=`, `?t=`, `?l=`, 
 - **Analytics page**: Service dropdown + time range → `FilterState.services` for query scoping
 
 Service filtering is unified: sidebar checkboxes and `service:` chips both write to the same `FilterState.services` array. The top-bar service dropdown was removed from Logs and Errors pages; it remains on Analytics as the authoritative service selector.
+
+Filter sidebar counts are real aggregation results, not placeholder numbers:
+`GROUP BY level`, `GROUP BY service`, per-status-code counts from HTTP logs
+(`json_get_str(attributes, 'http.status_code')`), `exception_type` counts
+(Errors), and per-service health counts (Services) — all respecting the active
+filter predicate. Builders live in `src/lib/filterSections.ts`; the Logs/Errors
+hooks run the count queries alongside the data queries, and Services derives
+its sections from the live health query. Counts update whenever the filtered
+result set changes.
 
 ### Service Drawer
 
@@ -181,6 +190,6 @@ state.
 | Top Noisy Services | `logs` table, top 5 by count | ✅ Wired |
 | Log Severity Distribution | `logs` table, `GROUP BY level` | ✅ Wired |
 | Avg Response Time | `spans` + `logs.attributes` (`json_get_str`) `UNION ALL`, `SUM`/`COUNT` per service | ✅ Wired |
-| System Metrics | OS-level agent collection needed | 📋 Blocked |
+| System Metrics | agent `/resources` (cpu/memory/disk/network, incl. per-interface `rx_bytes_per_sec`/`tx_bytes_per_sec`), 5s `resourcesQuery` poll → gauge tiles | ✅ Wired |
 
-> **Status:** ✅ 8 of 9 Analytics charts wired. System Metrics blocked on new agent capability.
+> **Status:** ✅ 9 of 9 Analytics charts wired.
