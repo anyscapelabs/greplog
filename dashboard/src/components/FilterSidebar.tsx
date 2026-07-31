@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { LuSearch, LuChevronDown, LuChevronRight } from 'react-icons/lu'
 import type { FilterSectionConfig } from '../types/index.ts'
 
@@ -79,10 +79,20 @@ export default function FilterSidebar({ checked, onCheck, sections }: FilterSide
     }
     return initial
   })
+  const [searchTerm, setSearchTerm] = useState('')
 
   function toggle(section: string) {
     setOpenStates((prev) => ({ ...prev, [section]: !prev[section] }))
   }
+
+  const filteredSections = useMemo(() => {
+    if (!searchTerm.trim()) return sections
+    const q = searchTerm.toLowerCase()
+    return sections.map((s) => ({
+      ...s,
+      items: s.items.filter((i) => i.label.toLowerCase().includes(q)),
+    }))
+  }, [sections, searchTerm])
 
   return (
     <div
@@ -107,6 +117,8 @@ export default function FilterSidebar({ checked, onCheck, sections }: FilterSide
           <LuSearch className="size-3.5 shrink-0 mr-1.5" style={{ color: 'var(--text-secondary)' }} />
           <input
             type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search filters..."
             className="flex-1 text-xs bg-transparent outline-none"
             style={{ color: 'var(--text-primary)' }}
@@ -116,7 +128,7 @@ export default function FilterSidebar({ checked, onCheck, sections }: FilterSide
       <div className="border-b shrink-0" style={{ borderColor: 'var(--border-primary)' }} />
 
       <div className="flex-1 overflow-y-auto">
-        {sections.map((section) => (
+        {filteredSections.map((section) => (
           <FilterSection
             key={section.id}
             title={section.title}

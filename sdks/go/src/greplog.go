@@ -51,18 +51,29 @@ var (
 	gClosed bool
 )
 
-func Init(opts *Options) {
+func Init(opts ...any) {
 	if gInit.Load() {
 		return
 	}
 	defer gInit.Store(true)
 
-	if opts == nil {
-		opts = &Options{}
+	var parsedOpts Options
+	if len(opts) > 0 && opts[0] != nil {
+		switch o := opts[0].(type) {
+		case *Options:
+			if o != nil {
+				parsedOpts = *o
+			}
+		case Options:
+			parsedOpts = o
+		}
 	}
 
 	gMu.Lock()
-	gOpts = *opts
+	gOpts = parsedOpts
+	if gOpts.ServiceName == "" && gOpts.Service != "" {
+		gOpts.ServiceName = gOpts.Service
+	}
 	if gOpts.ServiceName == "" {
 		gOpts.ServiceName = detectServiceName()
 	}
@@ -73,7 +84,7 @@ func Init(opts *Options) {
 	gSeq = 0
 	gMu.Unlock()
 
-	tr := newTransport(opts.SocketPath, opts.TCPHost, opts.TCPPort, opts.ReconnectDelay)
+	tr := newTransport(gOpts.SocketPath, gOpts.TCPHost, gOpts.TCPPort, gOpts.ReconnectDelay)
 	gMu.Lock()
 	gTr = tr
 	gMu.Unlock()

@@ -2,7 +2,7 @@
 
 > **Status:** ✅ Shipped (v0.1)
 
-Goal: `import greplog from 'greplog'; greplog.init();` (or the equivalent
+Goal: `import { greplog } from 'greplog'; greplog.init();` (or the equivalent
 two lines in each language) captures logs, errors, uncaught
 exceptions/panics, and HTTP request/response metadata automatically, with
 zero further config. A manual override (`greplog.error(msg, details)` or

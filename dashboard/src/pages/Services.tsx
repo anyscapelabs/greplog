@@ -1,167 +1,109 @@
 import { useState, useMemo } from 'react'
-import { useServices } from '../hooks/index.ts'
+import { useServices, useFilterState, useRefreshControl } from '../hooks/index.ts'
 import { useAgent } from '../context/AgentContext.tsx'
 import ServicesDrawer from '../components/ServicesDrawer.tsx'
-import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen } from 'react-icons/lu'
+import PageHeader from '../components/PageHeader.tsx'
 import ServiceCard from '../components/ServiceCard.tsx'
 import ServicesFilterSidebar from '../components/ServicesFilterSidebar.tsx'
 import ServicesTable from '../components/ServicesTable.tsx'
-import WaitingOverlay from '../components/WaitingOverlay.tsx'
+import WaitingOverlay, { SDK_SETUP_TERMINAL } from '../components/WaitingOverlay.tsx'
 import AnalyticsChartPanel from '../components/AnalyticsChartPanel.tsx'
 import RequestsByServiceChart from '../components/RequestsByServiceChart.tsx'
 import ErrorRateByServiceChart from '../components/ErrorRateByServiceChart.tsx'
 import AvgLatencyByServiceChart from '../components/AvgLatencyByServiceChart.tsx'
-import Dropdown from '../components/Dropdown.tsx'
-
 export default function Services() {
   const { connected } = useAgent()
+
+  const {
+    filters,
+    toggleService,
+    setTimeRange,
+    toggleChecked,
+  } = useFilterState()
+
   const {
     services,
     totalRows,
     querySeconds,
     filterSections,
     serviceCards,
-    timeRanges: timeRangeOptions,
-    autoRefreshOptions,
     countRateOptions,
     latencyOptions,
-  } = useServices()
+    refetch,
+  } = useServices(filters.timeRange)
 
-  const timeRanges = timeRangeOptions.map((r) => r.label)
+  const {
+    isLive,
+    toggleLive,
+    manualRefresh,
+    autoRefresh,
+    setAutoRefresh,
+  } = useRefreshControl(refetch)
 
-  const [spinning, setSpinning] = useState(false)
-  const [live, setLive] = useState(false)
-  const [timeRange, setTimeRange] = useState(timeRanges[0])
   const [filterOpen, setFilterOpen] = useState(true)
   const [drawerService, setDrawerService] = useState<any>(null)
-  const [autoRefresh, setAutoRefresh] = useState('Off')
   const [requestsMetric, setRequestsMetric] = useState('count')
   const [errorRateMetric, setErrorRateMetric] = useState('rate')
   const [latencyMetric, setLatencyMetric] = useState('avg')
-  const [checked, setChecked] = useState<Record<string, boolean>>({})
 
   function handleCheck(id: string) {
-    setChecked((prev) => ({ ...prev, [id]: !prev[id] }))
+    const section = filterSections.find((s) => s.items.some((i) => i.id === id))
+    if (section?.id === 'service_name') {
+      toggleService(id)
+    } else {
+      toggleChecked(id)
+    }
+  }
+
+  const checked = useMemo(() => {
+    const merged: Record<string, boolean> = { ...filters.checked }
+    for (const s of filters.services) {
+      merged[s] = true
+    }
+    return merged
+  }, [filters.checked, filters.services])
+
+  const healthServiceMap: Record<string, string[]> = {
+    healthy: ['api', 'web'],
+    degraded: ['db'],
   }
 
   const filteredServices = useMemo(() => {
-    const checkedServiceIds = Object.entries(checked)
+    const checkedIds = Object.entries(filters.checked)
       .filter(([, v]) => v)
       .map(([k]) => k)
-    const healthServiceMap: Record<string, string[]> = {
-      healthy: ['api', 'web'],
-      degraded: ['db'],
-      down: ['worker'],
-    }
-    const fromHealth = checkedServiceIds
-      .filter(id => ['healthy', 'degraded', 'down'].includes(id))
-      .flatMap(id => healthServiceMap[id] || [])
-    const fromServices = checkedServiceIds.filter(id => !['healthy', 'degraded', 'down'].includes(id))
-    const allChecked = [...new Set([...fromHealth, ...fromServices])]
+    const fromHealth = checkedIds
+      .filter((id) => ['healthy', 'degraded'].includes(id))
+      .flatMap((id) => healthServiceMap[id] || [])
+    const allChecked = [...new Set([...filters.services, ...fromHealth])]
     if (allChecked.length === 0) return undefined
     return allChecked
-  }, [checked])
+  }, [filters.services, filters.checked])
 
   return (
     <div className="flex flex-col h-full">
-      <div
-        className="flex items-center px-4 h-12 shrink-0 border-b gap-3"
-        style={{
-          backgroundColor: 'var(--bg-secondary)',
-          borderColor: 'var(--border-primary)',
-        }}
-      >
-        <span className="text-2xl font-semibold flex items-center gap-2">
-          <span style={{ color: 'var(--text-secondary)' }}>Grep</span>
-          <span className="text-text-primary">Services</span>
-        </span>
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-primary hover:bg-[var(--hover-bg)] transition-colors"
-            style={{
-              borderColor: 'var(--border-primary)',
-              borderWidth: 1,
-            }}
-            onClick={() => {
-              setSpinning(true)
-              setTimeout(() => setSpinning(false), 600)
-            }}
-          >
-            <LuRefreshCw className={`size-3.5 ${spinning ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-          <button
-            className={`flex items-center gap-1.5 px-2 py-1 text-sm transition-colors ${
-              live ? 'text-white bg-success border-success' : 'text-text-primary hover:bg-[var(--hover-bg)]'
-            }`}
-            style={{
-              borderColor: live ? undefined : 'var(--border-primary)',
-              borderWidth: 1,
-            }}
-            onClick={() => setLive(!live)}
-          >
-            <LuCircleDot className="size-3.5" />
-            Live
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Services"
+        showLive
+        isLive={isLive}
+        onLiveChange={toggleLive}
+        onRefresh={manualRefresh}
+        showFilterToggle
+        timeRange={filters.timeRange}
+        onTimeRangeChange={setTimeRange}
+        autoRefresh={autoRefresh}
+        onAutoRefreshChange={setAutoRefresh}
+        filterOpen={filterOpen}
+        onFilterToggle={() => setFilterOpen(!filterOpen)}
+      />
       <div className="flex flex-1 min-h-0 relative">
           <WaitingOverlay
             visible={!connected}
-            message="Run the agent and configure the SDK to start monitoring services"
-            terminal={[
-              '# Install the Greplog SDK',
-              'npm install @greplog/sdk',
-              '',
-              '# Initialize the agent',
-              'npx greplog init',
-              '',
-              '# Start collecting',
-              '$ greplog agent start --endpoint http://localhost:3000',
-              '',
-              '# Or add to your application',
-              'import { Greplog } from "@greplog/sdk"',
-              'const greplog = new Greplog({ endpoint: "http://localhost:3000" })',
-              'greplog.collect()',
-            ]}
+            message="Run the Greplog agent and configure an SDK to start collecting services data"
+            terminal={SDK_SETUP_TERMINAL}
           />
         {filterOpen && <ServicesFilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
-          <div
-            className="flex items-center h-10 border-b shrink-0"
-            style={{
-              backgroundColor: 'var(--bg-secondary)',
-              borderColor: 'var(--border-primary)',
-            }}
-          >
-            <button
-              className="flex items-center justify-center p-1.5 text-text-primary hover:bg-[var(--hover-bg)] transition-colors ml-1"
-              onClick={() => setFilterOpen(!filterOpen)}
-              title={filterOpen ? 'Close filters' : 'Open filters'}
-            >
-              {filterOpen ? <LuPanelLeftClose className="size-4" /> : <LuPanelLeftOpen className="size-4" />}
-            </button>
-            <div className="ml-auto flex items-center gap-2 pr-4">
-              <Dropdown
-                trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-[var(--bg-primary)] rounded">{autoRefresh}</span>}</>}
-                items={autoRefreshOptions}
-                value={autoRefresh}
-                onChange={setAutoRefresh}
-                align="right"
-                minWidth="min-w-16"
-                hasBorder
-              />
-              <Dropdown
-                trigger={<span>{timeRange}</span>}
-                items={timeRangeOptions}
-                value={timeRange}
-                onChange={setTimeRange}
-                align="right"
-                minWidth="min-w-40"
-                hasBorder
-              />
-            </div>
-          </div>
           <div className="flex gap-1.5 px-2 pt-2 pb-1.5 shrink-0">
             {serviceCards.map((card) => (
               <ServiceCard key={card.name} name={card.name} requests={card.label} data={card.sparkline} />

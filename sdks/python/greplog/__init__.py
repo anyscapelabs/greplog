@@ -39,6 +39,7 @@ def init(
     capture_bodies: bool = False,
     capture_log_level: str = "WARNING",
     service_name: Optional[str] = None,
+    service: Optional[str] = None,
     socket_path: Optional[str] = None,
     tcp_port: Optional[int] = None,
     app: Any = None,
@@ -49,7 +50,7 @@ def init(
         state.initialized = True
 
         state.config = GreplogConfig(
-            service_name=service_name or detect_service_name(),
+            service_name=service or service_name or detect_service_name(),
             instance_id=generate_instance_id(),
             capture_bodies=capture_bodies,
             capture_log_level=capture_log_level,

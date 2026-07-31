@@ -29,8 +29,13 @@ fn make_small_batch(service: &str, file_idx: usize, rows: usize) -> RecordBatch 
         .map(|j| Some(format!("file{}-row{}", file_idx, j)))
         .collect();
     let attrs: Vec<Option<&str>> = (0..rows).map(|_| None).collect();
+    let none_str: Vec<Option<&str>> = (0..rows).map(|_| None).collect();
 
     let msg_array: StringArray = messages.iter().map(|m| m.as_deref()).collect();
+    let mut st_builder = ListBuilder::new(StringBuilder::new());
+    for _ in 0..rows {
+        st_builder.append(false);
+    }
 
     RecordBatch::try_new(
         Arc::new(schema),
@@ -42,6 +47,13 @@ fn make_small_batch(service: &str, file_idx: usize, rows: usize) -> RecordBatch 
             Arc::new(StringArray::from(routes)),
             Arc::new(msg_array),
             Arc::new(StringArray::from(attrs)),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(Int32Array::from(vec![None::<i32>; rows])),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(st_builder.finish()),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(StringArray::from(none_str)),
         ],
     )
     .expect("build small batch")

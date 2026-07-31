@@ -5,6 +5,8 @@ use greplog_core::arrow_schema;
 use greplog_core::gen::{LogEvent, Metric, Span};
 use std::sync::Arc;
 
+use super::flush::{non_empty, ns_to_micros};
+
 // ---------------------------------------------------------------------------
 // Per-table Arrow ArrayBuilders
 // ---------------------------------------------------------------------------
@@ -17,6 +19,13 @@ pub struct LogBuilders {
     pub route: StringBuilder,
     pub message: StringBuilder,
     pub attributes: StringBuilder,
+    pub logger_name: StringBuilder,
+    pub file: StringBuilder,
+    pub line: Int32Builder,
+    pub correlation_id: StringBuilder,
+    pub stack_trace: ListBuilder<StringBuilder>,
+    pub exception_type: StringBuilder,
+    pub exception_message: StringBuilder,
 }
 
 pub struct SpanBuilders {
@@ -64,6 +73,13 @@ impl LogBuilders {
             route: StringBuilder::new(),
             message: StringBuilder::new(),
             attributes: StringBuilder::new(),
+            logger_name: StringBuilder::new(),
+            file: StringBuilder::new(),
+            line: Int32Builder::new(),
+            correlation_id: StringBuilder::new(),
+            stack_trace: ListBuilder::new(StringBuilder::new()),
+            exception_type: StringBuilder::new(),
+            exception_message: StringBuilder::new(),
         }
     }
 
@@ -76,16 +92,16 @@ impl LogBuilders {
         self.id.append_value(&id);
         self.service.append_value(service);
 
-        let ts = super::flush::ns_to_micros(log.timestamp_ns);
+        let ts = ns_to_micros(log.timestamp_ns);
         self.timestamp.append_value(ts);
 
-        match super::flush::non_empty(&log.level) {
+        match non_empty(&log.level) {
             Some(v) => self.level.append_value(&v),
             None => self.level.append_null(),
         }
         self.route.append_null();
 
-        match super::flush::non_empty(&log.message) {
+        match non_empty(&log.message) {
             Some(v) => self.message.append_value(&v),
             None => self.message.append_null(),
         }
@@ -95,6 +111,40 @@ impl LogBuilders {
         } else {
             let json = serde_json::to_string(&log.attributes).unwrap_or_default();
             self.attributes.append_value(&json);
+        }
+
+        match non_empty(&log.logger_name) {
+            Some(v) => self.logger_name.append_value(&v),
+            None => self.logger_name.append_null(),
+        }
+        match non_empty(&log.file) {
+            Some(v) => self.file.append_value(&v),
+            None => self.file.append_null(),
+        }
+        if log.line != 0 {
+            self.line.append_value(log.line);
+        } else {
+            self.line.append_null();
+        }
+        match non_empty(&log.correlation_id) {
+            Some(v) => self.correlation_id.append_value(&v),
+            None => self.correlation_id.append_null(),
+        }
+        if log.stack_trace.is_empty() {
+            self.stack_trace.append_null();
+        } else {
+            self.stack_trace.append(true);
+            for line in &log.stack_trace {
+                self.stack_trace.values().append_value(line);
+            }
+        }
+        match non_empty(&log.exception_type) {
+            Some(v) => self.exception_type.append_value(&v),
+            None => self.exception_type.append_null(),
+        }
+        match non_empty(&log.exception_message) {
+            Some(v) => self.exception_message.append_value(&v),
+            None => self.exception_message.append_null(),
         }
     }
 
@@ -110,6 +160,13 @@ impl LogBuilders {
                 Arc::new(self.route.finish()),
                 Arc::new(self.message.finish()),
                 Arc::new(self.attributes.finish()),
+                Arc::new(self.logger_name.finish()),
+                Arc::new(self.file.finish()),
+                Arc::new(self.line.finish()),
+                Arc::new(self.correlation_id.finish()),
+                Arc::new(self.stack_trace.finish()),
+                Arc::new(self.exception_type.finish()),
+                Arc::new(self.exception_message.finish()),
             ],
         )
         .map_err(|e| anyhow::anyhow!("finish log batch: {e}"))

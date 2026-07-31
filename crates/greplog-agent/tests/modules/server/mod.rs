@@ -1,7 +1,7 @@
 use super::*;
 use crate::query_engine::LIST_FILES_CACHE_TTL_SECS;
 use crate::store::io::write_parquet_atomic;
-use arrow::array::{StringArray, TimestampMicrosecondArray};
+use arrow::array::{Int32Array, ListBuilder, StringBuilder, StringArray, TimestampMicrosecondArray};
 use arrow::record_batch::RecordBatch;
 use axum::body::Body;
 use std::path::PathBuf;
@@ -26,6 +26,8 @@ fn write_log_file(base: &Path, service: &str, date: &str, id: &str, level: &str,
         .join(format!("date={}", date));
     let schema = greplog_core::arrow_schema::log_schema();
     let ts = 1_700_000_000_000_000;
+    let mut st_builder = ListBuilder::new(StringBuilder::new());
+    st_builder.append(false);
     let batch = RecordBatch::try_new(
         Arc::new(schema),
         vec![
@@ -35,6 +37,13 @@ fn write_log_file(base: &Path, service: &str, date: &str, id: &str, level: &str,
             Arc::new(StringArray::from(vec![Some(level)])),
             Arc::new(StringArray::from(vec![None::<&str>])),
             Arc::new(StringArray::from(vec![Some(message)])),
+            Arc::new(StringArray::from(vec![None::<&str>])),
+            Arc::new(StringArray::from(vec![None::<&str>])),
+            Arc::new(StringArray::from(vec![None::<&str>])),
+            Arc::new(Int32Array::from(vec![None::<i32>])),
+            Arc::new(StringArray::from(vec![None::<&str>])),
+            Arc::new(st_builder.finish()),
+            Arc::new(StringArray::from(vec![None::<&str>])),
             Arc::new(StringArray::from(vec![None::<&str>])),
         ],
     )

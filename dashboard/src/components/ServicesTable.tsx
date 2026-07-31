@@ -16,9 +16,8 @@ const columns = [
 ]
 
 const statusColors: Record<string, string> = {
-  healthy: 'var(--success)',
-  degraded: 'var(--warn)',
-  down: 'var(--error)',
+  active: 'var(--success)',
+  detected_only: 'var(--text-secondary)',
 }
 
 interface ServicesTableProps {
@@ -82,10 +81,10 @@ export default function ServicesTable({ data, totalRows: totalRowsProp, totalLog
         <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: statusColors[row.status] }} />
         <span className="text-text-primary whitespace-nowrap">{row.service}</span>
       </div>
-      <div className="w-[120px] shrink-0 px-3 font-medium truncate border-r h-full flex items-center whitespace-nowrap" style={{ color: statusColors[row.status], borderColor: 'var(--border-primary)' }}>{row.status === 'healthy' ? 'Healthy' : row.status === 'degraded' ? 'Degraded' : 'Down'}</div>
+      <div className="w-[120px] shrink-0 px-3 font-medium truncate border-r h-full flex items-center whitespace-nowrap" style={{ color: statusColors[row.status], borderColor: 'var(--border-primary)' }}>{row.status === 'active' ? 'Active' : 'No logs yet'}</div>
       <div className="w-[110px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.uptime}</div>
       <div className="w-[140px] shrink-0 px-3 text-text-primary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.requests}</div>
-      <div className="w-[130px] shrink-0 px-3 truncate border-r h-full flex items-center whitespace-nowrap" style={{ color: row.errorRate && parseFloat(row.errorRate) > 5 ? 'var(--error)' : parseFloat(row.errorRate) > 1 ? 'var(--warn)' : 'var(--text-secondary)', borderColor: 'var(--border-primary)' }}>{row.errorRate}</div>
+      <div className="w-[130px] shrink-0 px-3 truncate border-r h-full flex items-center whitespace-nowrap" style={{ color: row.errorRate > 0.05 ? 'var(--error)' : row.errorRate > 0.01 ? 'var(--warn)' : 'var(--text-secondary)', borderColor: 'var(--border-primary)' }}>{(row.errorRate * 100).toFixed(1)}%</div>
       <div className="w-[130px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.avgLatency}</div>
       <div className="w-[120px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.p95}</div>
       <div className="w-[120px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center whitespace-nowrap" style={{ borderColor: 'var(--border-primary)' }}>{row.p99}</div>

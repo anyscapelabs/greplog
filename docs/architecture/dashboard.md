@@ -1,6 +1,6 @@
 # Dashboard (React)
 
-> **Status:** Dashboard is designed but currently runs on mock data. Connecting to the real agent API is **in progress**.
+> **Status:** Dashboard UI is functional with real agent API queries. Filter state is synced to URL search params. Service drawer shows real errors/logs per service. Sparklines wired from time-bucketed queries. Chart click-to-filter is deferred.
 
 ## Unified Timeline
 
@@ -13,18 +13,49 @@ The core UX revolves around interleaved logs:
 
 ## Global Filter Bar
 
-A prominent toggle to view all services or isolate a specific one, compiled into a filter predicate (`service_name = 'X'`) pushed down to the agent's query engine. Chips for `route:/payments/*`, `status:>=500`, etc.
+A prominent toggle to view all services or isolate a specific one, compiled into a filter predicate (`service_name = 'X'`) pushed down to the agent's query engine. Chips for `route:/payments/*`, `status:>=500`, `correlation_id:X`, etc.
+
+Filter state is synced to URL search params (`?q=`, `?c=`, `?s=`, `?t=`, `?l=`, `?ch=`) via `useFilterState()`, a React hook around `useSearchParams`. The `compileFilterToQuery()` function translates the current filter state into a SQL WHERE clause sent to the agent's `POST /query` endpoint.
+
+- **Logs page**: Search + sidebar filters + time range → `useLogs(whereClause)`
+- **Errors page**: Error-level base filter + user filters → `useErrors(whereClause)`
+- **Services page**: Sidebar service checkboxes + health status → client-side union with `useServices()`
+- **Analytics page**: Service dropdown + time range → `FilterState.services` for query scoping
+
+Service filtering is unified: sidebar checkboxes and `service:` chips both write to the same `FilterState.services` array. The top-bar service dropdown was removed from Logs and Errors pages; it remains on Analytics as the authoritative service selector.
+
+### Service Drawer
+
+The Service Drawer (shown when clicking a service row) includes:
+
+- **Metrics cards** — error rate, event count, health status (real data from health query)
+- **Health Timeline** — 24-hour timeline (same as before)
+- **Service Details** — ID (service name), Environment, Host (unavailable), Version (unavailable), Streaming since (from `MIN(timestamp)` proxy), Last deployed, First seen
+- **Recent Errors** — top 5 errors for this service from `useErrors("service = 'X'")`
+- **Related Logs** — top 5 logs for this service from `useLogs("WHERE service = 'X'")`
+
+Host and Version are blocked on a cross-SDK protocol handshake (new `IngestBatch` or connection-time fields). The "Streaming since" field is honest about being a log-derived proxy, labeled explicitly.
+
+> **Status:** ✅ Shipped (v0.1)
+
+## Live Tail
+
+SSE endpoint at `GET /tail` streams new log entries in real time. The dashboard's Logs page has a "Live" toggle button (UI wired, polling-driven).
 
 > **Status:** ✅ Shipped (v0.1)
 
 ## Saved Views
 
-Filter definitions stored as JSON (`~/.greplog/views.json`).
+Filter definitions stored as JSON (`~/.greplog/views.json`). FilterState's URL-param encoding naturally supports serialization.
 
 > **Status:** 📋 Planned — not started.
 
 ## Graphs
 
-Latency percentiles and error-rate over time, computed by the agent's query engine via Parquet/Arrow scans (no external database).
+Latency percentiles and error-rate over time, computed by the agent's query engine via Parquet/Arrow scans (no external database). Chart click-to-filter is deferred to a future round.
 
-> **Status:** 📋 Planned — depends on metric aggregation landing in the agent (Medium priority, pending).
+Per-service sparklines on Service Cards use the same time-bucketed query pattern as the Analytics ingestion chart, scoped per service via an existing `service` filter. The time bucket is 1 minute (`FLOOR(timestamp / 60000000)`) and sparklines are grouped client-side.
+
+Service Drawer Recent Errors and Related Logs sections reuse `useErrors()` and `useLogs()` hooks with a service-scoped WHERE clause — no separate query path.
+
+> **Status:** ✅ Sparklines and service-scoped queries shipped. Latency/percentile charts remain blocked on `spans` table availability.

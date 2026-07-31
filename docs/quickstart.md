@@ -29,13 +29,13 @@ This starts the local agent and prints the dashboard URL. Open `http://localhost
 ### Node.js
 
 ```bash
-npm install @greplog/node
+npm install greplog
 ```
 
 ```typescript
-import greplog from '@greplog/node';
+import { greplog } from 'greplog';
 
-greplog.init({ serviceName: 'my-service' });
+greplog.init({ service: 'my-service' });
 greplog.info('server started', { port: '8080' });
 ```
 
@@ -47,8 +47,9 @@ pip install greplog
 
 ```python
 import greplog
-greplog.init(service_name='my-service')
-greplog.info('server started', port='8080')
+
+greplog.init(service='my-service')
+greplog.info('server started', details={'port': '8080'})
 ```
 
 ### Go
@@ -58,7 +59,7 @@ go get github.com/greplog/greplog-go
 ```
 
 ```go
-import greplog "github.com/greplog/greplog-go/src"
+import greplog "github.com/greplog/greplog-go"
 
 greplog.Init(&greplog.Options{ServiceName: "my-service"})
 greplog.Info("server started")
@@ -71,7 +72,7 @@ cargo add greplog
 ```
 
 ```rust
-greplog::init("my-service");
+greplog::init();
 greplog::info!("server started");
 ```
 

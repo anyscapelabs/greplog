@@ -115,6 +115,7 @@ export interface LogsPageProps {
     statusCodes: DropdownOption[]
   }
   onViewLog?: (log: LogEntry) => void
+  refetch: () => void
 }
 
 /* ── Errors ── */
@@ -160,19 +161,36 @@ export interface ErrorsPageProps {
     byService: DropdownOption[]
   }
   onViewError?: (error: ErrorEntry) => void
+  refetch: () => void
 }
 
 /* ── Services ── */
 
-export type ServiceStatus = 'healthy' | 'degraded' | 'down'
+export type ServiceStatus = 'active' | 'detected_only'
+
+export type ServiceHealth = 'healthy' | 'degraded' | 'unhealthy' | 'unknown'
+
+const HEALTH_THRESHOLDS = {
+  healthy: 0.01,
+  degraded: 0.05,
+} as const
+
+export function classifyHealth(errorRate: number, eventCount: number): ServiceHealth {
+  if (eventCount === 0) return 'unknown'
+  if (errorRate < HEALTH_THRESHOLDS.healthy) return 'healthy'
+  if (errorRate < HEALTH_THRESHOLDS.degraded) return 'degraded'
+  return 'unhealthy'
+}
 
 export interface ServiceEntry {
   id: string
   name: string
   status: ServiceStatus
+  health: ServiceHealth
+  errorRate: number
+  eventCount: number
   uptime: string
   requests: string
-  errorRate: string
   avgLatency: string
   p95: string
   p99: string
@@ -210,6 +228,7 @@ export interface ServicesPageProps {
   countRateOptions: DropdownOption[]
   latencyOptions: DropdownOption[]
   onViewService?: (service: ServiceEntry) => void
+  refetch: () => void
 }
 
 /* ── Analytics ── */
@@ -247,6 +266,7 @@ export interface AnalyticsPageProps {
   onStatusCodeMetricChange: (v: string) => void
   noisySort: string
   onNoisySortChange: (v: string) => void
+  refetch: () => void
 }
 
 /* ── Drawer Props ── */

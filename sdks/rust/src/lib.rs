@@ -221,11 +221,37 @@ macro_rules! debug {
     };
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Config {
+    pub service: Option<String>,
+    pub socket_path: Option<String>,
+    pub tcp_host: Option<String>,
+    pub tcp_port: Option<u16>,
+}
+
 pub fn init() {
-    init_with_opts(None, None, None);
+    init_with_config(Config::default());
+}
+
+pub fn init_with_config(config: Config) {
+    init_internal(
+        config.service.as_deref(),
+        config.socket_path.as_deref(),
+        config.tcp_host.as_deref(),
+        config.tcp_port,
+    );
 }
 
 pub fn init_with_opts(
+    socket_path: Option<&str>,
+    tcp_host: Option<&str>,
+    tcp_port: Option<u16>,
+) {
+    init_internal(None, socket_path, tcp_host, tcp_port);
+}
+
+fn init_internal(
+    service: Option<&str>,
     socket_path: Option<&str>,
     tcp_host: Option<&str>,
     tcp_port: Option<u16>,
@@ -243,6 +269,7 @@ pub fn init_with_opts(
     let port = tcp_port.or(env_port);
     let host = tcp_host.or(env_host.as_deref());
     let sock = socket_path.or(env_sock.as_deref());
+    let svc_name = service.unwrap_or("greplog-rust").to_string();
 
     let transport = Transport::new(sock, host, port, None);
 
@@ -251,7 +278,7 @@ pub fn init_with_opts(
         *lock = Some(State {
             transport,
             batch_seq: 0,
-            service_name: "greplog-rust".to_string(),
+            service_name: svc_name,
             instance_id: generate_ulid(),
         });
     }

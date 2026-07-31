@@ -332,14 +332,16 @@ export function placeholderErrorCharts(): ErrorCharts {
 
 /* ── Services Placeholder Data ── */
 
-function generateServiceEntry(name: string, uptime: string, requests: string, errorRate: string, avg: string, p95v: string, p99v: string, status: ServiceEntry['status'], lastSeen: string): ServiceEntry {
+function generateServiceEntry(name: string, uptime: string, requests: string, errorRate: number, avg: string, p95v: string, p99v: string, status: ServiceEntry['status'], lastSeen: string): ServiceEntry {
   return {
     id: `svc-${name}`,
     name,
     status,
+    health: 'unknown',
+    errorRate,
+    eventCount: 0,
     uptime,
     requests,
-    errorRate,
     avgLatency: avg,
     p95: p95v,
     p99: p99v,
@@ -359,11 +361,11 @@ function generateServiceEntry(name: string, uptime: string, requests: string, er
 const now = new Date().toISOString()
 
 export const placeholderServiceEntries: ServiceEntry[] = [
-  generateServiceEntry('api', '99.98%', '2,500 req/s', '0.12%', '45ms', '120ms', '250ms', 'healthy', now),
-  generateServiceEntry('web', '99.95%', '1,850 req/s', '0.08%', '120ms', '340ms', '650ms', 'healthy', now),
-  generateServiceEntry('db', '99.89%', '940 req/s', '0.34%', '15ms', '45ms', '120ms', 'degraded', now),
-  generateServiceEntry('worker', '99.97%', '250 req/s', '0.05%', '340ms', '890ms', '2.1s', 'healthy', now),
-  generateServiceEntry('auth', '99.99%', '340 req/s', '0.01%', '65ms', '180ms', '350ms', 'healthy', now),
+  generateServiceEntry('api', '99.98%', '2,500 req/s', 0.0012, '45ms', '120ms', '250ms', 'active', now),
+  generateServiceEntry('web', '99.95%', '1,850 req/s', 0.0008, '120ms', '340ms', '650ms', 'active', now),
+  generateServiceEntry('db', '99.89%', '940 req/s', 0.0034, '15ms', '45ms', '120ms', 'active', now),
+  generateServiceEntry('worker', '99.97%', '250 req/s', 0.0005, '340ms', '890ms', '2.1s', 'detected_only', now),
+  generateServiceEntry('auth', '99.99%', '340 req/s', 0.0001, '65ms', '180ms', '350ms', 'active', now),
 ]
 
 export const placeholderServiceCards: ServiceCardData[] = [

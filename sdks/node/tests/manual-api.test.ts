@@ -1,22 +1,38 @@
-import { describe, it, expect } from 'vitest';
-import * as greplog from '../src/index';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { greplog, resetState } from '../src/index';
+import defaultGreplog from '../src/index';
 
 describe('manual API', () => {
-  it('exports all four level functions', () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  it('exports all four level functions on named greplog object', () => {
     expect(typeof greplog.error).toBe('function');
     expect(typeof greplog.warn).toBe('function');
     expect(typeof greplog.info).toBe('function');
     expect(typeof greplog.debug).toBe('function');
-  });
-
-  it('exports init as a function', () => {
     expect(typeof greplog.init).toBe('function');
   });
 
-  it('accepts details parameter optionally', () => {
+  it('exports all four level functions on default greplog export', () => {
+    expect(typeof defaultGreplog.error).toBe('function');
+    expect(typeof defaultGreplog.warn).toBe('function');
+    expect(typeof defaultGreplog.info).toBe('function');
+    expect(typeof defaultGreplog.debug).toBe('function');
+    expect(typeof defaultGreplog.init).toBe('function');
+  });
+
+  it('accepts details parameter optionally and fails open without init()', () => {
+    expect(() => greplog.error('Payment failed', { orderId: '123' })).not.toThrow();
+    expect(() => greplog.warn('Retrying request', { attempt: '2' })).not.toThrow();
     expect(() => greplog.info('no details')).not.toThrow();
-    expect(() => greplog.info('with details', { key: 'val' })).not.toThrow();
-    expect(() => greplog.info('with empty details', {})).not.toThrow();
+    expect(() => greplog.debug('with details', { key: 'val' })).not.toThrow();
+  });
+
+  it('supports init with service option alias', () => {
+    expect(() => greplog.init({ service: 'api-backend' })).not.toThrow();
+    expect(() => greplog.info('Server started', { port: '4000' })).not.toThrow();
   });
 
   it('accepts various message types', () => {
@@ -25,3 +41,4 @@ describe('manual API', () => {
     expect(() => greplog.info('count is 42')).not.toThrow();
   });
 });
+

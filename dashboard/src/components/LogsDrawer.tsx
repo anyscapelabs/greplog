@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { LuX, LuChevronRight, LuCopy, LuChevronDown } from 'react-icons/lu'
+import { LuCopy, LuChevronDown } from 'react-icons/lu'
 import { useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
+import Drawer from './Drawer.tsx'
 
 interface LogsDrawerProps {
   open: boolean
@@ -15,240 +16,196 @@ export default function LogsDrawer({ open, onClose, log }: LogsDrawerProps) {
   const [payloadOpen, setPayloadOpen] = useState(false)
   if (!open) return null
 
+  const rawLogPayload = log ? JSON.stringify({
+    id: log.id,
+    timestamp: log.timestamp,
+    level: log.level,
+    message: log.message,
+    service_name: log.service,
+    logger_name: log.logger || undefined,
+    correlation_id: log.correlationId || undefined,
+    file: log.file || undefined,
+  }, null, 2) : ''
+
   return (
-    <>
-      <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
-      <div
-        className="fixed top-0 right-0 h-full w-[1200px] border-l shadow-xl z-50 flex flex-col animate-in slide-in-from-right"
-        style={{
-          backgroundColor: 'var(--bg-secondary)',
-          borderColor: 'var(--border-primary)',
-        }}
-      >
-        <div className="flex items-center justify-between px-4 h-12 border-b shrink-0" style={{ borderColor: 'var(--border-primary)' }}>
-          <span className="text-sm font-semibold text-text-primary flex items-center gap-2">Log Details<LuChevronRight className="size-3" style={{ color: 'var(--text-secondary)' }} /><span style={{ color: 'var(--accent)' }}>{log?.id}</span>
-            {log && (
-              <>
-                <span
-                  className="px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize"
-                  style={{
-                    backgroundColor: log.level === 'error' ? 'color-mix(in srgb, var(--error) 20%, transparent)' : log.level === 'warn' ? 'color-mix(in srgb, var(--warn) 20%, transparent)' : log.level === 'info' ? 'color-mix(in srgb, var(--info) 20%, transparent)' : 'color-mix(in srgb, var(--text-secondary) 20%, transparent)',
-                    color: log.level === 'error' ? 'var(--error)' : log.level === 'warn' ? 'var(--warn)' : log.level === 'info' ? 'var(--info)' : 'var(--text-secondary)',
-                  }}
-                >
-                  {log.level}
-                </span>
-                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{log.timestamp}</span>
-              </>
-            )}
-          </span>
-          <button
-            className="flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors"
-            onClick={onClose}
-          >
-            <LuX className="size-4" style={{ color: 'var(--text-secondary)' }} />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+    <Drawer
+      open={open}
+      onClose={onClose}
+      width="1200px"
+      title={
+        <span className="flex items-center gap-2">
+          Log Details
+          <span style={{ color: 'var(--accent)' }}>{log?.id}</span>
           {log && (
             <>
-              <div className="flex flex-col gap-1.5">
-                <span className="text-sm font-semibold text-text-primary">Message</span>
-                <div className="rounded border relative" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                  <button
-                    className="absolute top-1.5 right-1.5 flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors"
-                    onClick={() => navigator.clipboard.writeText(log.message)}
-                  >
-                    <LuCopy className="size-3.5" style={{ color: 'var(--text-secondary)' }} />
-                  </button>
-                  <div className="p-3 pr-10 text-sm font-mono whitespace-pre-wrap break-words" style={{ color: 'var(--text-primary)' }}>
-                    {log.message}
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <span className="text-sm font-semibold text-text-primary">Metadata</span>
-                <div className="rounded border text-sm" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                  {[
-                    ['service_name', log.service],
-                    ['logger_name', log.logger],
-                    ['correlation_id', log.correlationId, true],
-                    ['event_id', `evt_${log.id}`, true],
-                    ['file', log.file, true],
-                    ['line', '42'],
-                  ].map(([label, value, isSpecial], i) => (
-                    <div
-                      key={label as string}
-                      className="flex items-center px-4 py-2"
-                      style={{ borderBottom: i < 5 ? '1px solid var(--border-primary)' : 'none' }}
-                    >
-                      <span className="w-48 shrink-0 text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{(label as string)}</span>
-                      {isSpecial && label === 'file' ? (
-                        <button
-                          className="font-mono text-xs hover:underline cursor-pointer"
-                          style={{ color: 'var(--accent)' }}
-                          onClick={() => {/* open in editor */}}
-                        >
-                          {value as string}
-                        </button>
-                      ) : isSpecial && (label === 'correlation_id' || label === 'event_id') ? (
-                        <span className="font-mono text-xs flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
-                          {value as string}
-                          <button
-                            className="hover:bg-[var(--hover-bg)] rounded p-0.5 transition-colors"
-                            onClick={() => navigator.clipboard.writeText(value as string)}
-                          >
-                            <LuCopy className="size-3" style={{ color: 'var(--text-secondary)' }} />
-                          </button>
-                        </span>
-                      ) : (
-                        <span className="font-mono text-xs" style={{ color: 'var(--text-primary)' }}>{value as string}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <span className="text-sm font-semibold text-text-primary">Attributes</span>
-                <div className="rounded border text-sm" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                  {[
-                    ['http.status_code', String(log.statusCode)],
-                    ['http.latency_ms', String(log.response)],
-                    ['deployment.environment', 'production'],
-                    ['host.hostname', 'worker-node-01'],
-                  ].map(([label, value], i) => (
-                    <div
-                      key={label}
-                      className="flex items-center px-4 py-2"
-                      style={{ borderBottom: i < 3 ? '1px solid var(--border-primary)' : 'none' }}
-                    >
-                      <span className="w-48 shrink-0 text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                      <span className="font-mono text-xs" style={{ color: 'var(--text-primary)' }}>{value}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <button
-                  className="flex items-center gap-1.5 text-sm font-semibold text-text-primary cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={() => setTraceOpen(!traceOpen)}
-                >
-                  <LuChevronDown className={`size-3 transition-transform ${traceOpen ? '' : '-rotate-90'}`} style={{ color: 'var(--text-secondary)' }} />
-                  Stack Trace
-                </button>
-                {traceOpen && (
-                  <div className="rounded border overflow-hidden h-32" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                    <Editor
-                      height="100%"
-                      defaultLanguage="text"
-                      theme="vs-dark"
-                      options={{
-                        minimap: { enabled: false },
-                        readOnly: true,
-                        wordWrap: 'on',
-                        scrollBeyondLastLine: false,
-                        padding: { top: 12, bottom: 12 },
-                        lineNumbers: 'off',
-                        renderLineHighlight: 'none',
-                        folding: false,
-                      }}
-                      value={`Error: ConnectionTimeout
-    at Pool.acquire (src/db/pool.ts:142)
-    at QueryRunner.run (src/db/query.ts:89)
-    at RequestHandler.exec (src/http/handler.ts:201)
-    at Server.process (src/server.ts:56)`}
-                    />
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <button
-                  className="flex items-center gap-1.5 text-sm font-semibold text-text-primary cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={() => setPayloadOpen(!payloadOpen)}
-                >
-                  <LuChevronDown className={`size-3 transition-transform ${payloadOpen ? '' : '-rotate-90'}`} style={{ color: 'var(--text-secondary)' }} />
-                  Raw Log Payload
-                </button>
-                {payloadOpen && (
-                  <div className="rounded border overflow-hidden h-64" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                    <Editor
-                      height="100%"
-                      defaultLanguage="json"
-                      theme="vs-dark"
-                      options={{
-                        minimap: { enabled: false },
-                        readOnly: true,
-                        wordWrap: 'on',
-                        scrollBeyondLastLine: false,
-                        padding: { top: 12, bottom: 12 },
-                        lineNumbers: 'off',
-                        renderLineHighlight: 'none',
-                        folding: false,
-                      }}
-                      value={`{
-  "event_id": "evt_${log.id}",
-  "timestamp": "${log.timestamp}",
-  "level": "${log.level}",
-  "message": "${log.message}",
-  "service_name": "${log.service}",
-  "logger_name": "${log.logger}",
-  "correlation_id": "${log.correlationId}",
-  "file": "${log.file}",
-  "line": 42,
-  "attributes": {
-    "http.status_code": ${log.statusCode},
-    "http.latency_ms": "${log.response}",
-    "deployment.environment": "production",
-    "host.hostname": "worker-node-01"
-  }
-}`}
-                    />
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <span className="text-sm font-semibold text-text-primary">Related Errors (3)</span>
-                <div className="rounded border font-mono text-sm overflow-hidden" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
-                  <div className="flex items-center h-9 border-b font-medium" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'color-mix(in srgb, var(--bg-primary) 40%, var(--bg-secondary))' }}>
-                    <div className="w-[60px] shrink-0 h-full border-r border-l flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>
-                      <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>View</span>
-                    </div>
-                    <div className="w-[180px] shrink-0 px-4 h-full border-r flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>timestamp</div>
-                    <div className="w-[90px] shrink-0 px-4 h-full border-r flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>level</div>
-                    <div className="w-[160px] shrink-0 px-4 h-full border-r flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>error_code</div>
-                    <div className="w-[400px] shrink-0 px-4 h-full border-r flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>message</div>
-                    <div className="w-[100px] shrink-0 px-4 h-full border-r flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>latency</div>
-                    <div className="w-[90px] shrink-0 px-4 h-full flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>freq</div>
-                  </div>
-                  {[
-                    { time: '14:23:11', level: 'error', code: '503', message: 'Service unavailable', latency: '45ms', freq: '12x' },
-                    { time: '14:22:05', level: 'error', code: '502', message: 'Bad gateway', latency: '120ms', freq: '8x' },
-                    { time: '14:20:33', level: 'critical', code: '500', message: 'Handler crash', latency: '250ms', freq: '3x' },
-                  ].map((err, i) => (
-                    <button
-                      key={i}
-                      className={`flex items-center w-full text-left hover:bg-[var(--hover-bg)] transition-colors cursor-pointer py-1 ${i < 2 ? 'border-b' : ''}`}
-                      style={{ borderColor: 'var(--border-primary)' }}
-                      onClick={() => navigate(`/errors?correlationId=${log.correlationId}`)}
-                    >
-                      <div className="w-[60px] shrink-0 h-full border-r border-l flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>
-                        <span className="text-sm" style={{ color: 'var(--accent)' }}>View</span>
-                      </div>
-                      <div className="w-[180px] shrink-0 px-3 truncate border-r h-full flex items-center" style={{ color: 'var(--text-secondary)', borderColor: 'var(--border-primary)' }}>{err.time}</div>
-                      <div className="w-[90px] shrink-0 px-3 font-medium truncate border-r h-full flex items-center" style={{ color: err.level === 'critical' || err.level === 'error' ? 'var(--error)' : 'var(--warn)', borderColor: 'var(--border-primary)' }}>{err.level}</div>
-                      <div className="w-[160px] shrink-0 px-3 font-medium truncate border-r h-full flex items-center" style={{ color: 'var(--error)', borderColor: 'var(--border-primary)' }}>{err.code}</div>
-                      <div className="w-[400px] shrink-0 px-3 truncate border-r h-full flex items-center" style={{ color: 'var(--text-primary)', borderColor: 'var(--border-primary)' }}>{err.message}</div>
-                      <div className="w-[100px] shrink-0 px-3 truncate border-r h-full flex items-center" style={{ color: 'var(--text-secondary)', borderColor: 'var(--border-primary)' }}>{err.latency}</div>
-                      <div className="w-[90px] shrink-0 px-3 truncate h-full flex items-center" style={{ color: 'var(--text-primary)', borderColor: 'var(--border-primary)' }}>{err.freq}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <span
+                className="px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize"
+                style={{
+                  backgroundColor: log.level === 'error' ? 'color-mix(in srgb, var(--error) 20%, transparent)' : log.level === 'warn' ? 'color-mix(in srgb, var(--warn) 20%, transparent)' : log.level === 'info' ? 'color-mix(in srgb, var(--info) 20%, transparent)' : 'color-mix(in srgb, var(--text-secondary) 20%, transparent)',
+                  color: log.level === 'error' ? 'var(--error)' : log.level === 'warn' ? 'var(--warn)' : log.level === 'info' ? 'var(--info)' : 'var(--text-secondary)',
+                }}
+              >
+                {log.level}
+              </span>
+              <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{log.timestamp}</span>
             </>
           )}
-        </div>
-        {log && (
-          <div className="flex items-center gap-2 px-4 py-3 border-t shrink-0 flex-wrap" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-secondary)' }}>
+        </span>
+      }
+    >
+      {log && (
+        <>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-semibold text-text-primary">Message</span>
+            <div className="rounded border relative" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+              <button
+                className="absolute top-1.5 right-1.5 flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors"
+                onClick={() => navigator.clipboard.writeText(log.message)}
+              >
+                <LuCopy className="size-3.5" style={{ color: 'var(--text-secondary)' }} />
+              </button>
+              <div className="p-3 pr-10 text-sm font-mono whitespace-pre-wrap break-words" style={{ color: 'var(--text-primary)' }}>
+                {log.message}
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5 mt-4">
+            <span className="text-sm font-semibold text-text-primary">Metadata</span>
+            <div className="rounded border text-sm" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+              {[
+                ['service_name', log.service, 'service'],
+                ['event_id', log.id, 'copyable'],
+                ['correlation_id', log.correlationId || '—', log.correlationId ? 'correlation_id' : undefined],
+                ['logger_name', log.logger || '—'],
+                ['file', log.file || '—'],
+              ].map(([label, value, metaType], i) => {
+                const isLast = i === 4
+                return (
+                  <div
+                    key={label as string}
+                    className="flex items-center px-4 py-2"
+                    style={{ borderBottom: isLast ? 'none' : '1px solid var(--border-primary)' }}
+                  >
+                    <span className="w-48 shrink-0 text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{label as string}</span>
+                    {metaType === 'service' ? (
+                      <button
+                        className="font-mono text-xs hover:underline cursor-pointer"
+                        style={{ color: 'var(--accent)' }}
+                        onClick={() => navigate(`/logs?c=service:${value}`)}
+                      >
+                        {value as string}
+                      </button>
+                    ) : metaType === 'correlation_id' ? (
+                      <button
+                        className="font-mono text-xs hover:underline cursor-pointer flex items-center gap-1.5"
+                        style={{ color: 'var(--accent)' }}
+                        onClick={() => navigate(`/errors?c=correlation_id:${value}`)}
+                      >
+                        {value as string}
+                        <button
+                          className="hover:bg-[var(--hover-bg)] rounded p-0.5 transition-colors"
+                          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(value as string) }}
+                        >
+                          <LuCopy className="size-3" style={{ color: 'var(--text-secondary)' }} />
+                        </button>
+                      </button>
+                    ) : metaType === 'copyable' ? (
+                      <span className="font-mono text-xs flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                        {value as string}
+                        <button
+                          className="hover:bg-[var(--hover-bg)] rounded p-0.5 transition-colors"
+                          onClick={() => navigator.clipboard.writeText(value as string)}
+                        >
+                          <LuCopy className="size-3" style={{ color: 'var(--text-secondary)' }} />
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="font-mono text-xs" style={{ color: 'var(--text-primary)' }}>{value as string}</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5 mt-4">
+            <button
+              className="flex items-center gap-1.5 text-sm font-semibold text-text-primary cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => setTraceOpen(!traceOpen)}
+            >
+              <LuChevronDown className={`size-3 transition-transform ${traceOpen ? '' : '-rotate-90'}`} style={{ color: 'var(--text-secondary)' }} />
+              Stack Trace
+            </button>
+            {traceOpen && (
+              <div className="rounded border p-4 text-sm font-mono whitespace-pre-wrap break-words" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+                <span style={{ color: log.stackTrace ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                  {log.stackTrace || 'No stack trace recorded for this event.'}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5 mt-4">
+            <button
+              className="flex items-center gap-1.5 text-sm font-semibold text-text-primary cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => setPayloadOpen(!payloadOpen)}
+            >
+              <LuChevronDown className={`size-3 transition-transform ${payloadOpen ? '' : '-rotate-90'}`} style={{ color: 'var(--text-secondary)' }} />
+              Raw Log Payload
+            </button>
+            {payloadOpen && (
+              <div className="rounded border overflow-hidden h-64" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+                <Editor
+                  height="100%"
+                  defaultLanguage="json"
+                  theme="vs-dark"
+                  options={{
+                    minimap: { enabled: false },
+                    readOnly: true,
+                    wordWrap: 'on',
+                    scrollBeyondLastLine: false,
+                    padding: { top: 12, bottom: 12 },
+                    lineNumbers: 'off',
+                    renderLineHighlight: 'none',
+                    folding: false,
+                  }}
+                  value={rawLogPayload}
+                />
+              </div>
+            )}
+          </div>
+          <div className="flex flex-col gap-1.5 mt-4">
+            <span className="text-sm font-semibold text-text-primary">Related Errors</span>
+            <div className="rounded border font-mono text-sm overflow-hidden" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+              <div className="flex items-center h-9 border-b font-medium" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'color-mix(in srgb, var(--bg-primary) 40%, var(--bg-secondary))' }}>
+                <div className="w-[60px] shrink-0 h-full border-r border-l flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>View</span>
+                </div>
+                <div className="w-[180px] shrink-0 px-4 h-full border-r flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>timestamp</div>
+                <div className="w-[90px] shrink-0 px-4 h-full border-r flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>level</div>
+                <div className="w-[160px] shrink-0 px-4 h-full border-r flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>error_code</div>
+                <div className="w-[400px] shrink-0 px-4 h-full border-r flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>message</div>
+                <div className="w-[100px] shrink-0 px-4 h-full border-r flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>latency</div>
+                <div className="w-[90px] shrink-0 px-4 h-full flex items-center text-text-primary" style={{ borderColor: 'var(--border-primary)' }}>freq</div>
+              </div>
+              {log.correlationId ? (
+                <div className="p-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  Query errors for{' '}
+                  <button
+                    className="hover:underline cursor-pointer"
+                    style={{ color: 'var(--accent)' }}
+                    onClick={() => navigate(`/errors?c=correlation_id:${log.correlationId}`)}
+                  >
+                    correlation_id: {log.correlationId}
+                  </button>
+                  {' '}to see related entries.
+                </div>
+              ) : (
+                <div className="p-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  No correlation_id available on this log entry.
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-4 pt-3 border-t flex-wrap" style={{ borderColor: 'var(--border-primary)' }}>
             <button
               className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
               style={{ color: 'var(--accent)' }}
@@ -259,46 +216,27 @@ export default function LogsDrawer({ open, onClose, log }: LogsDrawerProps) {
             <button
               className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
               style={{ color: 'var(--accent)' }}
-              onClick={() => {
-                const json = JSON.stringify({
-                  event_id: `evt_${log.id}`,
-                  timestamp: log.timestamp,
-                  level: log.level,
-                  message: log.message,
-                  service_name: log.service,
-                  logger_name: log.logger,
-                  correlation_id: log.correlationId,
-                  file: log.file,
-                  line: 42,
-                  attributes: {
-                    'http.status_code': log.statusCode,
-                    'http.latency_ms': log.response,
-                    'deployment.environment': 'production',
-                    'host.hostname': 'worker-node-01'
-                  }
-                }, null, 2)
-                navigator.clipboard.writeText(json)
-              }}
+              onClick={() => navigator.clipboard.writeText(rawLogPayload)}
             >
               Copy JSON
             </button>
             <button
               className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
               style={{ color: 'var(--accent)' }}
-              onClick={() => navigate(`/errors?correlationId=${log.correlationId}`)}
+              onClick={() => navigate(`/errors?c=correlation_id:${log.correlationId}`)}
             >
               View Related Errors →
             </button>
             <button
               className="px-2.5 py-1.5 text-sm cursor-pointer transition-colors hover:underline"
               style={{ color: 'var(--accent)' }}
-              onClick={() => navigate(`/logs?service=${log.service}`)}
+              onClick={() => navigate(`/logs?c=service:${log.service}`)}
             >
               View in Logs
             </button>
           </div>
-        )}
-      </div>
-    </>
+        </>
+      )}
+    </Drawer>
   )
 }

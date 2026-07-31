@@ -2,9 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { LogsPageProps, LogEntry, LogCharts } from '../types/index.ts'
 import { postQuery } from './api.ts'
 import {
-  placeholderLogs,
   placeholderLogFilterSections,
-  placeholderLogCharts,
   placeholderTimeRanges,
   placeholderServices,
   placeholderAutoRefreshOptions,
@@ -15,60 +13,85 @@ import {
 } from './placeholder-data.ts'
 import { useAgent } from '../context/AgentContext.tsx'
 
-const MOCK_LOGS = placeholderLogs(50000)
-const MOCK_CHARTS = placeholderLogCharts()
+const EMPTY_CHARTS: LogCharts = {
+  volumeTimeseries: [],
+  errorTimeseries: [],
+  statusCodeDistribution: [],
+}
 
-function rowsToLogs(rows: string[][], columns: string[]): LogEntry[] {
+function rowsToLogs(rows: unknown[][], columns: string[]): LogEntry[] {
   const idx = (name: string) => columns.indexOf(name)
-  return rows.map((r) => ({
-    id: r[idx('event_id')] ?? '',
-    timestamp: r[idx('timestamp_ns')] ?? '',
-    level: (r[idx('level')] ?? 'info') as LogEntry['level'],
-    service: r[idx('service_name')] ?? '',
-    statusCode: Number(r[idx('line')] ?? 0),
-    message: r[idx('message')] ?? '',
-    response: '',
-    logger: r[idx('logger_name')] ?? '',
-    correlationId: r[idx('correlation_id')] ?? '',
-    file: r[idx('file')] ?? '',
-  }))
+  return rows.map((r) => {
+    const rawSt: unknown = r[idx('stack_trace')]
+    return {
+      id: String(r[idx('id')] ?? ''),
+      timestamp: String(r[idx('timestamp')] ?? ''),
+      level: (String(r[idx('level')] ?? 'info')) as LogEntry['level'],
+      service: String(r[idx('service')] ?? ''),
+      statusCode: Number(r[idx('line')] ?? 0),
+      message: String(r[idx('message')] ?? ''),
+      response: '',
+      logger: String(r[idx('logger_name')] ?? ''),
+      correlationId: String(r[idx('correlation_id')] ?? ''),
+      file: String(r[idx('file')] ?? ''),
+      stackTrace: Array.isArray(rawSt) ? (rawSt as string[]).join('\n') : ((rawSt as string) ?? undefined),
+    }
+  })
 }
 
-function parseCharts(_rows: string[][], _columns: string[]): LogCharts {
-  return MOCK_CHARTS
-}
+const BASE_SQL = 'SELECT id, timestamp, level, service, message, logger_name, file, line, correlation_id, stack_trace FROM logs'
 
-export function useLogs(): LogsPageProps {
+export function useLogs(whereClause?: string): LogsPageProps {
   const { connected } = useAgent()
 
+  const queryKey = whereClause ? ['logs', whereClause] : ['logs']
+
   const query = useQuery({
-    queryKey: ['logs'],
+    queryKey,
     queryFn: async () => {
       if (!connected) {
-        return { logs: MOCK_LOGS, charts: MOCK_CHARTS, isWaiting: true }
+        return { logs: [], totalCount: 0, charts: EMPTY_CHARTS, isWaiting: true }
       }
-      const result = await postQuery(
-        'SELECT event_id, timestamp_ns, level, service_name, message, logger_name, file, line, correlation_id FROM logs ORDER BY timestamp_ns DESC LIMIT 1000',
-      )
-      if (!result) {
-        return { logs: MOCK_LOGS, charts: MOCK_CHARTS, isWaiting: true }
-      }
+      const w = whereClause ?? ''
+      const andClause = w ? ` AND (${w.replace(/^WHERE\s+/i, '')})` : ''
+      const [result, volResult, errResult, countResult] = await Promise.all([
+        postQuery(`${BASE_SQL} ${w} ORDER BY timestamp DESC LIMIT 1000`),
+        postQuery(`SELECT date, count(*) AS cnt FROM logs ${w} GROUP BY date ORDER BY date`),
+        postQuery(`SELECT date, count(*) AS cnt FROM logs WHERE level IN ('error','critical','fatal')${andClause} GROUP BY date ORDER BY date`),
+        postQuery(`SELECT count(*) AS total FROM logs ${w}`),
+      ])
+
+      const logs = result ? rowsToLogs(result.rows, result.columns) : []
+      const cntIdx = countResult ? countResult.columns.indexOf('total') : -1
+      const totalCount = cntIdx >= 0 && countResult && countResult.rows[0] ? Number(countResult.rows[0][cntIdx] ?? 0) : logs.length
+
+      const volumeTimeseries = volResult
+        ? volResult.rows.map((r) => ({ timestamp: String(r[0] ?? ''), value: Number(r[1] ?? 0) }))
+        : []
+      const errorTimeseries = errResult
+        ? errResult.rows.map((r) => ({ timestamp: String(r[0] ?? ''), count: Number(r[1] ?? 0) }))
+        : []
+
       return {
-        logs: rowsToLogs(result.rows, result.columns),
-        charts: parseCharts(result.rows, result.columns),
+        logs,
+        totalCount,
+        charts: {
+          volumeTimeseries,
+          errorTimeseries,
+          statusCodeDistribution: [],
+        },
         isWaiting: false,
       }
     },
-    placeholderData: { logs: MOCK_LOGS, charts: MOCK_CHARTS, isWaiting: true },
     enabled: connected,
   })
 
-  const data = query.data ?? { logs: MOCK_LOGS, charts: MOCK_CHARTS, isWaiting: true }
+  const data = query.data ?? { logs: [], totalCount: 0, charts: EMPTY_CHARTS, isWaiting: true }
 
   return {
     logs: data.logs,
-    totalLogs: data.logs.length,
-    totalRows: data.logs.length,
+    totalLogs: data.totalCount,
+    totalRows: data.totalCount,
     querySeconds: 0,
     filterSections: placeholderLogFilterSections,
     charts: data.charts,
@@ -83,5 +106,6 @@ export function useLogs(): LogsPageProps {
       statusCodes: placeholderStatusCodesGroupBy,
     },
     onViewLog: undefined,
+    refetch: query.refetch,
   }
 }

@@ -10,6 +10,9 @@ const defaultServices = ['All Services', 'web', 'api', 'db', 'worker']
 interface PageHeaderProps {
   title: string
   showLive?: boolean
+  isLive?: boolean
+  onLiveChange?: (live: boolean) => void
+  onRefresh?: () => void
   showFilterToggle?: boolean
   showService?: boolean
   showSearch?: boolean
@@ -34,6 +37,9 @@ interface PageHeaderProps {
 export default function PageHeader({
   title,
   showLive,
+  isLive,
+  onLiveChange,
+  onRefresh,
   showFilterToggle,
   showService,
   showSearch,
@@ -55,7 +61,6 @@ export default function PageHeader({
   extraActions,
 }: PageHeaderProps) {
   const [spinning, setSpinning] = useState(false)
-  const [live, setLive] = useState(false)
 
   return (
     <>
@@ -81,6 +86,7 @@ export default function PageHeader({
             onClick={() => {
               setSpinning(true)
               setTimeout(() => setSpinning(false), 600)
+              onRefresh?.()
             }}
           >
             <LuRefreshCw className={`size-3.5 ${spinning ? 'animate-spin' : ''}`} />
@@ -89,13 +95,13 @@ export default function PageHeader({
           {showLive && (
             <button
               className={`flex items-center gap-1.5 px-2 py-1 text-sm transition-colors ${
-                live ? 'text-white bg-success border-success' : 'text-text-primary hover:bg-[var(--hover-bg)]'
+                isLive ? 'text-white bg-success border-success' : 'text-text-primary hover:bg-[var(--hover-bg)]'
               }`}
               style={{
-                borderColor: live ? undefined : 'var(--border-primary)',
+                borderColor: isLive ? undefined : 'var(--border-primary)',
                 borderWidth: 1,
               }}
-              onClick={() => setLive(!live)}
+              onClick={() => onLiveChange?.(!isLive)}
             >
               <LuCircleDot className="size-3.5" />
               Live
@@ -133,35 +139,34 @@ export default function PageHeader({
           </>
         )}
         {showSearch && onQueryChange && onQueryKeyDown && onRemoveChip && (
-          <>
-            <SearchInput
-              chips={chips}
-              query={query}
-              onQueryChange={onQueryChange}
-              onKeyDown={onQueryKeyDown}
-              onRemoveChip={onRemoveChip}
-              placeholder={searchPlaceholder}
-            />
-            <div className="ml-auto flex items-center gap-2 pr-4">
-              <Dropdown
-                trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-[var(--bg-primary)] rounded">{autoRefresh}</span>}</>}
-                items={autoRefreshOptions.map((opt) => ({ label: opt, value: opt }))}
-                value={autoRefresh}
-                onChange={onAutoRefreshChange}
-                align="right"
-                minWidth="min-w-16"
-              />
-              <Dropdown
-                trigger={<span>{timeRange}</span>}
-                items={timeRanges.map((r) => ({ label: r, value: r }))}
-                value={timeRange}
-                onChange={onTimeRangeChange}
-                align="right"
-                minWidth="min-w-40"
-              />
-            </div>
-          </>
+          <SearchInput
+            chips={chips}
+            query={query}
+            onQueryChange={onQueryChange}
+            onKeyDown={onQueryKeyDown}
+            onRemoveChip={onRemoveChip}
+            placeholder={searchPlaceholder}
+          />
         )}
+        {!showSearch && <div className="flex-1" />}
+        <div className="ml-auto flex items-center gap-2 pr-4">
+          <Dropdown
+            trigger={<><span className="text-text-primary text-sm">Auto refresh</span>{autoRefresh !== 'Off' && <span className="flex items-center justify-center px-1.5 py-0.5 text-xs text-text-primary bg-[var(--bg-primary)] rounded">{autoRefresh}</span>}</>}
+            items={autoRefreshOptions.map((opt) => ({ label: opt, value: opt }))}
+            value={autoRefresh}
+            onChange={onAutoRefreshChange}
+            align="right"
+            minWidth="min-w-16"
+          />
+          <Dropdown
+            trigger={<span>{timeRange}</span>}
+            items={timeRanges.map((r) => ({ label: r, value: r }))}
+            value={timeRange}
+            onChange={onTimeRangeChange}
+            align="right"
+            minWidth="min-w-40"
+          />
+        </div>
       </div>
     </>
   )

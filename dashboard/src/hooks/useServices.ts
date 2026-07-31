@@ -1,10 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import type { ServicesPageProps, ServiceEntry, ServiceCharts } from '../types/index.ts'
-import { postQuery } from './api.ts'
+import { classifyHealth } from '../types/index.ts'
+import { fetchDetect, postQuery, type DetectEntry } from './api.ts'
 import {
-  placeholderServiceEntries,
-  placeholderServiceCards,
-  placeholderServiceCharts,
   placeholderServiceFilterSections,
   placeholderTimeRanges,
   placeholderAutoRefreshOptions,
@@ -12,71 +10,181 @@ import {
   placeholderLatencyOptions,
 } from './placeholder-data.ts'
 import { useAgent } from '../context/AgentContext.tsx'
+import { TIME_RANGE_NS } from './useFilterState.ts'
 
-const MOCK_SERVICES = placeholderServiceEntries
-const MOCK_CARDS = placeholderServiceCards
-const MOCK_CHARTS = placeholderServiceCharts
+const DEFAULT_WINDOW_NS = 30 * 60 * 1_000_000_000 // 30 minutes in nanoseconds
+function unionServices(detect: DetectEntry[], activeServices: string[], healthMap: Map<string, { errorRate: number; eventCount: number; firstSeen: number }>): ServiceEntry[] {
+  const detectedNames = new Set(
+    detect.map((d) => d.service_name).filter((n): n is string => n !== null),
+  )
+  const activeNames = new Set(activeServices)
 
-function rowsToServices(rows: string[][], columns: string[]): ServiceEntry[] {
-  const idx = (name: string) => columns.indexOf(name)
-  return rows.map((r) => ({
-    id: r[idx('service_name')] ?? '',
-    name: r[idx('service_name')] ?? '',
-    status: 'healthy' as ServiceEntry['status'],
-    uptime: '',
-    requests: '0',
-    errorRate: '0%',
-    avgLatency: '0ms',
-    p95: '0ms',
-    p99: '0ms',
-    lastSeen: r[idx('max_ts')] ?? '',
-  }))
+  const seen = new Set<string>()
+  const result: ServiceEntry[] = []
+
+  function entry(name: string, status: 'active' | 'detected_only'): ServiceEntry {
+    const h = healthMap.get(name)
+    const errorRate = h?.errorRate ?? 0
+    const eventCount = h?.eventCount ?? 0
+    const firstSeenMicros = h?.firstSeen ?? 0
+    const firstSeenDate = firstSeenMicros > 0 ? new Date(firstSeenMicros / 1_000).toISOString() : undefined
+    return {
+      id: name,
+      name,
+      status,
+      health: classifyHealth(errorRate, eventCount),
+      errorRate,
+      eventCount,
+      uptime: '',
+      requests: '0',
+      avgLatency: '0ms',
+      p95: '0ms',
+      p99: '0ms',
+      lastSeen: '',
+      firstSeen: firstSeenDate,
+    }
+  }
+
+  for (const name of detectedNames) {
+    seen.add(name)
+    result.push(entry(name, activeNames.has(name) ? 'active' : 'detected_only'))
+  }
+
+  for (const name of activeNames) {
+    if (!seen.has(name)) {
+      result.push(entry(name, 'active'))
+    }
+  }
+
+  return result
 }
 
-function parseCharts(_rows: string[][], _columns: string[]): ServiceCharts {
-  return MOCK_CHARTS
-}
-
-export function useServices(): ServicesPageProps {
+export function useServices(timeRange?: string): ServicesPageProps {
   const { connected } = useAgent()
 
-  const query = useQuery({
-    queryKey: ['services'],
+  const detectQuery = useQuery({
+    queryKey: ['services', 'detect'],
     queryFn: async () => {
-      if (!connected) {
-        return { services: MOCK_SERVICES, serviceCards: MOCK_CARDS, charts: MOCK_CHARTS, isWaiting: true }
-      }
-      const result = await postQuery(
-        'SELECT service_name, max(timestamp_ns) AS max_ts FROM logs GROUP BY service_name ORDER BY max_ts DESC',
-      )
-      if (!result) {
-        return { services: MOCK_SERVICES, serviceCards: MOCK_CARDS, charts: MOCK_CHARTS, isWaiting: true }
-      }
-      return {
-        services: rowsToServices(result.rows, result.columns),
-        serviceCards: MOCK_CARDS,
-        charts: parseCharts(result.rows, result.columns),
-        isWaiting: false,
-      }
+      if (!connected) return []
+      return (await fetchDetect()) ?? []
     },
-    placeholderData: { services: MOCK_SERVICES, serviceCards: MOCK_CARDS, charts: MOCK_CHARTS, isWaiting: true },
     enabled: connected,
   })
 
-  const data = query.data ?? { services: MOCK_SERVICES, serviceCards: MOCK_CARDS, charts: MOCK_CHARTS, isWaiting: true }
+  const windowNs = timeRange && TIME_RANGE_NS[timeRange] ? TIME_RANGE_NS[timeRange] : DEFAULT_WINDOW_NS
+  const logQuery = useQuery({
+    queryKey: ['services', 'log-scan', windowNs],
+    queryFn: async () => {
+      if (!connected) return { services: [] }
+      const nowMicros = Date.now() * 1_000
+      const result = await postQuery(
+        `SELECT DISTINCT service FROM logs WHERE timestamp > ${nowMicros - windowNs / 1_000}`,
+      )
+      if (!result) return { services: [] }
+      return {
+        services: result.rows.map((r) => String(r[0] ?? '')),
+      }
+    },
+    enabled: connected,
+  })
+
+  const healthQuery = useQuery({
+    queryKey: ['services', 'health', windowNs],
+    queryFn: async () => {
+      if (!connected) return []
+      const nowMicros = Date.now() * 1_000
+      const result = await postQuery(
+        `SELECT service, count(*) AS total, count(*) FILTER (WHERE level = 'error') AS errors, MIN(timestamp) AS first_seen FROM logs WHERE timestamp > ${nowMicros - windowNs / 1_000} GROUP BY service`,
+      )
+      if (!result) return []
+      const errIdx = result.columns.indexOf('errors')
+      const totalIdx = result.columns.indexOf('total')
+      const svcIdx = result.columns.indexOf('service')
+      const fsIdx = result.columns.indexOf('first_seen')
+      if (svcIdx < 0 || totalIdx < 0 || errIdx < 0) return []
+      return result.rows.map((r) => ({
+        service: String(r[svcIdx] ?? ''),
+        errorRate: totalIdx >= 0 && Number(r[totalIdx]) > 0 ? Number(r[errIdx]) / Number(r[totalIdx]) : 0,
+        eventCount: Number(r[totalIdx] ?? 0),
+        firstSeen: fsIdx >= 0 ? Number(r[fsIdx] ?? 0) : 0,
+      }))
+    },
+    enabled: connected,
+  })
+
+  const sparklineQuery = useQuery({
+    queryKey: ['services', 'sparkline', windowNs],
+    queryFn: async () => {
+      if (!connected) return new Map<string, number[]>()
+      const nowMicros = Date.now() * 1_000
+      const result = await postQuery(
+        `SELECT service, FLOOR(timestamp / 60000000) AS bucket, count(*) AS cnt FROM logs WHERE timestamp > ${nowMicros - windowNs / 1_000} GROUP BY service, bucket ORDER BY service, bucket`,
+      )
+      if (!result) return new Map()
+      const svcIdx = result.columns.indexOf('service')
+      const bucketIdx = result.columns.indexOf('bucket')
+      const cntIdx = result.columns.indexOf('cnt')
+      if (svcIdx < 0 || bucketIdx < 0 || cntIdx < 0) return new Map()
+      const byService = new Map<string, { bucket: number; cnt: number }[]>()
+      for (const row of result.rows) {
+        const svc = String(row[svcIdx] ?? '')
+        if (!svc) continue
+        const bucket = Number(row[bucketIdx] ?? 0)
+        const cnt = Number(row[cntIdx] ?? 0)
+        if (!byService.has(svc)) byService.set(svc, [])
+        byService.get(svc)!.push({ bucket, cnt })
+      }
+      const sparklines = new Map<string, number[]>()
+      for (const [svc, buckets] of byService) {
+        buckets.sort((a, b) => a.bucket - b.bucket)
+        sparklines.set(svc, buckets.map((b) => b.cnt))
+      }
+      return sparklines
+    },
+    enabled: connected,
+  })
+
+  const detectedNames = detectQuery.data ?? []
+  const activeServices = logQuery.data?.services ?? []
+  const healthRows = healthQuery.data ?? []
+  const sparklineMap = sparklineQuery.data ?? new Map()
+
+  const healthMap = new Map<string, { errorRate: number; eventCount: number; firstSeen: number }>(healthRows.map((h) => [h.service, { errorRate: h.errorRate, eventCount: h.eventCount, firstSeen: h.firstSeen }]))
+
+  const services = unionServices(detectedNames, activeServices, healthMap)
+
+  const serviceCards = services.map((s) => ({
+    name: s.name,
+    label: `${(s.errorRate * 100).toFixed(1)}% err — ${s.eventCount} events`,
+    sparkline: sparklineMap.get(s.name) ?? [],
+  }))
+
+  function refetchServices() {
+    void detectQuery.refetch()
+    void logQuery.refetch()
+    void healthQuery.refetch()
+    void sparklineQuery.refetch()
+  }
+
+  const charts: ServiceCharts = {
+    requests: services.map((s) => ({ service: s.name, count: s.eventCount, rate: s.eventCount })),
+    errorRates: services.map((s) => ({ service: s.name, count: Math.round(s.errorRate * s.eventCount), rate: s.errorRate })),
+    latencies: [],
+  }
 
   return {
-    services: data.services,
-    totalRows: data.services.length,
+    services,
+    totalRows: services.length,
     querySeconds: 0,
     filterSections: placeholderServiceFilterSections,
-    serviceCards: data.serviceCards,
-    charts: data.charts,
-    isWaiting: data.isWaiting,
+    serviceCards,
+    charts,
+    isWaiting: !connected,
     timeRanges: placeholderTimeRanges,
     autoRefreshOptions: placeholderAutoRefreshOptions,
     countRateOptions: placeholderCountRateOptions,
     latencyOptions: placeholderLatencyOptions,
     onViewService: undefined,
+    refetch: refetchServices,
   }
 }

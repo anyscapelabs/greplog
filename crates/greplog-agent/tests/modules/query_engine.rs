@@ -1,5 +1,6 @@
 use super::*;
 use crate::store::io::write_parquet_atomic;
+use arrow::array::{Int32Array, ListBuilder, StringBuilder};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,6 +28,8 @@ fn write_log_file(
         .join(format!("date={}", date));
     let schema = greplog_core::arrow_schema::log_schema();
     let ts = 1_700_000_000_000_000;
+    let mut st_builder = ListBuilder::new(StringBuilder::new());
+    st_builder.append(false);
     let batch = RecordBatch::try_new(
         Arc::new(schema),
         vec![
@@ -37,6 +40,13 @@ fn write_log_file(
             Arc::new(StringArray::from(vec![None::<&str>])),
             Arc::new(StringArray::from(vec![Some(message)])),
             Arc::new(StringArray::from(vec![None::<&str>])),
+            Arc::new(StringArray::from(vec![None::<&str>])),  // logger_name
+            Arc::new(StringArray::from(vec![None::<&str>])),  // file
+            Arc::new(Int32Array::from(vec![None::<i32>])),   // line
+            Arc::new(StringArray::from(vec![None::<&str>])),  // correlation_id
+            Arc::new(st_builder.finish()),                    // stack_trace
+            Arc::new(StringArray::from(vec![None::<&str>])),  // exception_type
+            Arc::new(StringArray::from(vec![None::<&str>])),  // exception_message
         ],
     )
     .expect("build log batch");
@@ -103,7 +113,7 @@ async fn test_basic_query() {
         .query("SELECT * FROM logs WHERE service = 'api'")
         .await
         .expect("query");
-    assert_eq!(result.columns.len(), 8);
+    assert_eq!(result.columns.len(), 15);
     assert_eq!(result.row_count, 1);
     assert_eq!(result.rows[0][4], serde_json::json!("hello"));
 
@@ -162,6 +172,10 @@ async fn test_limit_injection_no_existing() {
         .collect();
     let none_str: Vec<Option<&str>> = (0..n).map(|_| None).collect();
     let msg_arr: StringArray = messages.iter().map(|m| m.as_deref()).collect();
+    let mut st_builder = ListBuilder::new(StringBuilder::new());
+    for _ in 0..n {
+        st_builder.append(false);
+    }
     let batch = RecordBatch::try_new(
         Arc::new(schema),
         vec![
@@ -171,6 +185,13 @@ async fn test_limit_injection_no_existing() {
             Arc::new(StringArray::from(levels)),
             Arc::new(StringArray::from(none_str.clone())),
             Arc::new(msg_arr),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(Int32Array::from(vec![None::<i32>; n])),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(st_builder.finish()),
+            Arc::new(StringArray::from(none_str.clone())),
             Arc::new(StringArray::from(none_str)),
         ],
     )
@@ -346,6 +367,10 @@ async fn test_limit_injection_over_cap() {
         (0..n).map(|i| Some(format!("msg {}", i))).collect();
     let none_str: Vec<Option<&str>> = (0..n).map(|_| None).collect();
     let msg_arr: StringArray = messages.iter().map(|m| m.as_deref()).collect();
+    let mut st_builder = ListBuilder::new(StringBuilder::new());
+    for _ in 0..n {
+        st_builder.append(false);
+    }
     let batch = RecordBatch::try_new(
         Arc::new(schema),
         vec![
@@ -355,6 +380,13 @@ async fn test_limit_injection_over_cap() {
             Arc::new(StringArray::from(levels)),
             Arc::new(StringArray::from(none_str.clone())),
             Arc::new(msg_arr),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(Int32Array::from(vec![None::<i32>; n])),
+            Arc::new(StringArray::from(none_str.clone())),
+            Arc::new(st_builder.finish()),
+            Arc::new(StringArray::from(none_str.clone())),
             Arc::new(StringArray::from(none_str)),
         ],
     )
@@ -382,7 +414,7 @@ async fn test_empty_database() {
 
     let result = engine.query("SELECT * FROM logs").await.expect("query on empty db");
     assert_eq!(result.row_count, 0, "empty db returns zero rows");
-    assert!(result.columns.is_empty() || result.columns.len() == 7);
+    assert!(result.columns.is_empty() || result.columns.len() == 15);
 
     let _ = fs::remove_dir_all(&dir);
 }

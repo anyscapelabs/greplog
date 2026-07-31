@@ -10,6 +10,7 @@ export interface GreplogOptions {
   captureBodies?: boolean;
   captureConsoleLevel?: 'debug' | 'info' | 'warn' | 'error';
   serviceName?: string;
+  service?: string;
   socketPath?: string;
   tcpPort?: number;
 }
@@ -64,7 +65,7 @@ export function init(options?: GreplogOptions): void {
 
     initProtobuf();
 
-    const serviceName = options?.serviceName ?? detectServiceName();
+    const serviceName = options?.serviceName ?? options?.service ?? detectServiceName();
     const instanceId = generateInstanceId();
 
     state.config = {
@@ -119,3 +120,16 @@ export function resetState(): void {
   state.warned = false;
   resetPatcherFlags();
 }
+
+export const greplog = {
+  init,
+  error,
+  warn,
+  info,
+  debug,
+  shutdown,
+  resetState,
+};
+
+export default greplog;
+

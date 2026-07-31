@@ -3,15 +3,6 @@ import type { AnalyticsPageProps } from '../types/index.ts'
 import { postQuery, type QueryResult } from './api.ts'
 import {
   placeholderAnalyticsMetrics,
-  placeholderIngestionTimeseries,
-  placeholderErrorRateTimeseries,
-  placeholderLatencyData,
-  placeholderServiceHealth,
-  placeholderStatusCodeDistribution,
-  placeholderNoisyServices,
-  placeholderSeverityDistribution,
-  placeholderSystemMetrics,
-  placeholderAvgResponseTimes,
   placeholderTimeRanges,
   placeholderServices,
   placeholderAutoRefreshOptions,
@@ -22,17 +13,17 @@ import {
 } from './placeholder-data.ts'
 import { useAgent } from '../context/AgentContext.tsx'
 
-const PLACEHOLDER = {
+const EMPTY_RESULT = {
   metrics: placeholderAnalyticsMetrics,
-  ingestionTimeseries: placeholderIngestionTimeseries(),
-  errorRateTimeseries: placeholderErrorRateTimeseries(),
-  latencyData: placeholderLatencyData,
-  serviceHealthData: placeholderServiceHealth,
-  statusCodeDistribution: placeholderStatusCodeDistribution,
-  noisyServices: placeholderNoisyServices,
-  severityDistribution: placeholderSeverityDistribution,
-  systemMetrics: placeholderSystemMetrics,
-  avgResponseTimes: placeholderAvgResponseTimes,
+  ingestionTimeseries: [] as AnalyticsPageProps['ingestionTimeseries'],
+  errorRateTimeseries: [] as AnalyticsPageProps['errorRateTimeseries'],
+  latencyData: { p50: [], p90: [], p99: [] } as AnalyticsPageProps['latencyData'],
+  serviceHealthData: [] as AnalyticsPageProps['serviceHealthData'],
+  statusCodeDistribution: [] as AnalyticsPageProps['statusCodeDistribution'],
+  noisyServices: [] as AnalyticsPageProps['noisyServices'],
+  severityDistribution: [] as AnalyticsPageProps['severityDistribution'],
+  systemMetrics: { cpu: [], memory: [], diskIO: [], network: [] } as AnalyticsPageProps['systemMetrics'],
+  avgResponseTimes: [] as AnalyticsPageProps['avgResponseTimes'],
   isWaiting: true,
 }
 
@@ -40,43 +31,194 @@ function parseCountTimeseries(result: QueryResult): AnalyticsPageProps['ingestio
   const idx = (name: string) => result.columns.indexOf(name)
   const tsIdx = idx('date')
   const cntIdx = idx('cnt')
-  if (tsIdx < 0 || cntIdx < 0) return placeholderIngestionTimeseries()
+  if (tsIdx < 0 || cntIdx < 0) return []
   return result.rows.map((r) => ({
     timestamp: r[tsIdx] ?? '',
     value: Number(r[cntIdx] ?? 0),
   }))
 }
 
-export function useAnalytics(): AnalyticsPageProps {
+function parseServiceHealth(result: QueryResult): AnalyticsPageProps['serviceHealthData'] {
+  const idx = (name: string) => result.columns.indexOf(name)
+  const svcIdx = idx('service')
+  const totalIdx = idx('total')
+  const errIdx = idx('errors')
+  if (svcIdx < 0 || totalIdx < 0 || errIdx < 0) return []
+  return result.rows.map((r) => {
+    const total = Number(r[totalIdx] ?? 0)
+    const errors = Number(r[errIdx] ?? 0)
+    const nonErrors = total - errors
+    // Map into the ServiceHealthEntry shape the chart expects:
+    //   healthy  = non-error, non-warn events (info + debug)
+    //   degraded = warn events (approximated as 0 here since we only have total vs errors)
+    //   down     = error/critical/fatal events
+    // Using total vs errors gives an honest chart without a third SQL column.
+    return {
+      name: String(r[svcIdx] ?? ''),
+      healthy: nonErrors,
+      degraded: 0,
+      down: errors,
+    }
+  })
+}
+
+function parseNoisyServices(result: QueryResult): AnalyticsPageProps['noisyServices'] {
+  const idx = (name: string) => result.columns.indexOf(name)
+  const svcIdx = idx('service')
+  const cntIdx = idx('cnt')
+  if (svcIdx < 0) return []
+  return result.rows.map((r) => ({
+    name: String(r[svcIdx] ?? ''),
+    count: Number(r[cntIdx] ?? 0),
+  }))
+}
+
+function parseSeverityDistribution(result: QueryResult): AnalyticsPageProps['severityDistribution'] {
+  const idx = (name: string) => result.columns.indexOf(name)
+  const lvlIdx = idx('level')
+  const cntIdx = idx('cnt')
+  if (lvlIdx < 0) return []
+  const colorMap: Record<string, string> = {
+    info: '#3b82f6',
+    warn: '#f59e0b',
+    error: '#ef4444',
+    debug: '#8b5cf6',
+    critical: '#dc2626',
+  }
+  return result.rows.map((r) => ({
+    name: String(r[lvlIdx] ?? ''),
+    value: Number(r[cntIdx] ?? 0),
+    color: colorMap[String(r[lvlIdx] ?? '').toLowerCase()] ?? '#6b7280',
+  }))
+}
+
+/**
+ * Parse a single-row summary result from the server-side metrics query.
+ *
+ * Query shape (one row):
+ *   total_events       BIGINT
+ *   total_errors       BIGINT
+ *   active_services    BIGINT   (COUNT DISTINCT service)
+ *   unhealthy_services BIGINT   (COUNT DISTINCT service WHERE error_rate > 5%)
+ *
+ * All four values are computed by the query engine (DataFusion GROUP BY /
+ * aggregate), not derived client-side from the per-service rows.
+ */
+function parseSummaryMetrics(result: QueryResult): {
+  totalEvents: number
+  totalErrors: number
+  activeServices: number
+  unhealthyServices: number
+} {
+  const idx = (name: string) => result.columns.indexOf(name)
+  const row = result.rows[0] ?? []
+  return {
+    totalEvents: Number(row[idx('total_events')] ?? 0),
+    totalErrors: Number(row[idx('total_errors')] ?? 0),
+    activeServices: Number(row[idx('active_services')] ?? 0),
+    unhealthyServices: Number(row[idx('unhealthy_services')] ?? 0),
+  }
+}
+
+export function useAnalytics(whereClause?: string): AnalyticsPageProps {
   const { connected } = useAgent()
 
   const query = useQuery({
-    queryKey: ['analytics'],
+    queryKey: whereClause ? ['analytics', whereClause] : ['analytics'],
     queryFn: async () => {
-      if (!connected) return PLACEHOLDER
-      const result = await postQuery(
-        "SELECT date, count(*) AS cnt FROM logs GROUP BY date ORDER BY date",
-      )
-      if (!result) return PLACEHOLDER
+      if (!connected) return EMPTY_RESULT
+      const w = whereClause ?? ''
+      // Compose the optional user-provided WHERE clause as an AND predicate
+      // for queries that already have their own WHERE clause.
+      const andClause = w ? ` AND (${w.replace(/^WHERE\s+/i, '')})` : ''
+
+      // ── Five parallel queries, all aggregation done server-side ──────────
+
+      // 1. Summary metrics — one row, four computed aggregates.
+      //    "unhealthy" = services where errors > 5% of their events.
+      //    This is a subquery because DataFusion doesn't support HAVING on
+      //    a FILTER aggregate in a scalar position directly.
+      const summarysql = `
+        SELECT
+          SUM(total)          AS total_events,
+          SUM(errors)         AS total_errors,
+          COUNT(*)            AS active_services,
+          COUNT(*) FILTER (WHERE total > 0 AND errors * 1.0 / total > 0.05) AS unhealthy_services
+        FROM (
+          SELECT
+            service,
+            count(*)                                                       AS total,
+            count(*) FILTER (WHERE level IN ('error','critical','fatal'))  AS errors
+          FROM logs ${w}
+          GROUP BY service
+        )`
+
+      // 2. Ingestion volume timeseries (count per date bucket)
+      const ingestionSql = `SELECT date, count(*) AS cnt FROM logs ${w} GROUP BY date ORDER BY date`
+
+      // 3. Error count timeseries (count per date bucket, errors only)
+      const errorRateSql = `SELECT date, count(*) AS cnt FROM logs WHERE level IN ('error','critical','fatal')${andClause} GROUP BY date ORDER BY date`
+
+      // 4. Per-service health breakdown for the service-health bar chart
+      const healthSql = `
+        SELECT
+          service,
+          count(*)                                                       AS total,
+          count(*) FILTER (WHERE level IN ('error','critical','fatal'))  AS errors
+        FROM logs ${w}
+        GROUP BY service`
+
+      // 5. Noisy services (top-5 by event count)
+      const noisySql = `SELECT service, count(*) AS cnt FROM logs ${w} GROUP BY service ORDER BY cnt DESC LIMIT 5`
+
+      // 6. Severity distribution (count per level)
+      const severitySql = `SELECT level, count(*) AS cnt FROM logs ${w} GROUP BY level ORDER BY cnt DESC`
+
+      const [summary, ingestion, errorRate, health, noisy, severity] = await Promise.all([
+        postQuery(summarysql),
+        postQuery(ingestionSql),
+        postQuery(errorRateSql),
+        postQuery(healthSql),
+        postQuery(noisySql),
+        postQuery(severitySql),
+      ])
+
+      const { totalEvents, totalErrors, activeServices, unhealthyServices } =
+        summary ? parseSummaryMetrics(summary) : { totalEvents: 0, totalErrors: 0, activeServices: 0, unhealthyServices: 0 }
+
+      const overallErrorRate = totalEvents > 0 ? totalErrors / totalEvents : 0
+
+      const ingestionTs = ingestion ? parseCountTimeseries(ingestion) : []
+      const errorTs = errorRate ? parseCountTimeseries(errorRate) : []
+      const sparklineData = ingestionTs.map((p) => p.value)
+
+      const metrics = [
+        { title: 'Error rate', value: `${(overallErrorRate * 100).toFixed(2)}%`, color: '#dc2626', rgb: '220, 38, 38', sparkline: errorTs.map((p) => p.value) },
+        { title: 'Active services', value: String(activeServices), color: '#2563eb', rgb: '37, 99, 235', sparkline: [] as number[] },
+        { title: 'Unhealthy services', value: String(unhealthyServices), color: '#dc2626', rgb: '220, 38, 38', sparkline: [] as number[] },
+        { title: 'Total events', value: totalEvents >= 1000 ? `${(totalEvents / 1000).toFixed(1)}k` : String(totalEvents), color: '#16a34a', rgb: '22, 163, 74', sparkline: sparklineData },
+        { title: 'Requests', value: totalEvents >= 1000 ? `${(totalEvents / 1000).toFixed(1)}k` : String(totalEvents), color: '#3b82f6', rgb: '59, 130, 246', sparkline: sparklineData },
+        { title: 'P.95 latency', value: 'N/A', color: '#d97706', rgb: '217, 119, 6', sparkline: [] as number[] },
+      ]
+
       return {
-        metrics: placeholderAnalyticsMetrics,
-        ingestionTimeseries: parseCountTimeseries(result),
-        errorRateTimeseries: placeholderErrorRateTimeseries(),
-        latencyData: placeholderLatencyData,
-        serviceHealthData: placeholderServiceHealth,
-        statusCodeDistribution: placeholderStatusCodeDistribution,
-        noisyServices: placeholderNoisyServices,
-        severityDistribution: placeholderSeverityDistribution,
-        systemMetrics: placeholderSystemMetrics,
-        avgResponseTimes: placeholderAvgResponseTimes,
+        metrics,
+        ingestionTimeseries: ingestionTs,
+        errorRateTimeseries: errorTs,
+        latencyData: { p50: [], p90: [], p99: [] },
+        serviceHealthData: health ? parseServiceHealth(health) : [],
+        statusCodeDistribution: [],
+        noisyServices: noisy ? parseNoisyServices(noisy) : [],
+        severityDistribution: severity ? parseSeverityDistribution(severity) : [],
+        systemMetrics: { cpu: [], memory: [], diskIO: [], network: [] },
+        avgResponseTimes: [],
         isWaiting: false,
       }
     },
-    placeholderData: PLACEHOLDER,
     enabled: connected,
   })
 
-  const data = query.data ?? PLACEHOLDER
+  const data = query.data ?? EMPTY_RESULT
 
   return {
     ...data,
@@ -97,5 +239,6 @@ export function useAnalytics(): AnalyticsPageProps {
     onStatusCodeMetricChange: () => {},
     noisySort: 'logs',
     onNoisySortChange: () => {},
+    refetch: query.refetch,
   }
 }

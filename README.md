@@ -49,7 +49,7 @@ Open `http://localhost:4317` in your browser.
 
 ```ts
 // Node — auto-instrumenting
-import greplog from 'greplog';
+import { greplog } from 'greplog';
 greplog.init();
 ```
 

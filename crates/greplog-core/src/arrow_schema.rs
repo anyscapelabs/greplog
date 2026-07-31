@@ -1,4 +1,5 @@
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+use std::sync::Arc;
 
 pub fn log_schema() -> Schema {
     Schema::new(vec![
@@ -9,6 +10,13 @@ pub fn log_schema() -> Schema {
         Field::new("route", DataType::Utf8, true),
         Field::new("message", DataType::Utf8, true),
         Field::new("attributes", DataType::Utf8, true),
+        Field::new("logger_name", DataType::Utf8, true),
+        Field::new("file", DataType::Utf8, true),
+        Field::new("line", DataType::Int32, true),
+        Field::new("correlation_id", DataType::Utf8, true),
+        Field::new("stack_trace", DataType::List(Arc::new(Field::new("item", DataType::Utf8, true))), true),
+        Field::new("exception_type", DataType::Utf8, true),
+        Field::new("exception_message", DataType::Utf8, true),
     ])
 }
 

@@ -6,17 +6,19 @@ interface DrawerProps {
   onClose: () => void
   title: ReactNode
   children: ReactNode
+  width?: string
 }
 
-export default function Drawer({ open, onClose, title, children }: DrawerProps) {
+export default function Drawer({ open, onClose, title, children, width = '900px' }: DrawerProps) {
   if (!open) return null
 
   return (
     <>
       <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
       <div
-        className="fixed top-0 right-0 h-full w-[900px] border-l shadow-xl z-50 flex flex-col animate-in slide-in-from-right"
+        className="fixed top-0 right-0 h-full border-l shadow-xl z-50 flex flex-col animate-in slide-in-from-right"
         style={{
+          width,
           backgroundColor: 'var(--bg-secondary)',
           borderColor: 'var(--border-primary)',
         }}

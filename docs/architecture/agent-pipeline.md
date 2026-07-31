@@ -35,7 +35,8 @@ Content-addressed dedup using BLAKE3 hashes of serialized `LogEvent` bytes:
 
 A single-threaded writer accumulates deduplicated events as [Arrow](https://arrow.apache.org/) record batches in memory:
 
-- Events are stored column-wise: `timestamp_ns` (i64), `service_name` (utf8), `level` (utf8), `message` (utf8), `logger_name` (utf8), `file` (utf8), `line` (i32), `correlation_id` (utf8), `attributes` (map), `stack_trace` (list of utf8).
+- Events are stored column-wise in a 14-column schema: `id` (utf8), `service` (utf8), `timestamp` (Timestamp<Microsecond>), `level` (utf8), `route` (utf8), `message` (utf8), `attributes` (utf8 — JSON blob), `logger_name` (utf8), `file` (utf8), `line` (Int32), `correlation_id` (utf8), `stack_trace` (List<utf8>), `exception_type` (utf8), `exception_message` (utf8).
+- `service` and `date` are Hive-style partition columns (derived from directory paths), not stored in the file — DataFusion re-adds them at query time.
 - Arrow's columnar layout enables zero-copy filtering in the query engine (no deserialization needed).
 - The buffer periodically yields its accumulated batch for flushing (every 2 seconds or when it exceeds a configurable row count).
 

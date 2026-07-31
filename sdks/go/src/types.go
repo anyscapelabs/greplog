@@ -3,17 +3,21 @@ package greplog
 import "time"
 
 type Options struct {
-	ServiceName string
-	SocketPath  string
-	TCPHost     string
-	TCPPort     int
+	Service        string
+	ServiceName    string
+	SocketPath     string
+	TCPHost        string
+	TCPPort        int
 
-	CaptureBodies bool
+	CaptureBodies  bool
 
 	ReconnectDelay time.Duration
 
-	PanicPolicy PanicPolicy
+	PanicPolicy    PanicPolicy
 }
+
+type Config = Options
+type Details = map[string]string
 
 type PanicPolicy int
 
@@ -21,3 +25,4 @@ const (
 	PanicPolicyReRaise PanicPolicy = iota
 	PanicPolicyLog
 )
+

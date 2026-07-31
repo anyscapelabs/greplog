@@ -317,6 +317,13 @@ fn arrow_value_to_json(col: &dyn Array, row: usize) -> serde_json::Value {
                 serde_json::Value::String("(timestamp)".into())
             }
         }
+        DataType::List(_) => {
+            let a = col.as_any().downcast_ref::<ListArray>().unwrap();
+            let sub = a.value(row);
+            let json_values: Vec<serde_json::Value> =
+                (0..sub.len()).map(|i| arrow_value_to_json(sub.as_ref(), i)).collect();
+            serde_json::Value::Array(json_values)
+        }
         _ => serde_json::Value::String(format!("{:?}", col.data_type())),
     }
 }

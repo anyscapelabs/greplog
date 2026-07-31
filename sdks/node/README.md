@@ -1,6 +1,17 @@
 # @greplog/node
 
-Node/TypeScript SDK for Greplog — `import greplog from 'greplog'; greplog.init();` for auto-instrumentation.
+Node/TypeScript SDK for Greplog — `import { greplog } from 'greplog'; greplog.init();` for auto-instrumentation.
+
+## Usage
+
+```ts
+import { greplog } from 'greplog';
+
+greplog.init();
+greplog.info('Server started', { port: '4000' });
+```
+
+See [examples/basic.ts](examples/basic.ts) for a full working example showing configuration and manual logging.
 
 ## What this is
 
@@ -23,12 +34,14 @@ Tests cover fail-open behavior, HTTP capture, manual API, and redaction.
 ## Structure
 
 ```
-src/     — TypeScript source (index.ts, patchers.ts, transport.ts, redact.ts, etc.)
-dist/    — compiled JavaScript
-tests/   — Vitest test files
-proto/   — events.proto (reference copy)
+src/      — TypeScript source (index.ts, patchers.ts, transport.ts, redact.ts, etc.)
+dist/     — compiled JavaScript
+examples/ — basic.ts runnable usage example
+tests/    — Vitest test files
+proto/    — events.proto (reference copy)
 ```
 
 ## Relationship to the rest of greplog
 
 One of four SDKs that connect to the greplog agent. See [docs/sdk/design.md](/docs/sdk/design.md) for the shared contract.
+

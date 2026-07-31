@@ -1,5 +1,31 @@
 import { LuTerminal } from 'react-icons/lu'
 
+export const SDK_SETUP_TERMINAL: string[] = [
+  '# Node — auto-instrumenting',
+  'npm install greplog',
+  '',
+  'import greplog from \'greplog\'',
+  'greplog.init()',
+  '',
+  '# Python — auto-instrumenting',
+  'pip install greplog',
+  '',
+  'import greplog',
+  'greplog.init()',
+  '',
+  '# Go',
+  'go get github.com/greplog/greplog-go',
+  '',
+  'import "github.com/greplog/greplog-go"',
+  '',
+  'greplog.Init()',
+  '',
+  '# Rust',
+  'cargo add greplog',
+  '',
+  'greplog::init();',
+]
+
 interface WaitingOverlayProps {
   message?: string
   visible: boolean

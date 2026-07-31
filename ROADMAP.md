@@ -52,15 +52,25 @@ What's built, what's in progress, and what's planned for Greplog.
 
 | Feature | Priority | Status |
 |---------|----------|--------|
-| Interleaved log explorer | High | 🚧 In progress (mock data, awaiting real API) |
-| Global filter bar | High | ✅ Done |
-| Connect to real agent API | High | 🚧 In progress |
-| Errors page | Medium | 📋 Pending |
+| Global filter bar (URL-synced FilterState) | High | ✅ Done |
+| Connect to real agent API | High | ✅ Done |
+| Live/refresh/auto-refresh unified mechanism | High | ✅ Done |
+| No fabricated chart data (honest empty states) | High | ✅ Done |
+| Analytics real data: ingestion, error rate, service health, noisy services, severity | High | 🚧 In progress (queries wired, chart stubs ready) |
+| Charts: latency percentiles, status codes, avg response time (require `spans` table) | Medium | 📋 Pending — needs `FROM spans` query support |
+| Charts: system metrics, service requests/latency by service | Low | 📋 Pending — needs new data source or spans integration |
+| Errors page (wired filtering) | Medium | ✅ Done |
+| Services page (sidebar filtering) | Medium | ✅ Done |
+| Service Cards: sparklines from time-bucketed queries | Medium | ✅ Done |
+| ServicesDrawer: Recent Errors from `useErrors` + Related Logs from `useLogs` | Medium | ✅ Done |
+| Service Details: honest "Streaming since" proxy from `MIN(timestamp)` | Medium | ✅ Done |
+| Sidebar filter real counts from query | Medium | 📋 Pending — plug filter-section aggregation queries |
+| Service version/hostname in Service Details | Low | 📋 Pending — requires cross-SDK protocol change (new handshake field) |
 | Traces page | Medium | 📋 Pending |
 | Views page (saved filters) | Medium | 📋 Pending |
-| Services page (per-service overview) | Medium | 📋 Pending |
 | Patterns page (log pattern detection) | Low | 📋 Pending |
-| Live tail (SSE streaming) | Low | 🚧 In progress (Round 14) |
+| Live tail (SSE streaming) | Low | 🚧 In progress (endpoint shipped, dashboard not yet consuming) |
+| Chart click-to-filter | Low | 📋 Planned (deferred to post-Round 15) |
 
 ## SDKs
 

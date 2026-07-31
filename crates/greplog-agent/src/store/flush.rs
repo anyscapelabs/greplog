@@ -120,6 +120,13 @@ struct LogRow {
     route: Option<String>,
     message: Option<String>,
     attributes: Option<String>,
+    logger_name: Option<String>,
+    file: Option<String>,
+    line: Option<i32>,
+    correlation_id: Option<String>,
+    stack_trace: Option<Vec<String>>,
+    exception_type: Option<String>,
+    exception_message: Option<String>,
 }
 
 struct SpanRow {
@@ -248,6 +255,13 @@ fn flush_inner(
                 route: None,
                 message: non_empty(&log.message),
                 attributes: attrs,
+                logger_name: non_empty(&log.logger_name),
+                file: non_empty(&log.file),
+                line: if log.line != 0 { Some(log.line) } else { None },
+                correlation_id: non_empty(&log.correlation_id),
+                stack_trace: if log.stack_trace.is_empty() { None } else { Some(log.stack_trace.clone()) },
+                exception_type: non_empty(&log.exception_type),
+                exception_message: non_empty(&log.exception_message),
             });
         }
 
@@ -351,6 +365,20 @@ fn push_group<T>(groups: &mut Vec<((String, String), Vec<T>)>, key: (String, Str
 
 fn build_log_batch(rows: &[LogRow]) -> Result<RecordBatch> {
     let schema = arrow_schema::log_schema();
+
+    let mut st_builder = ListBuilder::new(StringBuilder::new());
+    for row in rows {
+        match &row.stack_trace {
+            Some(lines) => {
+                st_builder.append(true);
+                for line in lines {
+                    st_builder.values().append_value(line);
+                }
+            }
+            None => st_builder.append(false),
+        }
+    }
+
     RecordBatch::try_new(
         Arc::new(schema),
         vec![
@@ -361,6 +389,13 @@ fn build_log_batch(rows: &[LogRow]) -> Result<RecordBatch> {
             Arc::new(StringArray::from(rows.iter().map(|r| r.route.as_deref()).collect::<Vec<Option<&str>>>())),
             Arc::new(StringArray::from(rows.iter().map(|r| r.message.as_deref()).collect::<Vec<Option<&str>>>())),
             Arc::new(StringArray::from(rows.iter().map(|r| r.attributes.as_deref()).collect::<Vec<Option<&str>>>())),
+            Arc::new(StringArray::from(rows.iter().map(|r| r.logger_name.as_deref()).collect::<Vec<Option<&str>>>())),
+            Arc::new(StringArray::from(rows.iter().map(|r| r.file.as_deref()).collect::<Vec<Option<&str>>>())),
+            Arc::new(Int32Array::from(rows.iter().map(|r| r.line).collect::<Vec<Option<i32>>>())),
+            Arc::new(StringArray::from(rows.iter().map(|r| r.correlation_id.as_deref()).collect::<Vec<Option<&str>>>())),
+            Arc::new(st_builder.finish()),
+            Arc::new(StringArray::from(rows.iter().map(|r| r.exception_type.as_deref()).collect::<Vec<Option<&str>>>())),
+            Arc::new(StringArray::from(rows.iter().map(|r| r.exception_message.as_deref()).collect::<Vec<Option<&str>>>())),
         ],
     )
     .map_err(|e| anyhow::anyhow!("build log batch: {}", e))
