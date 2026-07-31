@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useCallback, useRef } from 'react'
 import type { LogsPageProps, LogEntry, LogCharts } from '../types/index.ts'
 import { postQuery } from './api.ts'
 import {
@@ -12,6 +13,7 @@ import {
   placeholderStatusCodesGroupBy,
 } from './placeholder-data.ts'
 import { useAgent } from '../context/AgentContext.tsx'
+import { buildStatusCodesSql, parseStatusCodes } from '../lib/httpQueries.ts'
 
 const EMPTY_CHARTS: LogCharts = {
   volumeTimeseries: [],
@@ -43,6 +45,7 @@ const BASE_SQL = 'SELECT id, timestamp, level, service, message, logger_name, fi
 
 export function useLogs(whereClause?: string): LogsPageProps {
   const { connected } = useAgent()
+  const userInitiatedRef = useRef(false)
 
   const queryKey = whereClause ? ['logs', whereClause] : ['logs']
 
@@ -52,13 +55,31 @@ export function useLogs(whereClause?: string): LogsPageProps {
       if (!connected) {
         return { logs: [], totalCount: 0, charts: EMPTY_CHARTS, isWaiting: true }
       }
+      const userInitiated = userInitiatedRef.current
+      userInitiatedRef.current = false
       const w = whereClause ?? ''
       const andClause = w ? ` AND (${w.replace(/^WHERE\s+/i, '')})` : ''
-      const [result, volResult, errResult, countResult] = await Promise.all([
-        postQuery(`${BASE_SQL} ${w} ORDER BY timestamp DESC LIMIT 1000`),
-        postQuery(`SELECT date, count(*) AS cnt FROM logs ${w} GROUP BY date ORDER BY date`),
-        postQuery(`SELECT date, count(*) AS cnt FROM logs WHERE level IN ('error','critical','fatal')${andClause} GROUP BY date ORDER BY date`),
-        postQuery(`SELECT count(*) AS total FROM logs ${w}`),
+
+      // Status-code distribution must come from the same dual-source HTTP
+      // population as the Analytics page (spans UNION ALL logs.attributes),
+      // so this page shows the same real data for mixed-SDK workspaces instead
+      // of a second hand-rolled implementation. Unsupported predicate shapes
+      // leave the chart empty (honest empty state), mirroring Analytics.
+      const statusCodesDual = buildStatusCodesSql(w)
+      if (statusCodesDual.unsupported.length > 0) {
+        console.warn(
+          `[logs] skipping status-code chart: ${statusCodesDual.unsupported.length} filter clause(s) ` +
+            `cannot be translated to the spans/logs-attributes tables. Add a case to httpArmPredicates ` +
+            `in httpPredicates.ts. Unsupported clause(s): ${statusCodesDual.unsupported.join('; ')}`,
+        )
+      }
+
+      const [result, volResult, errResult, countResult, statusCodeResult] = await Promise.all([
+        postQuery(`${BASE_SQL} ${w} ORDER BY timestamp DESC LIMIT 1000`, { userInitiated }),
+        postQuery(`SELECT date, count(*) AS cnt FROM logs ${w} GROUP BY date ORDER BY date`, { userInitiated }),
+        postQuery(`SELECT date, count(*) AS cnt FROM logs WHERE level IN ('error','critical','fatal')${andClause} GROUP BY date ORDER BY date`, { userInitiated }),
+        postQuery(`SELECT count(*) AS total FROM logs ${w}`, { userInitiated }),
+        !statusCodesDual.sql ? Promise.resolve(null) : postQuery(statusCodesDual.sql, { userInitiated }),
       ])
 
       const logs = result ? rowsToLogs(result.rows, result.columns) : []
@@ -78,7 +99,7 @@ export function useLogs(whereClause?: string): LogsPageProps {
         charts: {
           volumeTimeseries,
           errorTimeseries,
-          statusCodeDistribution: [],
+          statusCodeDistribution: statusCodeResult ? parseStatusCodes(statusCodeResult) : [],
         },
         isWaiting: false,
       }
@@ -87,6 +108,11 @@ export function useLogs(whereClause?: string): LogsPageProps {
   })
 
   const data = query.data ?? { logs: [], totalCount: 0, charts: EMPTY_CHARTS, isWaiting: true }
+
+  const manualRefetch = useCallback(() => {
+    userInitiatedRef.current = true
+    return query.refetch()
+  }, [query])
 
   return {
     logs: data.logs,
@@ -107,5 +133,6 @@ export function useLogs(whereClause?: string): LogsPageProps {
     },
     onViewLog: undefined,
     refetch: query.refetch,
+    manualRefetch,
   }
 }

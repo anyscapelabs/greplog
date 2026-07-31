@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useCallback, useRef } from 'react'
 import type { ServicesPageProps, ServiceEntry, ServiceCharts } from '../types/index.ts'
 import { classifyHealth } from '../types/index.ts'
 import { fetchDetect, postQuery, type DetectEntry } from './api.ts'
@@ -11,6 +12,7 @@ import {
 } from './placeholder-data.ts'
 import { useAgent } from '../context/AgentContext.tsx'
 import { TIME_RANGE_NS } from './useFilterState.ts'
+import { buildAvgLatencyByServiceSql, parseAvgLatencyByService } from '../lib/httpQueries.ts'
 
 const DEFAULT_WINDOW_NS = 30 * 60 * 1_000_000_000 // 30 minutes in nanoseconds
 function unionServices(detect: DetectEntry[], activeServices: string[], healthMap: Map<string, { errorRate: number; eventCount: number; firstSeen: number }>): ServiceEntry[] {
@@ -61,6 +63,7 @@ function unionServices(detect: DetectEntry[], activeServices: string[], healthMa
 
 export function useServices(timeRange?: string): ServicesPageProps {
   const { connected } = useAgent()
+  const userInitiatedRef = useRef(false)
 
   const detectQuery = useQuery({
     queryKey: ['services', 'detect'],
@@ -76,9 +79,12 @@ export function useServices(timeRange?: string): ServicesPageProps {
     queryKey: ['services', 'log-scan', windowNs],
     queryFn: async () => {
       if (!connected) return { services: [] }
+      const userInitiated = userInitiatedRef.current
+      userInitiatedRef.current = false
       const nowMicros = Date.now() * 1_000
       const result = await postQuery(
         `SELECT DISTINCT service FROM logs WHERE timestamp > ${nowMicros - windowNs / 1_000}`,
+        { userInitiated },
       )
       if (!result) return { services: [] }
       return {
@@ -92,9 +98,12 @@ export function useServices(timeRange?: string): ServicesPageProps {
     queryKey: ['services', 'health', windowNs],
     queryFn: async () => {
       if (!connected) return []
+      const userInitiated = userInitiatedRef.current
+      userInitiatedRef.current = false
       const nowMicros = Date.now() * 1_000
       const result = await postQuery(
         `SELECT service, count(*) AS total, count(*) FILTER (WHERE level = 'error') AS errors, CAST(count(*) FILTER (WHERE level = 'error') AS DOUBLE) / CAST(count(*) AS DOUBLE) AS error_rate, MIN(timestamp) AS first_seen FROM logs WHERE timestamp > ${nowMicros - windowNs / 1_000} GROUP BY service`,
+        { userInitiated },
       )
       if (!result) return []
       const errIdx = result.columns.indexOf('errors')
@@ -117,9 +126,12 @@ export function useServices(timeRange?: string): ServicesPageProps {
     queryKey: ['services', 'sparkline', windowNs],
     queryFn: async () => {
       if (!connected) return new Map<string, number[]>()
+      const userInitiated = userInitiatedRef.current
+      userInitiatedRef.current = false
       const nowMicros = Date.now() * 1_000
       const result = await postQuery(
         `SELECT service, FLOOR(timestamp / 60000000) AS bucket, count(*) AS cnt FROM logs WHERE timestamp > ${nowMicros - windowNs / 1_000} GROUP BY service, bucket ORDER BY service, bucket`,
+        { userInitiated },
       )
       if (!result) return new Map()
       const svcIdx = result.columns.indexOf('service')
@@ -141,6 +153,26 @@ export function useServices(timeRange?: string): ServicesPageProps {
         sparklines.set(svc, buckets.map((b) => b.cnt))
       }
       return sparklines
+    },
+    enabled: connected,
+  })
+
+  // Per-service latency (avg/p50/p95/p99) from the dual-source HTTP population
+  // (spans UNION ALL logs.attributes) — the same implementation the Analytics
+  // page uses, sharing httpArmPredicates. The time window is the only
+  // predicate, matching the other services queries.
+  const latencyQuery = useQuery({
+    queryKey: ['services', 'latency', windowNs],
+    queryFn: async () => {
+      if (!connected) return []
+      const userInitiated = userInitiatedRef.current
+      userInitiatedRef.current = false
+      const nowMicros = Date.now() * 1_000
+      const dual = buildAvgLatencyByServiceSql(`timestamp > ${nowMicros - windowNs / 1_000}`)
+      if (!dual.sql) return []
+      const result = await postQuery(dual.sql, { userInitiated })
+      if (!result) return []
+      return parseAvgLatencyByService(result)
     },
     enabled: connected,
   })

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useCallback, useRef } from 'react'
 import type { ErrorsPageProps, ErrorEntry, ErrorCharts } from '../types/index.ts'
 import { postQuery } from './api.ts'
 import {
@@ -55,6 +56,7 @@ const BASE_SQL = 'SELECT id, timestamp, level, service, message, line, stack_tra
 
 export function useErrors(whereClause?: string): ErrorsPageProps {
   const { connected } = useAgent()
+  const userInitiatedRef = useRef(false)
 
   const queryKey = whereClause ? ['errors', whereClause] : ['errors']
 
@@ -64,17 +66,19 @@ export function useErrors(whereClause?: string): ErrorsPageProps {
       if (!connected) {
         return { errors: [], totalCount: 0, charts: EMPTY_CHARTS, isWaiting: true }
       }
+      const userInitiated = userInitiatedRef.current
+      userInitiatedRef.current = false
       let where = `WHERE ${BASE_ERROR_FILTER}`
       if (whereClause) {
         const userWhere = whereClause.replace(/^WHERE\s+/i, '')
         where = `WHERE ${BASE_ERROR_FILTER} AND (${userWhere})`
       }
       const [result, countResult, countTimeseriesResult, totalResult, serviceResult] = await Promise.all([
-        postQuery(`${BASE_SQL} ${where} ORDER BY timestamp DESC LIMIT 1000`),
-        postQuery(`SELECT count(*) AS total FROM logs ${where}`),
-        postQuery(`SELECT date, count(*) AS cnt FROM logs ${where} GROUP BY date ORDER BY date`),
-        postQuery(`SELECT date, count(*) AS cnt FROM logs ${whereClause ?? ''} GROUP BY date ORDER BY date`),
-        postQuery(`SELECT service, count(*) AS cnt FROM logs ${where} GROUP BY service ORDER BY cnt DESC`),
+        postQuery(`${BASE_SQL} ${where} ORDER BY timestamp DESC LIMIT 1000`, { userInitiated }),
+        postQuery(`SELECT count(*) AS total FROM logs ${where}`, { userInitiated }),
+        postQuery(`SELECT date, count(*) AS cnt FROM logs ${where} GROUP BY date ORDER BY date`, { userInitiated }),
+        postQuery(`SELECT date, count(*) AS cnt FROM logs ${whereClause ?? ''} GROUP BY date ORDER BY date`, { userInitiated }),
+        postQuery(`SELECT service, count(*) AS cnt FROM logs ${where} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
       ])
 
       const errors = result ? rowsToErrors(result.rows, result.columns) : []
@@ -124,6 +128,11 @@ export function useErrors(whereClause?: string): ErrorsPageProps {
 
   const data = query.data ?? { errors: [], totalCount: 0, charts: EMPTY_CHARTS, isWaiting: true }
 
+  const manualRefetch = useCallback(() => {
+    userInitiatedRef.current = true
+    return query.refetch()
+  }, [query])
+
   return {
     errors: data.errors,
     totalErrors: data.totalCount,
@@ -143,5 +152,6 @@ export function useErrors(whereClause?: string): ErrorsPageProps {
     },
     onViewError: undefined,
     refetch: query.refetch,
+    manualRefetch,
   }
 }

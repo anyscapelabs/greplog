@@ -46,6 +46,21 @@ export default function Services() {
   const [errorRateMetric, setErrorRateMetric] = useState('rate')
   const [latencyMetric, setLatencyMetric] = useState('avg')
 
+  const requestsData = useMemo(
+    () => charts.requests.map((r) => ({ label: r.service, value: requestsMetric === 'rate' ? r.rate : r.count })),
+    [charts.requests, requestsMetric],
+  )
+
+  const errorRateData = useMemo(
+    () => charts.errorRates.map((r) => ({ label: r.service, value: errorRateMetric === 'count' ? r.count : r.rate })),
+    [charts.errorRates, errorRateMetric],
+  )
+
+  const latencyData = useMemo(
+    () => charts.latencies.map((r) => ({ label: r.service, value: r[latencyMetric as 'avg' | 'p50' | 'p95' | 'p99'] ?? r.avg })),
+    [charts.latencies, latencyMetric],
+  )
+
   function handleCheck(id: string) {
     const section = filterSections.find((s) => s.items.some((i) => i.id === id))
     if (section?.id === 'service_name') {
@@ -117,7 +132,7 @@ export default function Services() {
               onDropdownChange={setRequestsMetric}
               height="h-64"
             >
-              <RequestsByServiceChart metric={requestsMetric} />
+              <RequestsByServiceChart metric={requestsMetric} data={requestsData} />
             </AnalyticsChartPanel>
             <AnalyticsChartPanel
               title="Error Rate by Service"
@@ -126,7 +141,7 @@ export default function Services() {
               onDropdownChange={setErrorRateMetric}
               height="h-64"
             >
-              <ErrorRateByServiceChart metric={errorRateMetric} />
+              <ErrorRateByServiceChart metric={errorRateMetric} data={errorRateData} />
             </AnalyticsChartPanel>
             <AnalyticsChartPanel
               title="Avg Latency by Service"
@@ -135,7 +150,7 @@ export default function Services() {
               onDropdownChange={setLatencyMetric}
               height="h-64"
             >
-              <AvgLatencyByServiceChart metric={latencyMetric} />
+              <AvgLatencyByServiceChart metric={latencyMetric} data={latencyData} />
             </AnalyticsChartPanel>
           </div>
           <ServicesTable data={services} totalRows={totalRows} querySeconds={querySeconds} filteredServices={filteredServices} onView={setDrawerService} />

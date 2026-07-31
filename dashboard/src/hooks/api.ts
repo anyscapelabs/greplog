@@ -50,8 +50,9 @@ export async function fetchDetect(): Promise<DetectEntry[] | null> {
   }
 }
 
-export async function postQuery(sql: string): Promise<QueryResult | null> {
+export async function postQuery(sql: string, opts?: { userInitiated?: boolean }): Promise<QueryResult | null> {
   const endpoint = '/query'
+  const userInitiated = opts?.userInitiated ?? false
   try {
     const res = await fetch(`${API_BASE}/query`, {
       method: 'POST',
@@ -62,7 +63,10 @@ export async function postQuery(sql: string): Promise<QueryResult | null> {
     if (!res.ok) {
       const body = await res.text().catch(() => '(unreadable)')
       console.error(`[api] /query failed (${res.status}): SQL="${sql.slice(0, 200)}" — ${body}`)
-      toastStore.showError('Query failed — showing no data', { dedupeKey: `query-error:${endpoint}` })
+      toastStore.showError('Query failed — showing no data', {
+        dedupeKey: `query-error:${endpoint}`,
+        userInitiated,
+      })
       return null
     }
     const data = (await res.json()) as QueryResult
@@ -70,7 +74,34 @@ export async function postQuery(sql: string): Promise<QueryResult | null> {
     return data
   } catch (err) {
     console.error('[api] /query error:', err)
-    toastStore.showError('Query failed — showing no data', { dedupeKey: `query-error:${endpoint}` })
+    toastStore.showError('Query failed — showing no data', {
+      dedupeKey: `query-error:${endpoint}`,
+      userInitiated,
+    })
+    return null
+  }
+}
+
+export interface SystemResourcesResponse {
+  memory: { total_bytes: number; used_bytes: number; usage_percent: number }
+  cpu: { cores: number; global_usage_percent: number; brand: string }
+  disk: { mount_point: string; total_bytes: number; available_bytes: number; usage_percent: number }[]
+  network: { interface: string; rx_bytes_per_sec: number; tx_bytes_per_sec: number }[]
+  load_avg: [number, number, number]
+  uptime_secs: number
+}
+
+export async function fetchResources(): Promise<SystemResourcesResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/resources`, { signal: AbortSignal.timeout(5000) })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '(unreadable)')
+      console.error(`[api] /resources failed: ${res.status} ${res.statusText} — ${body}`)
+      return null
+    }
+    return (await res.json()) as SystemResourcesResponse
+  } catch (err) {
+    console.error('[api] /resources error:', err)
     return null
   }
 }

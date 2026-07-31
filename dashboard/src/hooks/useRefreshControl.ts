@@ -2,6 +2,12 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 
 interface UseRefreshControlOptions {
   defaultLiveIntervalMs?: number
+  /**
+   * Optional manual-refresh callback. When provided, `manualRefresh` calls it
+   * instead of the plain background `refetch` (used to mark the next query as
+   * user-initiated so toast anti-spam rules don't swallow the feedback).
+   */
+  manualRefetch?: () => void
 }
 
 export function useRefreshControl(refetch: () => void, opts?: UseRefreshControlOptions) {
@@ -23,7 +29,10 @@ export function useRefreshControl(refetch: () => void, opts?: UseRefreshControlO
     return () => clearInterval(id)
   }, [intervalMs, refetch])
 
-  const manualRefresh = useCallback(() => { refetch() }, [refetch])
+  const manualRefresh = useCallback(() => {
+    if (opts?.manualRefetch) opts.manualRefetch()
+    else refetch()
+  }, [refetch, opts?.manualRefetch])
   const toggleLive = useCallback((value?: boolean) => setIsLive(v => value ?? !v), [])
 
   return { isLive, toggleLive, manualRefresh, autoRefresh, setAutoRefresh }

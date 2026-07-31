@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
+use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Networks, RefreshKind, System};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SystemResources {
     pub memory: MemoryInfo,
     pub cpu: CpuInfo,
     pub disk: Vec<DiskInfo>,
+    pub network: Vec<NetworkInfo>,
     pub load_avg: [f64; 3],
     pub uptime_secs: u64,
 }
@@ -33,7 +34,14 @@ pub struct DiskInfo {
     pub usage_percent: f64,
 }
 
-/// Collects system resource metrics (CPU, memory, disk).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NetworkInfo {
+    pub interface: String,
+    pub rx_bytes_per_sec: u64,
+    pub tx_bytes_per_sec: u64,
+}
+
+/// Collects system resource metrics (CPU, memory, disk, network).
 pub fn collect_system_resources(workspace: &Path) -> SystemResources {
     let mut sys = System::new_with_specifics(
         RefreshKind::nothing()
@@ -47,6 +55,21 @@ pub fn collect_system_resources(workspace: &Path) -> SystemResources {
     sys.refresh_memory();
 
     let disks = Disks::new_with_refreshed_list();
+
+    // 4. Network I/O. `refresh(true)` recomputes per-interface counters as
+    //    deltas since the last refresh, so received()/transmitted() read as
+    //    bytes/sec over the sleep interval above.
+    let mut networks = Networks::new_with_refreshed_list();
+    std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+    networks.refresh(true);
+    let network = networks
+        .iter()
+        .map(|(interface_name, data)| NetworkInfo {
+            interface: interface_name.to_string(),
+            rx_bytes_per_sec: data.received(),
+            tx_bytes_per_sec: data.transmitted(),
+        })
+        .collect::<Vec<_>>();
 
     // 1. Memory
     let total_bytes = sys.total_memory();
@@ -125,17 +148,18 @@ pub fn collect_system_resources(workspace: &Path) -> SystemResources {
         vec![]
     };
 
-    // 4. Load average
+    // 5. Load average
     let load = System::load_average();
     let load_avg = [load.one, load.five, load.fifteen];
 
-    // 5. Uptime
+    // 6. Uptime
     let uptime_secs = System::uptime();
 
     SystemResources {
         memory,
         cpu,
         disk: disk_info,
+        network,
         load_avg,
         uptime_secs,
     }

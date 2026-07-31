@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import type { AnalyticsPageProps, PieSlice } from '../types/index.ts'
-import { postQuery, type QueryResult } from './api.ts'
+import { useRef } from 'react'
+import type { AnalyticsPageProps } from '../types/index.ts'
+import { fetchResources, postQuery, type QueryResult } from './api.ts'
 import {
   placeholderAnalyticsMetrics,
   placeholderTimeRanges,
@@ -12,7 +13,13 @@ import {
   placeholderSortOptions,
 } from './placeholder-data.ts'
 import { useAgent } from '../context/AgentContext.tsx'
-import { httpArmPredicates } from '../lib/httpPredicates.ts'
+import {
+  buildAvgLatencyByServiceSql,
+  buildLatencyPercentilesSql,
+  buildStatusCodesSql,
+  parseAvgLatencyByService,
+  parseStatusCodes,
+} from '../lib/httpQueries.ts'
 
 const EMPTY_RESULT = {
   metrics: placeholderAnalyticsMetrics,
@@ -113,11 +120,14 @@ function parseSummaryMetrics(result: QueryResult): {
 
 export function useAnalytics(whereClause?: string): AnalyticsPageProps {
   const { connected } = useAgent()
+  const userInitiatedRef = useRef(false)
 
   const query = useQuery({
     queryKey: whereClause ? ['analytics', whereClause] : ['analytics'],
     queryFn: async () => {
       if (!connected) return EMPTY_RESULT
+      const userInitiated = userInitiatedRef.current
+      userInitiatedRef.current = false
       const w = whereClause ?? ''
       // Compose the optional user-provided WHERE clause as an AND predicate
       // for queries that already have their own WHERE clause.
@@ -180,65 +190,39 @@ export function useAnalytics(whereClause?: string): AnalyticsPageProps {
       // httpArmPredicates), so a filter narrows BOTH arms the same way instead
       // of silently applying to only one. json_get_str returns NULL for missing
       // keys/malformed JSON, so aggregates skip bad rows rather than failing
-      // the query.
-      const { spans: spansWhere, logs: httpLogsAnd, unsupported } = httpArmPredicates(w)
+      // the query. All three builders and parsers live in lib/httpQueries.ts so
+      // the Logs/Services pages reuse this exact implementation.
+      const latencyDual = buildLatencyPercentilesSql(w)
+      const statusCodeDual = buildStatusCodesSql(w)
+      const avgRespDual = buildAvgLatencyByServiceSql(w)
 
       // A clause that matches no known shape cannot be expressed against both
       // HTTP-data shapes. Running the queries would aggregate a skewed
       // population (the logs arm honoring it, the spans arm not), so skip the
       // three HTTP charts entirely and surface the gap loudly — a future filter
       // type needs an explicit case here, not silent degradation (Rule 8).
+      // All three builders share one predicate translation, so one report is
+      // enough.
+      const unsupported = latencyDual.unsupported
       if (unsupported.length > 0) {
         console.warn(
           `[analytics] skipping HTTP charts: ${unsupported.length} filter clause(s) cannot be ` +
             `translated to the spans/logs-attributes tables. Add a case to httpArmPredicates in ` +
-            `useAnalytics.ts. Unsupported clause(s): ${unsupported.join('; ')}`,
+            `httpPredicates.ts. Unsupported clause(s): ${unsupported.join('; ')}`,
         )
       }
       const httpDisabled = unsupported.length > 0
 
-      const latencySql = `
-        SELECT
-          approx_percentile_cont(latency_ms, 0.50) AS p50,
-          approx_percentile_cont(latency_ms, 0.90) AS p90,
-          approx_percentile_cont(latency_ms, 0.99) AS p99
-        FROM (
-          SELECT latency_ms FROM spans${spansWhere}
-          UNION ALL
-          SELECT CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
-          FROM logs WHERE logger_name = 'greplog.http'${httpLogsAnd}
-        ) t`
-
-      const statusCodeSql = `
-        SELECT status_code, sum(cnt) AS cnt FROM (
-          SELECT CAST(status_code AS VARCHAR) AS status_code, count(*) AS cnt
-          FROM spans${spansWhere} GROUP BY CAST(status_code AS VARCHAR)
-          UNION ALL
-          SELECT json_get_str(attributes, 'http.status_code') AS status_code, count(*) AS cnt
-          FROM logs WHERE logger_name = 'greplog.http'${httpLogsAnd}
-          GROUP BY json_get_str(attributes, 'http.status_code')
-        ) t GROUP BY status_code ORDER BY cnt DESC`
-
-      // SUM + COUNT (not AVG) so the per-service weighted average is exact even
-      // when a service has rows from both sources.
-      const avgRespSql = `
-        SELECT service, sum(latency_ms) AS sum_ms, count(*) AS cnt FROM (
-          SELECT service, latency_ms FROM spans${spansWhere}
-          UNION ALL
-          SELECT service, CAST(json_get_str(attributes, 'http.latency_ms') AS DOUBLE) AS latency_ms
-          FROM logs WHERE logger_name = 'greplog.http'${httpLogsAnd}
-        ) t GROUP BY service ORDER BY sum_ms / cnt DESC`
-
       const [summary, ingestion, errorRate, health, noisy, severity, latencyResult, statusCodeResult, avgRespResult] = await Promise.all([
-        postQuery(summarysql),
-        postQuery(ingestionSql),
-        postQuery(errorRateSql),
-        postQuery(healthSql),
-        postQuery(noisySql),
-        postQuery(severitySql),
-        httpDisabled ? Promise.resolve(null) : postQuery(latencySql),
-        httpDisabled ? Promise.resolve(null) : postQuery(statusCodeSql),
-        httpDisabled ? Promise.resolve(null) : postQuery(avgRespSql),
+        postQuery(summarysql, { userInitiated }),
+        postQuery(ingestionSql, { userInitiated }),
+        postQuery(errorRateSql, { userInitiated }),
+        postQuery(healthSql, { userInitiated }),
+        postQuery(noisySql, { userInitiated }),
+        postQuery(severitySql, { userInitiated }),
+        httpDisabled || !latencyDual.sql ? Promise.resolve(null) : postQuery(latencyDual.sql, { userInitiated }),
+        httpDisabled || !statusCodeDual.sql ? Promise.resolve(null) : postQuery(statusCodeDual.sql, { userInitiated }),
+        httpDisabled || !avgRespDual.sql ? Promise.resolve(null) : postQuery(avgRespDual.sql, { userInitiated }),
       ])
 
       const { totalEvents, totalErrors, activeServices, unhealthyServices } =
@@ -246,7 +230,9 @@ export function useAnalytics(whereClause?: string): AnalyticsPageProps {
 
       // ── Parse UNION-ALL HTTP results ─────────────────────────────────────
       // The spans and logs-attributes sources are already merged server-side,
-      // so each parser reads a single combined population.
+      // so each parser reads a single combined population. The status-code and
+      // per-service-latency parsers are the shared ones from lib/httpQueries.ts
+      // (same implementation the Logs/Services pages use).
       //
       // A NULL percentile means the combined source had no matching rows;
       // return an empty array so the chart renders ChartEmptyState instead of
@@ -263,44 +249,6 @@ export function useAnalytics(whereClause?: string): AnalyticsPageProps {
           p90: value('p90') === null ? [] : [value('p90') as number],
           p99: value('p99') === null ? [] : [value('p99') as number],
         }
-      }
-
-      function parseStatusCodes(result: QueryResult | null): PieSlice[] {
-        if (!result) return []
-        const codeIdx = result.columns.indexOf('status_code')
-        const cntIdx = result.columns.indexOf('cnt')
-        if (codeIdx < 0 || cntIdx < 0) return []
-        const colorMap: Record<number, string> = {
-          2: '#22c55e', 3: '#3b82f6', 4: '#f59e0b', 5: '#ef4444',
-        }
-        return result.rows.map((r) => {
-          const code = Number(r[codeIdx] ?? 0)
-          if (!Number.isFinite(code) || code === 0) return null
-          return {
-            name: String(code),
-            value: Number(r[cntIdx] ?? 0),
-            color: colorMap[Math.floor(code / 100)] ?? '#6b7280',
-          }
-        }).filter((s): s is PieSlice => s !== null)
-      }
-
-      // The query returns per-service SUM(latency_ms) and COUNT(*) (not AVG) so
-      // the weighted average is exact even when a service has rows from both
-      // sources; divide client-side.
-      function parseAvgResponseTime(result: QueryResult | null): { service: string; ms: number }[] {
-        if (!result) return []
-        const svcIdx = result.columns.indexOf('service')
-        const sumIdx = result.columns.indexOf('sum_ms')
-        const cntIdx = result.columns.indexOf('cnt')
-        if (svcIdx < 0 || sumIdx < 0 || cntIdx < 0) return []
-        return result.rows.map((r) => {
-          const sum = Number(r[sumIdx] ?? 0)
-          const cnt = Number(r[cntIdx] ?? 0)
-          return {
-            service: String(r[svcIdx] ?? ''),
-            ms: cnt > 0 ? Math.round((sum / cnt) * 100) / 100 : 0,
-          }
-        })
       }
 
       const overallErrorRate = totalEvents > 0 ? totalErrors / totalEvents : 0
@@ -320,7 +268,9 @@ export function useAnalytics(whereClause?: string): AnalyticsPageProps {
 
       const latencyData = latencyResult ? parseLatency(latencyResult) : { p50: [], p90: [], p99: [] }
       const statusCodeDistribution = statusCodeResult ? parseStatusCodes(statusCodeResult) : []
-      const avgResponseTimes = avgRespResult ? parseAvgResponseTime(avgRespResult) : []
+      const avgResponseTimes = avgRespResult
+        ? parseAvgLatencyByService(avgRespResult).map((s) => ({ service: s.service, ms: s.avg }))
+        : []
 
       // Update "Requests" metric to use real event count (same as total events for now)
       metrics[4] = { ...metrics[4], value: totalEvents >= 1000 ? `${(totalEvents / 1000).toFixed(1)}k` : String(totalEvents) }
@@ -346,10 +296,37 @@ export function useAnalytics(whereClause?: string): AnalyticsPageProps {
     enabled: connected,
   })
 
+  // System metrics come from the agent's host snapshot (/resources), polled
+  // on the same cadence as the page's live refresh. CPU/memory/disk are plain
+  // percentages; network is aggregate throughput (rx + tx) across interfaces.
+  // Each metric is a single-value series; SystemMetricsChart renders it as a
+  // gauge tile. Empty arrays mean "no data yet" (not zero) — Rule 8.
+  const resourcesQuery = useQuery({
+    queryKey: ['analytics', 'resources'],
+    queryFn: async () => {
+      if (!connected) return null
+      return await fetchResources()
+    },
+    enabled: connected,
+    refetchInterval: 5_000,
+  })
+
   const data = query.data ?? EMPTY_RESULT
+  const resources = resourcesQuery.data ?? null
+
+  const systemMetrics: AnalyticsPageProps['systemMetrics'] = {
+    cpu: resources ? [resources.cpu.global_usage_percent] : [],
+    memory: resources ? [resources.memory.usage_percent] : [],
+    diskIO: resources && resources.disk.length > 0 ? [resources.disk[0].usage_percent] : [],
+    network:
+      resources && resources.network.length > 0
+        ? [resources.network.reduce((sum, n) => sum + n.rx_bytes_per_sec + n.tx_bytes_per_sec, 0)]
+        : [],
+  }
 
   return {
     ...data,
+    systemMetrics,
     timeRanges: placeholderTimeRanges,
     services: placeholderServices,
     autoRefreshOptions: placeholderAutoRefreshOptions,
@@ -368,5 +345,9 @@ export function useAnalytics(whereClause?: string): AnalyticsPageProps {
     noisySort: 'logs',
     onNoisySortChange: () => {},
     refetch: query.refetch,
+    manualRefetch: () => {
+      userInitiatedRef.current = true
+      return query.refetch()
+    },
   }
 }

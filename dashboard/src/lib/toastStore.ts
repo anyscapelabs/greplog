@@ -30,6 +30,12 @@ export interface Toast {
 export interface ToastOpts {
   /** Background-style failures: dedupe + rate-limit identical repeats. */
   dedupeKey?: string
+  /**
+   * User-initiated action failure: bypass dedupe + cooldown entirely and show
+   * unconditionally (the user took an action and deserves the feedback). Such
+   * toasts carry no `dedupeKey`, so they never disturb background key-state.
+   */
+  userInitiated?: boolean
   /** Override the per-variant default duration. 0 = persistent. */
   durationMs?: number
 }
@@ -102,7 +108,13 @@ export function createToastStore(deps: ToastStoreDeps = {}): ToastStore {
   }
 
   const showError = (message: string, opts?: ToastOpts) => {
-    const { dedupeKey, durationMs } = opts ?? {}
+    const { dedupeKey, durationMs, userInitiated } = opts ?? {}
+    // User-initiated actions bypass all anti-spam rules and never carry a
+    // dedupeKey, so they cannot collide with or reset background key-state.
+    if (userInitiated) {
+      pushToast('error', message, undefined, durationMs ?? DEFAULT_ERROR_DURATION_MS)
+      return
+    }
     if (dedupeKey) {
       if (toasts.some((t) => t.dedupeKey === dedupeKey)) {
         console.log(`[toast] suppressed duplicate error (${dedupeKey}) — already showing`)
