@@ -34,7 +34,9 @@ export default function Logs() {
     filterSections,
     chartMetrics,
     groupByOptions,
+    charts,
     refetch,
+    manualRefetch,
   } = useLogs(predicate)
 
   const {
