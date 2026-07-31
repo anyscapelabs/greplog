@@ -1,13 +1,17 @@
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/logo/wordmark/wordmark-white.svg">
+    <img alt="Greplog" src="assets/branding/logo/wordmark/wordmark-black.svg" height="60">
+  </picture>
+</p>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/branding/logo/wordmark/wordmark-white.svg">
-  <img alt="Greplog" src="assets/branding/logo/wordmark/wordmark-black.svg" height="60">
-</picture>
+<p align="center">
+  [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+</p>
 
-Open-source observability for AI-assisted coders and small dev teams.
+<p align="center">Open-source observability for backend services — built for small dev teams and AI-assisted coders.</p>
 
-`npm i -g greplog && greplog dev` → dashboard in <60s. Zero Docker, zero config.
+<p align="center">`npm i -g greplog && greplog dev` → dashboard in <60s. Zero Docker, zero config.</p>
 
 - New to Greplog? Start with [What is Greplog?](#what-is-greplog) and [Quick start](#quick-start)
 - Ready to build from source? Jump to [Build from source](#build-from-source)
@@ -15,7 +19,7 @@ Open-source observability for AI-assisted coders and small dev teams.
 
 ## What is Greplog?
 
-Greplog is a local-first observability tool that captures logs, errors, and HTTP metrics from your services — no infrastructure, no agents, no cloud setup. It runs as a single Rust binary on your machine, serving a local React dashboard at `localhost:4317`.
+Greplog is a local-first observability tool for backend services — it captures logs, errors, and HTTP metrics from your APIs and workers, no infrastructure, no agents, no cloud setup. It runs as a single Rust binary on your machine, serving a local React dashboard at `localhost:4317`.
 
 It auto-detects your framework and attaches instrumentation via SDKs for **Node**, **Python**, **Go**, and **Rust**.
 
@@ -26,7 +30,7 @@ It auto-detects your framework and attaches instrumentation via SDKs for **Node*
 - **Incident reproduction:** Run `greplog dev` alongside your `docker-compose up`, reproduce the bug, and inspect every log, error, and HTTP call across every service.
 - **Lightweight production for small teams:** Self-hosted, no external dependencies, no telemetry leaving your machine.
 
-Greplog is designed for the **gap between `console.log` and a full observability stack**.
+Greplog is designed for the **gap between `console.log` and a full observability stack** — for the backend services doing the real work, not the frontend consuming them.
 
 ## Quick start
 
@@ -61,7 +65,7 @@ greplog.init()
 
 ```go
 // Go
-import "github.com/greplog/greplog-go/src"
+import "github.com/greplog/greplog-go"
 
 greplog.Init()
 ```
@@ -91,7 +95,7 @@ greplog::init();
 
 | Language | Package | Status |
 |----------|---------|--------|
-| Node/TypeScript | `@greplog/node` | ✅ Shipped |
+| Node/TypeScript | `greplog` (npm) | ✅ Shipped |
 | Python | `greplog` (PyPI) | ✅ Shipped |
 | Go | `github.com/greplog/greplog-go` | ✅ Shipped |
 | Rust | `greplog` (crates.io) | ✅ Shipped |
@@ -108,13 +112,13 @@ All SDKs:
 
 ```
            ┌─────────────────┐
-           │   Node App      │──UDS──┐
+           │   Node API      │──UDS──┐
            └─────────────────┘       │
            ┌─────────────────┐       │   ┌────────────────────────────────────┐
            │   Go API        │──UDS──├──▶│          Greplog Agent             │
            └─────────────────┘       │   │          (Rust daemon)             │
            ┌─────────────────┐       │   │                                    │
-           │   Python API    │──TCP──┘   │  ┌────────┐  ┌──────────────────┐  │
+           │   Python Worker │──TCP──┘   │  ┌────────┐  ┌──────────────────┐  │
            │   (Docker)      │ fallback  │  │ Ingest │─▶│ WAL + Dedup      │  │
            └─────────────────┘          │  │ UDS/TCP│  │ (crash-safe)      │  │
                                          │  └────────┘  └────────┬─────────┘  │
@@ -187,7 +191,7 @@ greplog/
 ├── cli/
 │   └── greplog-cli/         # CLI (`greplog dev`, `greplog init`, `greplog status`)
 ├── sdks/
-│   ├── node/               # @greplog/node
+│   ├── node/               # greplog (npm)
 │   ├── python/             # greplog (PyPI)
 │   ├── go/                 # github.com/greplog/greplog-go
 │   └── rust/               # greplog crate

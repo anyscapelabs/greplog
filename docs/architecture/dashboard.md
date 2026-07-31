@@ -6,7 +6,7 @@
 
 The core UX revolves around interleaved logs:
 
-- **Interleaved Log Explorer:** A single, chronological stream of all events from all connected services in the workspace. Sorting by timestamp ASC naturally aligns frontend requests, backend receptions, and DB queries.
+- **Interleaved Log Explorer:** A single, chronological stream of all events from all connected services in the workspace. Sorting by timestamp ASC naturally aligns requests and responses across services.
 - **Service Badges:** Every log row features a distinct color tag based on its `service_name` (e.g., a green `[web]` badge, blue `[api]` badge).
 
 > **Status:** ✅ Shipped (v0.1) — UI rendering complete, currently powered by placeholder data.
@@ -86,7 +86,8 @@ population server-side — no client-side merging:
 - **AvgResponseTime** — both arms project `service` + `latency_ms`; the outer query returns `SUM(latency_ms)` + `COUNT(*)` per service (weighted average is exact even when a service has rows from both sources).
 
 Each arm gets its **own translation of the user's filter predicate**
-(`httpArmPredicates` in `useAnalytics.ts`), so a filter narrows **both** arms
+(`httpArmPredicates` in `src/lib/httpPredicates.ts`, used by `useAnalytics.ts`),
+so a filter narrows **both** arms
 the same way — a filter that only applied to one arm would aggregate over a
 mathematically wrong mixed population. Translation rules:
 
@@ -112,6 +113,14 @@ mathematically wrong mixed population. Translation rules:
   queries are skipped and a console warning names the unhandled clause, so a
   future filter type must be added as an explicit case in `httpArmPredicates`
   instead of silently degrading to a skewed population.
+
+The translation helpers are pure functions extracted into
+`src/lib/httpPredicates.ts` and covered by `test/httpPredicates.test.ts`
+(`npm test`, run with Node's built-in test runner — no extra dependencies).
+The regression cases include the correlation_id matcher being bounded to a
+single pre-split clause (the greedy `.*` must not swallow a following
+predicate) and unrecognized shapes landing in `unsupported` rather than being
+silently ignored.
 
 `json_get_str` returns NULL for missing keys/malformed JSON, so bad rows are
 skipped by the aggregates rather than failing the query.

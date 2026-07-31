@@ -2,9 +2,11 @@
 
 What's built, what's in progress, and what's planned for Greplog.
 
+> **Version-phased view?** See [docs/product/release-roadmap.md](docs/product/release-roadmap.md) — it maps these component items to release milestones (`0.1.x`, `0.2.0`, …). Keep the two in sync: when an item here ships, check whether it completes a milestone there.
+
 ## Legend
 
-- ✅ **Shipped (v0.1)** — complete and tested
+- ✅ **Shipped** — complete and tested
 - 🚧 **In progress** — actively being worked on
 - 📋 **Planned** — designed but not started
 

@@ -2,7 +2,7 @@
 
 > **Status:** ✅ Shipped (v0.1)
 
-Open-source observability for AI-assisted coders and small dev teams.
+Open-source observability for backend services — built for small dev teams and AI-assisted coders.
 Core promise: `npm i -g greplog && greplog dev` → dashboard in <60s, zero Docker, zero config.
 
 ## High-Level System Map
@@ -12,7 +12,7 @@ Core promise: `npm i -g greplog && greplog dev` → dashboard in <60s, zero Dock
 │                             DEVELOPER MACHINE                                │
 │                                                                              │
 │  ┌───────────────┐         ┌──────────────────────────────────────────────┐  │
-│  │ Node App (UI) │──UDS───▶│              Greplog Agent                   │  │
+│  │ Node API      │──UDS───▶│              Greplog Agent                   │  │
 │  └───────────────┘         │              (Rust daemon)                   │  │
 │                            │                                              │  │
 │  ┌───────────────┐         │  ┌─────────┐  ┌──────────────────────────┐  │  │
