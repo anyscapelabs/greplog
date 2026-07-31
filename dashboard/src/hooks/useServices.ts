@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useCallback, useRef } from 'react'
+import { useRef } from 'react'
 import type { ServicesPageProps, ServiceEntry, ServiceCharts } from '../types/index.ts'
 import { classifyHealth } from '../types/index.ts'
 import { fetchDetect, postQuery, type DetectEntry } from './api.ts'
@@ -192,7 +192,7 @@ export function useServices(timeRange?: string): ServicesPageProps {
     sparkline: sparklineMap.get(s.name) ?? [],
   }))
 
-  function refetchServices() {
+  const refetchServices = () => {
     void detectQuery.refetch()
     void logQuery.refetch()
     void healthQuery.refetch()
@@ -200,10 +200,10 @@ export function useServices(timeRange?: string): ServicesPageProps {
     void latencyQuery.refetch()
   }
 
-  const manualRefetch = useCallback(() => {
+  const manualRefetch = () => {
     userInitiatedRef.current = true
     refetchServices()
-  }, [userInitiatedRef, refetchServices])
+  }
 
   const charts: ServiceCharts = {
     requests: services.map((s) => ({ service: s.name, count: s.eventCount, rate: s.eventCount })),

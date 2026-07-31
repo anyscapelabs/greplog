@@ -81,12 +81,11 @@ export default function Services() {
     return merged
   }, [filters.checked, filters.services])
 
-  const healthServiceMap: Record<string, string[]> = {
-    healthy: ['api', 'web'],
-    degraded: ['db'],
-  }
-
   const filteredServices = useMemo(() => {
+    const healthServiceMap: Record<string, string[]> = {
+      healthy: ['api', 'web'],
+      degraded: ['db'],
+    }
     const checkedIds = Object.entries(filters.checked)
       .filter(([, v]) => v)
       .map(([k]) => k)
@@ -96,7 +95,7 @@ export default function Services() {
     const allChecked = [...new Set([...filters.services, ...fromHealth])]
     if (allChecked.length === 0) return undefined
     return allChecked
-  }, [filters.services, filters.checked, healthServiceMap])
+  }, [filters.services, filters.checked])
 
   return (
     <div className="flex flex-col h-full">
