@@ -58,4 +58,28 @@ Per-service sparklines on Service Cards use the same time-bucketed query pattern
 
 Service Drawer Recent Errors and Related Logs sections reuse `useErrors()` and `useLogs()` hooks with a service-scoped WHERE clause — no separate query path.
 
-> **Status:** ✅ Sparklines and service-scoped queries shipped. Latency/percentile charts remain blocked on `spans` table availability.
+### Spans Table
+
+The `spans` table is fully implemented and queryable:
+- **13-column Arrow schema**: `id`, `correlation_id`, `parent_correlation_id`, `service`, `name`, `route`, `method`, `status_code` (Int32), `latency_ms` (Float64), `is_error` (Boolean), `start_time`/`end_time` (TimestampMicrosecond), `attributes`
+- Ingested via the same protobuf pipeline as logs, flushed to Parquet with Hive partitioning by `service`/`date`
+- Queryable via the same `/query` endpoint — `FROM spans` works identically to `FROM logs`
+- `approx_percentile_cont` is a built-in DataFusion aggregate function, available out of the box (no custom UDAF registration needed)
+
+Three Analytics charts depend on spans (LatencyPercentiles, StatusCodesPie, AvgResponseTime) — all now wired and live.
+
+### Analytics Charts (wired status)
+
+| Chart | Source | Status |
+|-------|--------|--------|
+| Log Ingestion Over Time | `logs` table, `GROUP BY date` | ✅ Wired |
+| Error Rate Over Time | `logs` table, error-filtered | ✅ Wired |
+| Latency Percentiles | `spans` table, `approx_percentile_cont` | ✅ Wired |
+| Service Health | `logs` table, per-service error breakdown | ✅ Wired |
+| Status Codes | `spans` table, `GROUP BY status_code` | ✅ Wired |
+| Top Noisy Services | `logs` table, top 5 by count | ✅ Wired |
+| Log Severity Distribution | `logs` table, `GROUP BY level` | ✅ Wired |
+| Avg Response Time | `spans` table, `AVG(latency_ms)` per service | ✅ Wired |
+| System Metrics | OS-level agent collection needed | 📋 Blocked |
+
+> **Status:** ✅ 8 of 9 Analytics charts wired. System Metrics blocked on new agent capability.

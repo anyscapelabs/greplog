@@ -72,7 +72,7 @@ function runNodeScript(scriptContent: string, fileName: string): Promise<void> {
 describe('E2E Capture Tests', () => {
   it('captures express, fastify, and raw http requests without framework-specific setup', async () => {
     const script = `
-      const greplog = require('../dist/index.js');
+      const { greplog } = require('../dist/index.js');
       const http = require('http');
       const express = require('express');
       const fastify = require('fastify')();
@@ -131,7 +131,7 @@ describe('E2E Capture Tests', () => {
 
   it('captures uncaught exceptions with stack trace and message', async () => {
     const script = `
-      const greplog = require('../dist/index.js');
+      const { greplog } = require('../dist/index.js');
       greplog.init({ tcpPort: ${agentPort}, serviceName: 'uncaught-test', socketPath: '/non/existent.sock' });
       
       setTimeout(() => {
@@ -158,7 +158,7 @@ describe('E2E Capture Tests', () => {
 
   it('captures unhandled rejections', async () => {
     const script = `
-      const greplog = require('../dist/index.js');
+      const { greplog } = require('../dist/index.js');
       greplog.init({ tcpPort: ${agentPort}, serviceName: 'unhandled-test', socketPath: '/non/existent.sock' });
       
       setTimeout(() => {
@@ -181,7 +181,7 @@ describe('E2E Capture Tests', () => {
 
   it('does not capture request/response body by default', async () => {
     const script = `
-      const greplog = require('../dist/index.js');
+      const { greplog } = require('../dist/index.js');
       const http = require('http');
 
       greplog.init({ tcpPort: ${agentPort}, serviceName: 'body-test', socketPath: '/non/existent.sock' });
@@ -214,7 +214,7 @@ describe('E2E Capture Tests', () => {
 
   it('console patching respects default level (warn/error forwarded, log not forwarded)', async () => {
     const script = `
-      const greplog = require('../dist/index.js');
+      const { greplog } = require('../dist/index.js');
       greplog.init({ tcpPort: ${agentPort}, serviceName: 'console-test', socketPath: '/non/existent.sock' });
 
       console.error('console error msg');
@@ -238,7 +238,7 @@ describe('E2E Capture Tests', () => {
 
   it('manual API works before and after init()', async () => {
     const script = `
-      const greplog = require('../dist/index.js');
+      const { greplog } = require('../dist/index.js');
 
       // Call before init()
       greplog.error('manual before init');
@@ -266,7 +266,7 @@ describe('E2E Capture Tests', () => {
 
   it('redaction applies uniformly to manual and auto-captured events', async () => {
     const script = `
-      const greplog = require('../dist/index.js');
+      const { greplog } = require('../dist/index.js');
       const http = require('http');
 
       greplog.init({ tcpPort: ${agentPort}, serviceName: 'redact-test', socketPath: '/non/existent.sock' });
@@ -306,7 +306,7 @@ describe('E2E Capture Tests', () => {
 
   it('init() is idempotent and does not double-register handlers', async () => {
     const script = `
-      const greplog = require('../dist/index.js');
+      const { greplog } = require('../dist/index.js');
 
       greplog.init({ tcpPort: ${agentPort}, serviceName: 'idempotent-test', socketPath: '/non/existent.sock' });
       greplog.init({ tcpPort: ${agentPort}, serviceName: 'idempotent-test', socketPath: '/non/existent.sock' });

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as http from 'http';
-import * as greplog from '../src/index';
+import { greplog } from '../src/index';
 
 describe('fail-open — no agent running', () => {
   beforeEach(() => {

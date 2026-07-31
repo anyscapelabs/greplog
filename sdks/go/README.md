@@ -5,7 +5,7 @@ Go SDK for Greplog — `greplog.Init()` with framework auto-detection and fail-o
 ## Usage
 
 ```go
-import greplog "github.com/greplog/greplog-go"
+import greplog "github.com/greplog/greplog-go/src"
 
 greplog.Init()
 greplog.Info("server started", greplog.Details{"port": "4000"})

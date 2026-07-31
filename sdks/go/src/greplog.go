@@ -3,7 +3,7 @@ Package greplog provides a Go SDK for the Greplog observability agent.
 
 Usage:
 
-	import "github.com/greplog/greplog-go"
+	import "github.com/greplog/greplog-go/src"
 
 	greplog.Init(&greplog.Options{ServiceName: "my-service"})
 	defer greplog.Shutdown()

@@ -56,15 +56,22 @@ What's built, what's in progress, and what's planned for Greplog.
 | Connect to real agent API | High | ✅ Done |
 | Live/refresh/auto-refresh unified mechanism | High | ✅ Done |
 | No fabricated chart data (honest empty states) | High | ✅ Done |
-| Analytics real data: ingestion, error rate, service health, noisy services, severity | High | 🚧 In progress (queries wired, chart stubs ready) |
-| Charts: latency percentiles, status codes, avg response time (require `spans` table) | Medium | 📋 Pending — needs `FROM spans` query support |
-| Charts: system metrics, service requests/latency by service | Low | 📋 Pending — needs new data source or spans integration |
+| Analytics: ingestion, error rate, service health, noisy services, severity | High | ✅ Done (queries + server-side aggregation) |
+| Analytics metrics (error rate %, active services, unhealthy count, total events) | High | ✅ Done — all computed server-side via DataFusion `GROUP BY`/`COUNT`/`SUM`/subquery |
+| `totalLogs`/`totalErrors` correct server-side count (not paginated slice length) | High | ✅ Done — parallel `COUNT(*)` query in `useLogs` + `useErrors` |
+| Metrics computed server-side (error rate ratio, healthy count) | High | ✅ Done — `CAST(errors AS DOUBLE) / CAST(total AS DOUBLE) AS error_rate`, `count(*) - count(*) FILTER(...) AS healthy` in SQL, no frontend ratio computation |
+| Analytics charts: latency percentiles, status codes, avg response time | Medium | ✅ Done — `spans` table was already fully implemented (13-column schema, ingested, flushed to Parquet, queryable via `/query`) |
+| Analytics chart: system metrics (CPU, memory, disk, network) | Low | 📋 Pending — needs new agent capability (OS-level metric collection), not a query/wiring task |
+| Logs page charts (LogVolume, Errors, StatusCodes) | Medium | 📋 Pending — query engine aggregation confirmed; `volumeTimeseries`/`errorTimeseries` already fetched by `useLogs`, chart components need wiring. `StatusCodesChart` blocked on `spans` table access from Logs page |
+| Errors page charts (ErrorCount, ErrorRate, ErrorByService) | Medium | 📋 Pending — query engine aggregation confirmed; per-date and per-service queries already in `useErrors`, chart components need wiring |
+| Services page charts (RequestsByService, ErrorRateByService) | Medium | 📋 Pending — query engine aggregation confirmed; data available via health query, chart components need wiring |
+| Services page chart: AvgLatencyByService | Medium | 📋 Pending — needs `FROM spans` query wired into `useServices` |
 | Errors page (wired filtering) | Medium | ✅ Done |
 | Services page (sidebar filtering) | Medium | ✅ Done |
 | Service Cards: sparklines from time-bucketed queries | Medium | ✅ Done |
 | ServicesDrawer: Recent Errors from `useErrors` + Related Logs from `useLogs` | Medium | ✅ Done |
 | Service Details: honest "Streaming since" proxy from `MIN(timestamp)` | Medium | ✅ Done |
-| Sidebar filter real counts from query | Medium | 📋 Pending — plug filter-section aggregation queries |
+| Sidebar filter real counts from query | Medium | 📋 Next — aggregation groundwork now in place; requires `GROUP BY level`, `GROUP BY service` queries wired into filter sidebar |
 | Service version/hostname in Service Details | Low | 📋 Pending — requires cross-SDK protocol change (new handshake field) |
 | Traces page | Medium | 📋 Pending |
 | Views page (saved filters) | Medium | 📋 Pending |

@@ -59,7 +59,7 @@ go get github.com/greplog/greplog-go
 ```
 
 ```go
-import greplog "github.com/greplog/greplog-go"
+import greplog "github.com/greplog/greplog-go/src"
 
 greplog.Init(&greplog.Options{ServiceName: "my-service"})
 greplog.Info("server started")

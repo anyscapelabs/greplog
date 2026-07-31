@@ -65,9 +65,30 @@ A background compaction scheduler runs on a configurable interval (default: ever
 
 The dashboard doesn't talk to Parquet directly. The agent exposes a small HTTP query API (`POST /query`) served by the `query_engine` module:
 
-- **Data sources:** Reads from both the in-memory Arrow buffer (unflushed events) and on-disk Parquet files via the `parquet` crate's `SerializedFileReader`.
-- **Filter pushdown:** Filters (service name, level, time range) are pushed down to Parquet row-group metadata where possible.
-- **Aggregations:** Latency percentiles and error rates are computed by scanning the relevant row groups.
+- **Backend:** [DataFusion](https://datafusion.apache.org/) — a full, in-process SQL execution engine on top of Apache Arrow. The query engine is stateless; each request is a fresh planning + execution pass.
+- **Data sources:** The registered `logs`, `spans`, and `metrics` tables are backed by `ListingTable` (Hive-partitioned Parquet files on disk). The in-memory Arrow buffer is **not** currently merged into query results — unflushed events (< 2s old) are invisible to queries. This is a known limitation documented in the flush cycle (§4 above).
+- **Supported SQL features (confirmed in production):**
+  - `SELECT`, `WHERE`, `ORDER BY`, `LIMIT`, `DISTINCT`
+  - `GROUP BY` with any column combination including Hive partition columns (`service`, `date`)
+  - Aggregate functions: `COUNT(*)`, `COUNT(*) FILTER (WHERE ...)`, `SUM(...)`, `MIN(...)`, `MAX(...)`, `AVG(...)`
+  - Arithmetic in SELECT expressions: `CAST(x AS DOUBLE) / CAST(y AS DOUBLE) AS ratio` — used for server-side error-rate computation
+  - `FLOOR(...)` for bucket arithmetic on timestamp columns
+  - Scalar subqueries (`SELECT ... FROM (SELECT ... GROUP BY ...) sub`)
+  - `IN (...)` predicates
+  - `approx_percentile_cont(col, p)` — built-in DataFusion aggregate (no custom UDAF), used by latency percentile chart
+- **Confirmed not available:**
+  - DDL (`CREATE TABLE`, `DROP TABLE`, `ALTER`) — rejected at plan time
+  - DML (`INSERT`, `UPDATE`, `DELETE`) — rejected at plan time
+  - Exact percentile functions (`PERCENTILE_CONT`, `PERCENTILE_DISC`) — only `approx_percentile_cont` is available
+- **Table status:**
+  - `logs` — fully implemented (14-column schema, ingested, flushed, queryable)
+  - `spans` — fully implemented (13-column schema: `id`, `correlation_id`, `parent_correlation_id`, `service`, `name`, `route`, `method`, `status_code` Int32, `latency_ms` Float64, `is_error` Boolean, `start_time`/`end_time` TimestampMicrosecond, `attributes`; ingested by Rust SDK and benchmark, flushed to Parquet, queryable)
+  - `metrics` — registered but empty (no metric ingestion yet)
+- **Row cap:** 10,000 rows per query (applied automatically; a smaller `LIMIT` in user SQL takes precedence).
+- **Timeout:** 30 seconds per query.
+- **Memory:** 256 MiB pool; DataFusion returns a clean error rather than OOM-killing on overage.
+- **Mutation safety:** `SQLOptions` disables DDL, DML, and `COPY` at the logical-plan level before execution.
+- **File-list cache:** 10-second TTL (see `LIST_FILES_CACHE_TTL_SECS` in `query_engine.rs` for rationale). New Parquet files become visible within one compaction cycle.
 
 ## Crash Recovery Sequence
 

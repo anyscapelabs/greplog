@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import type { AnalyticsPageProps } from '../types/index.ts'
+import type { AnalyticsPageProps, PieSlice } from '../types/index.ts'
 import { postQuery, type QueryResult } from './api.ts'
 import {
   placeholderAnalyticsMetrics,
@@ -33,7 +33,7 @@ function parseCountTimeseries(result: QueryResult): AnalyticsPageProps['ingestio
   const cntIdx = idx('cnt')
   if (tsIdx < 0 || cntIdx < 0) return []
   return result.rows.map((r) => ({
-    timestamp: r[tsIdx] ?? '',
+    timestamp: String(r[tsIdx] ?? ''),
     value: Number(r[cntIdx] ?? 0),
   }))
 }
@@ -41,25 +41,15 @@ function parseCountTimeseries(result: QueryResult): AnalyticsPageProps['ingestio
 function parseServiceHealth(result: QueryResult): AnalyticsPageProps['serviceHealthData'] {
   const idx = (name: string) => result.columns.indexOf(name)
   const svcIdx = idx('service')
-  const totalIdx = idx('total')
+  const healthyIdx = idx('healthy')
   const errIdx = idx('errors')
-  if (svcIdx < 0 || totalIdx < 0 || errIdx < 0) return []
-  return result.rows.map((r) => {
-    const total = Number(r[totalIdx] ?? 0)
-    const errors = Number(r[errIdx] ?? 0)
-    const nonErrors = total - errors
-    // Map into the ServiceHealthEntry shape the chart expects:
-    //   healthy  = non-error, non-warn events (info + debug)
-    //   degraded = warn events (approximated as 0 here since we only have total vs errors)
-    //   down     = error/critical/fatal events
-    // Using total vs errors gives an honest chart without a third SQL column.
-    return {
-      name: String(r[svcIdx] ?? ''),
-      healthy: nonErrors,
-      degraded: 0,
-      down: errors,
-    }
-  })
+  if (svcIdx < 0 || healthyIdx < 0 || errIdx < 0) return []
+  return result.rows.map((r) => ({
+    name: String(r[svcIdx] ?? ''),
+    healthy: Number(r[healthyIdx] ?? 0),
+    degraded: 0,
+    down: Number(r[errIdx] ?? 0),
+  }))
 }
 
 function parseNoisyServices(result: QueryResult): AnalyticsPageProps['noisyServices'] {
@@ -163,8 +153,8 @@ export function useAnalytics(whereClause?: string): AnalyticsPageProps {
       const healthSql = `
         SELECT
           service,
-          count(*)                                                       AS total,
-          count(*) FILTER (WHERE level IN ('error','critical','fatal'))  AS errors
+          count(*) - count(*) FILTER (WHERE level IN ('error','critical','fatal'))  AS healthy,
+          count(*) FILTER (WHERE level IN ('error','critical','fatal'))             AS errors
         FROM logs ${w}
         GROUP BY service`
 
@@ -174,17 +164,70 @@ export function useAnalytics(whereClause?: string): AnalyticsPageProps {
       // 6. Severity distribution (count per level)
       const severitySql = `SELECT level, count(*) AS cnt FROM logs ${w} GROUP BY level ORDER BY cnt DESC`
 
-      const [summary, ingestion, errorRate, health, noisy, severity] = await Promise.all([
+      // ── Spans queries (3) ─────────────────────────────────────────────────
+      // These are best-effort — if the predicate references columns that don't
+      // exist in the spans table (e.g. `level`), postQuery returns null and
+      // the charts fall back to ChartEmptyState.
+      const spansAnd = w ? ` WHERE ${w.replace(/^WHERE\s+/i, '')}` : ''
+      const latencySql = `SELECT approx_percentile_cont(latency_ms, 0.50) AS p50, approx_percentile_cont(latency_ms, 0.90) AS p90, approx_percentile_cont(latency_ms, 0.99) AS p99 FROM spans${spansAnd}`
+      const statusCodeSql = `SELECT status_code, count(*) AS cnt FROM spans${spansAnd} GROUP BY status_code ORDER BY cnt DESC`
+      const avgRespSql = `SELECT service, avg(latency_ms) AS avg_ms FROM spans${spansAnd} GROUP BY service ORDER BY avg_ms DESC`
+
+      const [summary, ingestion, errorRate, health, noisy, severity, latencyResult, statusCodeResult, avgRespResult] = await Promise.all([
         postQuery(summarysql),
         postQuery(ingestionSql),
         postQuery(errorRateSql),
         postQuery(healthSql),
         postQuery(noisySql),
         postQuery(severitySql),
+        postQuery(latencySql),
+        postQuery(statusCodeSql),
+        postQuery(avgRespSql),
       ])
 
       const { totalEvents, totalErrors, activeServices, unhealthyServices } =
         summary ? parseSummaryMetrics(summary) : { totalEvents: 0, totalErrors: 0, activeServices: 0, unhealthyServices: 0 }
+
+      // ── Parse spans results ─────────────────────────────────────────────
+      function parseLatency(result: QueryResult | null): { p50: number[]; p90: number[]; p99: number[] } {
+        if (!result || !result.rows[0]) return { p50: [], p90: [], p99: [] }
+        const idx = (name: string) => result.columns.indexOf(name)
+        return {
+          p50: [Number(result.rows[0][idx('p50')] ?? 0)],
+          p90: [Number(result.rows[0][idx('p90')] ?? 0)],
+          p99: [Number(result.rows[0][idx('p99')] ?? 0)],
+        }
+      }
+
+      function parseStatusCodes(result: QueryResult | null): PieSlice[] {
+        if (!result) return []
+        const codeIdx = result.columns.indexOf('status_code')
+        const cntIdx = result.columns.indexOf('cnt')
+        if (codeIdx < 0 || cntIdx < 0) return []
+        const colorMap: Record<number, string> = {
+          2: '#22c55e', 3: '#3b82f6', 4: '#f59e0b', 5: '#ef4444',
+        }
+        return result.rows.map((r) => {
+          const code = Number(r[codeIdx] ?? 0)
+          const prefix = Math.floor(code / 100)
+          return {
+            name: String(code),
+            value: Number(r[cntIdx] ?? 0),
+            color: colorMap[prefix] ?? '#6b7280',
+          }
+        })
+      }
+
+      function parseAvgResponseTime(result: QueryResult | null): { service: string; ms: number }[] {
+        if (!result) return []
+        const svcIdx = result.columns.indexOf('service')
+        const msIdx = result.columns.indexOf('avg_ms')
+        if (svcIdx < 0 || msIdx < 0) return []
+        return result.rows.map((r) => ({
+          service: String(r[svcIdx] ?? ''),
+          ms: Math.round(Number(r[msIdx] ?? 0) * 100) / 100,
+        }))
+      }
 
       const overallErrorRate = totalEvents > 0 ? totalErrors / totalEvents : 0
 
@@ -201,17 +244,28 @@ export function useAnalytics(whereClause?: string): AnalyticsPageProps {
         { title: 'P.95 latency', value: 'N/A', color: '#d97706', rgb: '217, 119, 6', sparkline: [] as number[] },
       ]
 
+      const latencyData = latencyResult ? parseLatency(latencyResult) : { p50: [], p90: [], p99: [] }
+      const statusCodeDistribution = statusCodeResult ? parseStatusCodes(statusCodeResult) : []
+      const avgResponseTimes = avgRespResult ? parseAvgResponseTime(avgRespResult) : []
+
+      // Update "Requests" metric to use real event count (same as total events for now)
+      metrics[4] = { ...metrics[4], value: totalEvents >= 1000 ? `${(totalEvents / 1000).toFixed(1)}k` : String(totalEvents) }
+      // Update "P.95 latency" metric using real p90 latency data
+      if (latencyData.p90.length > 0) {
+        metrics[5] = { ...metrics[5], value: `${latencyData.p90[0].toFixed(0)}ms` }
+      }
+
       return {
         metrics,
         ingestionTimeseries: ingestionTs,
         errorRateTimeseries: errorTs,
-        latencyData: { p50: [], p90: [], p99: [] },
+        latencyData,
         serviceHealthData: health ? parseServiceHealth(health) : [],
-        statusCodeDistribution: [],
+        statusCodeDistribution,
         noisyServices: noisy ? parseNoisyServices(noisy) : [],
         severityDistribution: severity ? parseSeverityDistribution(severity) : [],
         systemMetrics: { cpu: [], memory: [], diskIO: [], network: [] },
-        avgResponseTimes: [],
+        avgResponseTimes,
         isWaiting: false,
       }
     },

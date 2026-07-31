@@ -61,7 +61,7 @@ greplog.init()
 
 ```go
 // Go
-import "github.com/greplog/greplog-go"
+import "github.com/greplog/greplog-go/src"
 
 greplog.Init()
 ```

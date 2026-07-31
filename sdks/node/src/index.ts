@@ -42,23 +42,23 @@ function buildEvent(
   }
 }
 
-export function error(message: string, details?: Record<string, string>): void {
+function error(message: string, details?: Record<string, string>): void {
   buildEvent(message, 'error', details);
 }
 
-export function warn(message: string, details?: Record<string, string>): void {
+function warn(message: string, details?: Record<string, string>): void {
   buildEvent(message, 'warn', details);
 }
 
-export function info(message: string, details?: Record<string, string>): void {
+function info(message: string, details?: Record<string, string>): void {
   buildEvent(message, 'info', details);
 }
 
-export function debug(message: string, details?: Record<string, string>): void {
+function debug(message: string, details?: Record<string, string>): void {
   buildEvent(message, 'debug', details);
 }
 
-export function init(options?: GreplogOptions): void {
+function init(options?: GreplogOptions): void {
   try {
     if (state.initialized) return;
     state.initialized = true;
@@ -100,7 +100,7 @@ export function init(options?: GreplogOptions): void {
   }
 }
 
-export function shutdown(): void {
+function shutdown(): void {
   try {
     if (state.transport) {
       state.transport.destroy();
@@ -112,7 +112,7 @@ export function shutdown(): void {
   }
 }
 
-export function resetState(): void {
+function resetState(): void {
   shutdown();
   state.config = null;
   state.eventQueue = [];
@@ -130,6 +130,4 @@ export const greplog = {
   shutdown,
   resetState,
 };
-
-export default greplog;
 

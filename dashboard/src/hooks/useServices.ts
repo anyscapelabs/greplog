@@ -94,17 +94,18 @@ export function useServices(timeRange?: string): ServicesPageProps {
       if (!connected) return []
       const nowMicros = Date.now() * 1_000
       const result = await postQuery(
-        `SELECT service, count(*) AS total, count(*) FILTER (WHERE level = 'error') AS errors, MIN(timestamp) AS first_seen FROM logs WHERE timestamp > ${nowMicros - windowNs / 1_000} GROUP BY service`,
+        `SELECT service, count(*) AS total, count(*) FILTER (WHERE level = 'error') AS errors, CAST(count(*) FILTER (WHERE level = 'error') AS DOUBLE) / CAST(count(*) AS DOUBLE) AS error_rate, MIN(timestamp) AS first_seen FROM logs WHERE timestamp > ${nowMicros - windowNs / 1_000} GROUP BY service`,
       )
       if (!result) return []
       const errIdx = result.columns.indexOf('errors')
       const totalIdx = result.columns.indexOf('total')
       const svcIdx = result.columns.indexOf('service')
       const fsIdx = result.columns.indexOf('first_seen')
+      const rateIdx = result.columns.indexOf('error_rate')
       if (svcIdx < 0 || totalIdx < 0 || errIdx < 0) return []
       return result.rows.map((r) => ({
         service: String(r[svcIdx] ?? ''),
-        errorRate: totalIdx >= 0 && Number(r[totalIdx]) > 0 ? Number(r[errIdx]) / Number(r[totalIdx]) : 0,
+        errorRate: rateIdx >= 0 ? Number(r[rateIdx] ?? 0) : 0,
         eventCount: Number(r[totalIdx] ?? 0),
         firstSeen: fsIdx >= 0 ? Number(r[fsIdx] ?? 0) : 0,
       }))

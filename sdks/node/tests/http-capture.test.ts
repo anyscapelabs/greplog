@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as http from 'http';
-import * as greplog from '../src/index';
+import { greplog } from '../src/index';
 
 function request(server: http.Server, path: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {

@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { greplog, resetState } from '../src/index';
-import defaultGreplog from '../src/index';
+import { greplog } from '../src/index';
 
 describe('manual API', () => {
   beforeEach(() => {
-    resetState();
+    greplog.resetState();
   });
 
   it('exports all four level functions on named greplog object', () => {
@@ -13,14 +12,6 @@ describe('manual API', () => {
     expect(typeof greplog.info).toBe('function');
     expect(typeof greplog.debug).toBe('function');
     expect(typeof greplog.init).toBe('function');
-  });
-
-  it('exports all four level functions on default greplog export', () => {
-    expect(typeof defaultGreplog.error).toBe('function');
-    expect(typeof defaultGreplog.warn).toBe('function');
-    expect(typeof defaultGreplog.info).toBe('function');
-    expect(typeof defaultGreplog.debug).toBe('function');
-    expect(typeof defaultGreplog.init).toBe('function');
   });
 
   it('accepts details parameter optionally and fails open without init()', () => {

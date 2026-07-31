@@ -41,7 +41,7 @@ greplog::init_with_config(greplog::Config { service: Some("my-app".into()), ..De
 ### Go
 
 ```go
-import greplog "github.com/greplog/greplog-go"
+import greplog "github.com/greplog/greplog-go/src"
 
 greplog.Init()
 // or with options:
@@ -305,7 +305,7 @@ greplog::info!("server started");
 ### Go — 2-line setup
 
 ```go
-import greplog "github.com/greplog/greplog-go"
+import greplog "github.com/greplog/greplog-go/src"
 
 greplog.Init()
 greplog.Info("server started")

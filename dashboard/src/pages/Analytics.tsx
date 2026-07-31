@@ -30,6 +30,14 @@ export default function Analytics() {
     latencyOptions,
     sortOptions,
     refetch,
+    ingestionTimeseries,
+    errorRateTimeseries,
+    latencyData,
+    serviceHealthData,
+    statusCodeDistribution,
+    noisyServices,
+    severityDistribution,
+    avgResponseTimes,
   } = useAnalytics(predicate)
 
   const {
@@ -91,7 +99,7 @@ export default function Analytics() {
             dropdownValue={ingestionMetric}
             onDropdownChange={setIngestionMetric}
           >
-            <IngestionChart />
+            <IngestionChart data={ingestionTimeseries} />
           </AnalyticsChartPanel>
         </div>
         <div className="grid grid-cols-2 gap-0.5 mt-0.5">
@@ -101,7 +109,7 @@ export default function Analytics() {
             dropdownValue={errorRateMetric}
             onDropdownChange={setErrorRateMetric}
           >
-            <ErrorOverTimeChart />
+            <ErrorOverTimeChart data={errorRateTimeseries} />
           </AnalyticsChartPanel>
           <AnalyticsChartPanel
             title="Latency Percentiles"
@@ -109,12 +117,12 @@ export default function Analytics() {
             dropdownValue={latencyView}
             onDropdownChange={setLatencyView}
           >
-            <LatencyPercentilesChart />
+            <LatencyPercentilesChart p50={latencyData.p50} p90={latencyData.p90} p99={latencyData.p99} labels={['p50', 'p90', 'p99']} />
           </AnalyticsChartPanel>
         </div>
         <div className="grid grid-cols-3 gap-0.5 mt-0.5 pb-0.5">
           <AnalyticsChartPanel title="Service Health">
-            <ServiceHealthChart />
+            <ServiceHealthChart services={serviceHealthData} />
           </AnalyticsChartPanel>
           <AnalyticsChartPanel
             title="Status Codes"
@@ -122,7 +130,7 @@ export default function Analytics() {
             dropdownValue={statusCodeMetric}
             onDropdownChange={setStatusCodeMetric}
           >
-            <StatusCodesPieChart />
+            <StatusCodesPieChart data={statusCodeDistribution} />
           </AnalyticsChartPanel>
           <AnalyticsChartPanel
             title="Top Noisy Services"
@@ -130,18 +138,18 @@ export default function Analytics() {
             dropdownValue={noisySort}
             onDropdownChange={setNoisySort}
           >
-            <NoisyServicesChart />
+            <NoisyServicesChart data={noisyServices.map(s => ({ label: s.name, value: s.count }))} />
           </AnalyticsChartPanel>
         </div>
         <div className="grid grid-cols-3 gap-0.5 mt-0.5 pb-0.5">
           <AnalyticsChartPanel title="Log Severity Distribution">
-            <SeverityChart />
+            <SeverityChart data={severityDistribution} />
           </AnalyticsChartPanel>
           <AnalyticsChartPanel title="System Metrics">
-            <SystemMetricsChart />
+            <SystemMetricsChart cpu={[]} memory={[]} diskIO={[]} network={[]} />
           </AnalyticsChartPanel>
           <AnalyticsChartPanel title="Avg Response Time">
-            <AvgResponseTimeChart />
+            <AvgResponseTimeChart data={avgResponseTimes.map(s => ({ label: s.service, value: s.ms }))} />
           </AnalyticsChartPanel>
         </div>
       </div>
