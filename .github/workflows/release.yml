@@ -1,0 +1,181 @@
+# Release workflow for the Greplog monorepo.
+#
+# Versioning: a single unified git tag (`v*`, e.g. `v0.1.3`) versions the
+# agent, CLI, and all SDKs together — consistent with the monorepo decision
+# (components are not yet split into separate repos). The tag IS the version;
+# there is no per-component version file to bump.
+#
+# CLI distribution: the npm-wrapper CLI package has been REMOVED (see
+# docs/adr/0010-cli-shell-installer.md). There is intentionally NO npm publish
+# job for a CLI wrapper below — the only Node publishing job is
+# `publish-npm-sdk`, which publishes the `greplog` SDK package from
+# sdks/node/, a different package from the removed CLI wrapper.
+#
+# Asset naming (produced by build-binaries, consumed by install.sh and
+# documented in docs/distribution/precompiled-binaries.md):
+#   greplog-<target>            e.g. greplog-x86_64-unknown-linux-gnu
+#   greplog-agent-<target>      e.g. greplog-agent-aarch64-apple-darwin
+#   checksums.txt               sha256 of every asset in the release
+# install.sh MUST NOT diverge from these names (ADR-0010).
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-binaries:
+    name: build binaries (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use-cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use-cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            use-cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use-cross: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      # greplog-core generates protobuf bindings at build time via prost-build
+      # (crates/greplog-core/build.rs), which invokes `protoc`.
+      - uses: taiki-e/install-action@protoc
+      # aarch64-unknown-linux-gnu is cross-compiled with `cross` (Docker-based
+      # cross-compiler); the other targets build natively (ubuntu/macos
+      # runners already match their target arch or can cross-build the second
+      # Apple arch via rustup targets + the Xcode SDKs).
+      - name: Install cross (aarch64-unknown-linux-gnu only)
+        if: matrix.use-cross
+        uses: taiki-e/install-action@cross
+      - name: Build greplog-agent + greplog-cli
+        if: matrix.use-cross
+        run: cross build --release -p greplog-agent -p greplog-cli --target ${{ matrix.target }}
+      - name: Build greplog-agent + greplog-cli
+        if: ${{ !matrix.use-cross }}
+        run: cargo build --release -p greplog-agent -p greplog-cli --target ${{ matrix.target }}
+      - name: Stage release assets
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/greplog" "dist/greplog-${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/greplog-agent" "dist/greplog-agent-${{ matrix.target }}"
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.target }}
+          path: dist/*
+
+  # Checksums are generated AFTER the matrix completes, in one place, so that
+  # a single checksums.txt covers all eight assets. Generating one per matrix
+  # job and uploading concurrently would race on the same filename.
+  checksums-and-release:
+    name: generate checksums.txt + create GitHub Release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: binaries-*
+          merge-multiple: true
+      # Checksum verification is a hard requirement (ADR-0010): install.sh
+      # refuses to install a binary whose sha256 does not match this file.
+      - name: Generate checksums.txt
+        working-directory: dist
+        run: sha256sum * > checksums.txt
+      - name: Print checksums.txt
+        working-directory: dist
+        run: cat checksums.txt
+      - name: Create release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+
+  publish-npm-sdk:
+    name: publish greplog (npm SDK)
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - name: Install deps
+        working-directory: sdks/node
+        run: npm ci
+      # `npm publish` runs prepublishOnly (tsc) before publishing.
+      - name: Publish
+        working-directory: sdks/node
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-pypi-sdk:
+    name: publish greplog (PyPI SDK)
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build + twine
+        run: python -m pip install build twine
+      - name: Build sdist + wheel
+        working-directory: sdks/python
+        run: python -m build
+      - name: Upload to PyPI
+        working-directory: sdks/python
+        run: twine upload dist/*
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+      # Preferred alternative: PyPI trusted publishing (OIDC) — a
+      # trusted-publisher environment with pypa/gh-action-pypi-publish needs no
+      # stored token. Recommend moving to it before the first real release.
+
+  publish-crates-sdk:
+    name: publish greplog + greplog-core (crates.io)
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # greplog-core generates protobuf bindings at build time via prost-build.
+      - uses: taiki-e/install-action@protoc
+      # Ordering requirement: the Rust SDK (sdks/rust, package "greplog")
+      # depends on greplog-core via a path dependency
+      # (../../crates/greplog-core). Cargo substitutes a published version for
+      # a path dependency at publish time, so greplog-core MUST already be on
+      # crates.io before the SDK crate is published — hence greplog-core is
+      # published first, in the same job (both go to the same registry).
+      - name: Publish greplog-core
+        run: cargo publish -p greplog-core
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - name: Publish greplog SDK
+        working-directory: sdks/rust
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # publish-go: intentionally omitted. There is no Go package to upload — the
+  # tag IS the Go publish event: proxy.golang.org indexes
+  # github.com/greplog/greplog-go lazily on the first `go get` of a tagged
+  # version.

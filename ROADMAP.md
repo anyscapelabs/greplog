@@ -344,7 +344,8 @@ hardening or as a short-lived adjacent effort.
 | Precompiled binaries (Linux, macOS) | High | ✅ Done |
 | Homebrew formula | Medium | 📋 Pending |
 | Windows native (non-WSL2) | Low | 📋 Pending |
-| npm package (CLI) | Low | ⏸️ On hold — superseded by the `curl \| sh` installer; no npm wrapper for the CLI. Revisit only if a use case genuinely requires npm-based CLI distribution. |
+| npm package (CLI) | Low | ⏸️ On hold — removed, superseded by the shell-script installer (ADR-0010); no npm wrapper exists for the CLI. Revisit only via a new ADR if npm-based CLI distribution is ever genuinely required. |
+| `get.greplog.dev` redirect for the installer one-liner | Low | 📋 Pending — `install.sh` is served from the raw GitHub URL until a domain is available (follow-up, not implemented now) |
 
 ## Performance (baseline)
 

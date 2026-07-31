@@ -10,10 +10,10 @@ Get Greplog running on your machine in under 60 seconds.
 ## Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/greplog/greplog/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/greplog/greplog/main/install.sh | sh
 ```
 
-The installer downloads the precompiled agent binary for your platform into `~/.greplog/bin/` and puts it on your `PATH`. See [distribution/precompiled-binaries.md](distribution/precompiled-binaries.md) for details.
+The installer downloads the precompiled `greplog` CLI binary for your platform into `~/.greplog/bin/` (verifying its sha256 against the release checksums) and puts it on your `PATH`. See [distribution/precompiled-binaries.md](distribution/precompiled-binaries.md) for details.
 
 ## Start
 

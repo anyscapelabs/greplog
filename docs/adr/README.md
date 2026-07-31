@@ -15,6 +15,7 @@ Numbered, dated records of significant architectural decisions. Each ADR is a sh
 | 0007 | [Dedup — Content-Addressed BLAKE3](0007-dedup-content-addressed.md) | 2026-03-01 | Accepted |
 | 0008 | [Compaction — Background, Idempotent](0008-compaction-background-idempotent.md) | 2026-03-01 | Accepted |
 | 0009 | [SDK Startup — Fail-Open](0009-sdk-startup-fail-open.md) | 2026-03-01 | Accepted |
+| 0010 | [CLI Distribution — Shell-Script Installer](0010-cli-shell-installer.md) | 2026-07-31 | Accepted |
 
 ## Adding a new ADR
 
