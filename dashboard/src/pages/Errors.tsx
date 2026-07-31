@@ -34,7 +34,9 @@ export default function Errors() {
     filterSections,
     chartMetrics,
     groupByOptions,
+    charts,
     refetch,
+    manualRefetch,
   } = useErrors(predicate)
 
   const {
@@ -43,7 +45,7 @@ export default function Errors() {
     manualRefresh,
     autoRefresh,
     setAutoRefresh,
-  } = useRefreshControl(refetch)
+  } = useRefreshControl(refetch, { manualRefetch })
 
   const [filterOpen, setFilterOpen] = useState(true)
   const [chart1Metric, setChart1Metric] = useState('count')
@@ -150,7 +152,7 @@ export default function Errors() {
                 </div>
               </div>
               <div className="flex-1 p-1">
-                <ErrorCountChart metric={chart1Metric} groupBy={chart1Group} />
+                <ErrorCountChart metric={chart1Metric} groupBy={chart1Group} data={charts.countTimeseries} />
               </div>
             </div>
             <div className="flex-1 h-64 rounded border flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
@@ -178,7 +180,7 @@ export default function Errors() {
                 </div>
               </div>
               <div className="flex-1 p-1">
-                <ErrorRateChart metric={chart2Metric} groupBy={chart2Group} />
+                <ErrorRateChart metric={chart2Metric} groupBy={chart2Group} data={charts.rateTimeseries} />
               </div>
             </div>
             <div className="flex-1 h-64 rounded border flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
@@ -206,7 +208,7 @@ export default function Errors() {
                 </div>
               </div>
               <div className="flex-1 p-1">
-                <ErrorByServiceChart metric={chart3Metric} groupBy={chart3Group} />
+                <ErrorByServiceChart metric={chart3Metric} groupBy={chart3Group} data={charts.byServiceDistribution} />
               </div>
             </div>
           </div>

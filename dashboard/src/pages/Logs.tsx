@@ -45,7 +45,7 @@ export default function Logs() {
     manualRefresh,
     autoRefresh,
     setAutoRefresh,
-  } = useRefreshControl(refetch)
+  } = useRefreshControl(refetch, { manualRefetch })
 
   const [filterOpen, setFilterOpen] = useState(true)
   const [chart1Metric, setChart1Metric] = useState('count')
@@ -152,7 +152,7 @@ export default function Logs() {
                 </div>
               </div>
               <div className="flex-1 p-1">
-                <LogVolumeChart metric={chart1Metric} groupBy={chart1Group} />
+                <LogVolumeChart metric={chart1Metric} groupBy={chart1Group} data={charts.volumeTimeseries} />
               </div>
             </div>
             <div className="flex-1 h-64 rounded border flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
@@ -180,7 +180,7 @@ export default function Logs() {
                 </div>
               </div>
               <div className="flex-1 p-1">
-                <ErrorsChart metric={chart2Metric} groupBy={chart2Group} />
+                <ErrorsChart metric={chart2Metric} groupBy={chart2Group} data={charts.errorTimeseries} />
               </div>
             </div>
             <div className="flex-1 h-64 rounded border flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
@@ -208,7 +208,7 @@ export default function Logs() {
                 </div>
               </div>
               <div className="flex-1 p-1">
-                <StatusCodesChart metric={chart3Metric} groupBy={chart3Group} />
+                <StatusCodesChart metric={chart3Metric} groupBy={chart3Group} data={charts.statusCodeDistribution} />
               </div>
             </div>
           </div>

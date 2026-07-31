@@ -27,9 +27,11 @@ export default function Services() {
     querySeconds,
     filterSections,
     serviceCards,
+    charts,
     countRateOptions,
     latencyOptions,
     refetch,
+    manualRefetch,
   } = useServices(filters.timeRange)
 
   const {
@@ -38,7 +40,7 @@ export default function Services() {
     manualRefresh,
     autoRefresh,
     setAutoRefresh,
-  } = useRefreshControl(refetch)
+  } = useRefreshControl(refetch, { manualRefetch })
 
   const [filterOpen, setFilterOpen] = useState(true)
   const [drawerService, setDrawerService] = useState<any>(null)

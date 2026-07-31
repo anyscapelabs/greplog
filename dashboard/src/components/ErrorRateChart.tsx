@@ -19,7 +19,7 @@ export default function ErrorRateChart({ data }: ErrorRateChartProps) {
     },
     yAxis: {
       type: 'value',
-      axisLabel: { formatter: (v: number) => `${(v * 100).toFixed(1)}%`, ...commonGrid(colors).axisLabel },
+      axisLabel: { ...commonGrid(colors).axisLabel, formatter: (v: number) => `${(v * 100).toFixed(1)}%` },
       ...commonGrid(colors),
     },
     series: [

@@ -38,6 +38,8 @@ export default function Analytics() {
     noisyServices,
     severityDistribution,
     avgResponseTimes,
+    systemMetrics,
+    manualRefetch,
   } = useAnalytics(predicate)
 
   const {
@@ -46,7 +48,7 @@ export default function Analytics() {
     manualRefresh,
     autoRefresh,
     setAutoRefresh,
-  } = useRefreshControl(refetch)
+  } = useRefreshControl(refetch, { manualRefetch })
   const [ingestionMetric, setIngestionMetric] = useState('sum')
   const [errorRateMetric, setErrorRateMetric] = useState('rate')
   const [latencyView, setLatencyView] = useState('p50_p90_p99')
@@ -146,7 +148,7 @@ export default function Analytics() {
             <SeverityChart data={severityDistribution} />
           </AnalyticsChartPanel>
           <AnalyticsChartPanel title="System Metrics">
-            <SystemMetricsChart cpu={[]} memory={[]} diskIO={[]} network={[]} />
+            <SystemMetricsChart cpu={systemMetrics.cpu} memory={systemMetrics.memory} diskIO={systemMetrics.diskIO} network={systemMetrics.network} />
           </AnalyticsChartPanel>
           <AnalyticsChartPanel title="Avg Response Time">
             <AvgResponseTimeChart data={avgResponseTimes.map(s => ({ label: s.service, value: s.ms }))} />

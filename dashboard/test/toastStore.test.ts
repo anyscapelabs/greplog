@@ -189,3 +189,47 @@ test('subscribe fires on add and dismiss, snapshot is stable between mutations',
   store.dismiss(id)
   assert.ok(calls >= 2)
 })
+
+test('user-initiated error appears even while an identical background error is showing', () => {
+  const store = createToastStore(makeFakeDeps())
+  store.showError('Query failed', { dedupeKey: 'query-error:/query' })
+  assert.equal(store.getToasts().length, 1)
+  store.showError('Query failed', { dedupeKey: 'query-error:/query', userInitiated: true })
+  const toasts = store.getToasts()
+  assert.equal(toasts.length, 2)
+  assert.equal(toasts[1]?.variant, 'error')
+})
+
+test('user-initiated error bypasses the cooldown after the background toast expired', () => {
+  const deps = makeFakeDeps()
+  const store = createToastStore(deps)
+  store.showError('Query failed', { dedupeKey: 'query-error:/query' })
+  deps.advance(DEFAULT_ERROR_DURATION_MS)
+  assert.equal(store.getToasts().length, 0)
+
+  store.showError('Query failed', { dedupeKey: 'query-error:/query' }) // background: suppressed by cooldown
+  assert.equal(store.getToasts().length, 0)
+
+  store.showError('Query failed', { dedupeKey: 'query-error:/query', userInitiated: true })
+  assert.equal(store.getToasts().length, 1)
+})
+
+test('user-initiated toast does not carry the dedupeKey and never touches background key-state', () => {
+  const deps = makeFakeDeps()
+  const store = createToastStore(deps)
+  store.showError('Query failed', { dedupeKey: 'query-error:/query' })
+  store.showError('Query failed', { dedupeKey: 'query-error:/query', userInitiated: true })
+
+  const bg = store.getToasts().find((t) => t.dedupeKey === 'query-error:/query')
+  assert.ok(bg, 'background toast still present with its dedupeKey')
+  const ui = store.getToasts().find((t) => t.message === 'Query failed' && t.dedupeKey === undefined)
+  assert.ok(ui, 'user-initiated toast present without a dedupeKey')
+
+  // The user-initiated toast must not have cleared the background key's error
+  // state: a success with that key still counts as recovery for the background
+  // failure.
+  store.showSuccess('Query succeeded again', { dedupeKey: 'query-error:/query' })
+  const toasts = store.getToasts()
+  const success = toasts.find((t) => t.variant === 'success')
+  assert.ok(success, 'recovery success still shown for the background failure')
+})

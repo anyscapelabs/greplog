@@ -13,7 +13,7 @@ export default function ErrorRateByServiceChart({ data }: ErrorRateByServiceChar
     grid: { left: 80, right: 8, top: 8, bottom: 24 },
     xAxis: {
       type: 'value',
-      axisLabel: { formatter: (v: number) => `${(v * 100).toFixed(0)}%`, ...commonGrid(colors).axisLabel },
+      axisLabel: { ...commonGrid(colors).axisLabel, formatter: (v: number) => `${(v * 100).toFixed(0)}%` },
       ...commonGrid(colors),
     },
     yAxis: {
