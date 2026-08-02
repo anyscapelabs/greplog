@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react'
 import { useErrors, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl } from '../hooks/index.ts'
-import { useAgent } from '../context/AgentContext.tsx'
 import PageHeader from '../components/PageHeader.tsx'
 import ErrorsFilterSidebar from '../components/ErrorsFilterSidebar.tsx'
 import ErrorCountChart from '../components/ErrorCountChart.tsx'
@@ -8,12 +7,10 @@ import ErrorRateChart from '../components/ErrorRateChart.tsx'
 import ErrorByServiceChart from '../components/ErrorByServiceChart.tsx'
 import ErrorsTable from '../components/ErrorsTable.tsx'
 import ErrorsDrawer from '../components/ErrorsDrawer.tsx'
-import WaitingOverlay, { SDK_SETUP_TERMINAL } from '../components/WaitingOverlay.tsx'
 import Dropdown from '../components/Dropdown.tsx'
 import type { ErrorEntry } from '../types/index.ts'
 
 export default function Errors() {
-  const { connected } = useAgent()
 
   const {
     filters,
@@ -120,11 +117,6 @@ export default function Errors() {
         }
       />
       <div className="flex flex-1 min-h-0 relative">
-          <WaitingOverlay
-            visible={!connected}
-            message="Run the Greplog agent and configure an SDK to start collecting errors"
-            terminal={SDK_SETUP_TERMINAL}
-          />
         {filterOpen && <ErrorsFilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex gap-1.5 px-2 pt-2">

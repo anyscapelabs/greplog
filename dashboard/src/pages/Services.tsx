@@ -1,19 +1,16 @@
 import { useState, useMemo } from 'react'
 import { useServices, useFilterState, useRefreshControl } from '../hooks/index.ts'
-import { useAgent } from '../context/AgentContext.tsx'
 import ServicesDrawer from '../components/ServicesDrawer.tsx'
 import PageHeader from '../components/PageHeader.tsx'
 import ServiceCard from '../components/ServiceCard.tsx'
 import ServicesFilterSidebar from '../components/ServicesFilterSidebar.tsx'
 import ServicesTable from '../components/ServicesTable.tsx'
-import WaitingOverlay, { SDK_SETUP_TERMINAL } from '../components/WaitingOverlay.tsx'
 import AnalyticsChartPanel from '../components/AnalyticsChartPanel.tsx'
 import RequestsByServiceChart from '../components/RequestsByServiceChart.tsx'
 import ErrorRateByServiceChart from '../components/ErrorRateByServiceChart.tsx'
 import AvgLatencyByServiceChart from '../components/AvgLatencyByServiceChart.tsx'
 import type { ServiceEntry } from '../types/index.ts'
 export default function Services() {
-  const { connected } = useAgent()
 
   const {
     filters,

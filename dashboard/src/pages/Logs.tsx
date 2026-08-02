@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react'
 import { useLogs, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl } from '../hooks/index.ts'
-import { useAgent } from '../context/AgentContext.tsx'
 import PageHeader from '../components/PageHeader.tsx'
 import FilterSidebar from '../components/FilterSidebar.tsx'
 import LogVolumeChart from '../components/LogVolumeChart.tsx'
@@ -8,13 +7,10 @@ import ErrorsChart from '../components/ErrorsChart.tsx'
 import StatusCodesChart from '../components/StatusCodesChart.tsx'
 import LogsTable from '../components/LogsTable.tsx'
 import LogsDrawer from '../components/LogsDrawer.tsx'
-import WaitingOverlay, { SDK_SETUP_TERMINAL } from '../components/WaitingOverlay.tsx'
 import Dropdown from '../components/Dropdown.tsx'
 import type { LogEntry } from '../types/index.ts'
 
 export default function Logs() {
-  const { connected } = useAgent()
-
   const {
     filters,
     setQuery,
@@ -120,11 +116,6 @@ export default function Logs() {
         }
       />
       <div className="flex flex-1 min-h-0 relative">
-          <WaitingOverlay
-            visible={!connected}
-            message="Run the Greplog agent and configure an SDK to start collecting logs"
-            terminal={SDK_SETUP_TERMINAL}
-          />
         {filterOpen && <FilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex gap-1.5 px-2 pt-2">
