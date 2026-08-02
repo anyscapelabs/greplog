@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { LuChevronDown, LuCopy } from 'react-icons/lu'
 import { useNavigate } from 'react-router-dom'
 import Drawer from './Drawer.tsx'
+import type { ErrorEntry } from '../types/index.ts'
 
 interface ErrorsDrawerProps {
   open: boolean
   onClose: () => void
-  error: any
+  error: ErrorEntry | null
 }
 
 export default function ErrorsDrawer({ open, onClose, error }: ErrorsDrawerProps) {

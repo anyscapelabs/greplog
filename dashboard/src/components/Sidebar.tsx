@@ -4,7 +4,7 @@ import { LuSearch, LuBug, LuSun, LuMoon } from 'react-icons/lu'
 import LogsIcon from '../icons/LogsIcon.tsx'
 import AnalyticsIcon from '../icons/AnalyticsIcon.tsx'
 import ServicesIcon from '../icons/ServicesIcon.tsx'
-import { useTheme } from '../context/ThemeContext.tsx'
+import { useTheme } from '../context/useTheme.ts'
 
 const allTabs = [
   { to: '/logs', icon: LogsIcon, label: 'Logs' },

@@ -1,3 +1,5 @@
+import type { KeyboardEvent, ReactNode } from 'react'
+
 /* ── Shared Primitives ── */
 
 export interface DropdownOption {
@@ -419,7 +421,7 @@ export interface LogsHistogramChartProps {
 
 export interface AnalyticsChartPanelProps {
   title: string
-  children: React.ReactNode
+  children: ReactNode
   dropdownItems?: DropdownOption[]
   dropdownValue?: string
   onDropdownChange?: (value: string) => void
@@ -458,8 +460,8 @@ export interface PageHeaderProps {
   chips?: string[]
   query?: string
   onQueryChange?: (value: string) => void
-  onQueryKeyDown?: (e: React.KeyboardEvent) => void
+  onQueryKeyDown?: (e: KeyboardEvent) => void
   onRemoveChip?: (chip: string) => void
   searchPlaceholder?: string
-  extraActions?: React.ReactNode
+  extraActions?: ReactNode
 }

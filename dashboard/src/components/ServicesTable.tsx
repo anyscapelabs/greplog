@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { LuChevronDown, LuChevronUp, LuCircleCheck, LuDownload, LuChevronLeft, LuChevronRight } from 'react-icons/lu'
 import Dropdown from './Dropdown.tsx'
 import type { ServiceEntry } from '../types/index.ts'
@@ -30,9 +30,9 @@ interface ServicesTableProps {
 }
 
 export default function ServicesTable({ data, totalRows: totalRowsProp, totalLogs: totalLogsProp, querySeconds: secondsProp, filteredServices, onView }: ServicesTableProps) {
-  const [totalRows] = useState(totalRowsProp ?? data.length)
-  const [totalLogs] = useState(totalLogsProp ?? data.length)
-  const [seconds] = useState(secondsProp ?? 0.3)
+  const totalRows = totalRowsProp ?? data.length
+  const totalLogs = totalLogsProp ?? data.length
+  const seconds = secondsProp ?? 0.3
   const limits = ['500', '1k', '5k', '10k']
   const [limit, setLimit] = useState('500')
   const [sortColumn, setSortColumn] = useState<string | null>(null)
@@ -64,9 +64,10 @@ export default function ServicesTable({ data, totalRows: totalRowsProp, totalLog
   const parsedLimit = limit === 'All' ? sortedData.length : parseInt(limit.replace('k', '000'))
   const displayData = useMemo(() => sortedData.slice(0, parsedLimit), [sortedData, parsedLimit])
 
-  const pageSize = limit === 'All' ? displayData.length : parseInt(limit.replace('k', '000'))
+  const pageSize = limit === 'All' ? Math.max(displayData.length, 1) : parseInt(limit.replace('k', '000'))
   const totalPages = Math.ceil(displayData.length / pageSize)
-  const pageData = useMemo(() => displayData.slice(page * pageSize, (page + 1) * pageSize), [displayData, page, pageSize])
+  const currentPage = Math.min(page, Math.max(totalPages - 1, 0))
+  const pageData = useMemo(() => displayData.slice(currentPage * pageSize, (currentPage + 1) * pageSize), [displayData, currentPage, pageSize])
 
   const bodyRows = useMemo(() => pageData.map((row) => (
     <div
@@ -92,17 +93,20 @@ export default function ServicesTable({ data, totalRows: totalRowsProp, totalLog
     </div>
   )), [pageData, onView])
 
-  useEffect(() => { setPage(0) }, [limit, sortColumn, sortDirection, filteredServices])
+
 
   function handleSort(column: string) {
     if (sortColumn !== column) {
       setSortColumn(column)
       setSortDirection('asc')
+      setPage(0)
     } else if (sortDirection === 'asc') {
       setSortDirection('desc')
+      setPage(0)
     } else {
       setSortColumn(null)
       setSortDirection('asc')
+      setPage(0)
     }
   }
 
@@ -138,7 +142,10 @@ export default function ServicesTable({ data, totalRows: totalRowsProp, totalLog
               trigger={<span>{limit}</span>}
               items={limits.map((opt) => ({ label: opt, value: opt }))}
               value={limit}
-              onChange={setLimit}
+              onChange={(value) => {
+                setLimit(value)
+                setPage(0)
+              }}
               minWidth="min-w-20"
             />
           </div>
@@ -153,18 +160,18 @@ export default function ServicesTable({ data, totalRows: totalRowsProp, totalLog
           <div className="px-3 py-1.5 shrink-0 flex items-center gap-1.5">
             <button
               className="flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors disabled:opacity-30"
-              disabled={page === 0}
-              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={currentPage === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
             >
               <LuChevronLeft className="size-3.5" style={{ color: 'var(--text-secondary)' }} />
             </button>
             <span className="text-xs text-text-secondary whitespace-nowrap">
-              {totalPages > 0 ? `${page + 1} / ${totalPages}` : '-'}
+              {totalPages > 0 ? `${currentPage + 1} / ${totalPages}` : '-'}
             </span>
             <button
               className="flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors disabled:opacity-30"
-              disabled={page >= totalPages - 1}
-              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={currentPage >= totalPages - 1}
+              onClick={() => setPage((p) => Math.min(Math.max(totalPages - 1, 0), p + 1))}
             >
               <LuChevronRight className="size-3.5" style={{ color: 'var(--text-secondary)' }} />
             </button>

@@ -1,4 +1,4 @@
-import { useTheme } from '../context/ThemeContext.tsx'
+import { useTheme } from '../context/useTheme.ts'
 
 function getCSSVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()

@@ -3,11 +3,12 @@ import { LuCopy, LuChevronDown } from 'react-icons/lu'
 import { useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import Drawer from './Drawer.tsx'
+import type { LogEntry } from '../types/index.ts'
 
 interface LogsDrawerProps {
   open: boolean
   onClose: () => void
-  log: any
+  log: LogEntry | null
 }
 
 export default function LogsDrawer({ open, onClose, log }: LogsDrawerProps) {

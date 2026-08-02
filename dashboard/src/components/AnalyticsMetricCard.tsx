@@ -1,5 +1,10 @@
 import ReactECharts from 'echarts-for-react'
 
+interface AxisRange {
+  min: number
+  max: number
+}
+
 interface AnalyticsMetricCardProps {
   title: string
   value: string
@@ -15,14 +20,14 @@ export default function AnalyticsMetricCard({ title, value, color, rgb, data }: 
     yAxis: {
       type: 'value',
       show: false,
-      min: (value: any) => {
+      min: (value: AxisRange) => {
         const range = value.max - value.min || value.max * 0.1 || 1
         return Math.max(0, value.min - range * 0.2)
       },
-      max: (value: any) => {
+      max: (value: AxisRange) => {
         const range = value.max - value.min || value.max * 0.1 || 1
         return value.max + range * 0.2
-      }
+      },
     },
     series: [
       {

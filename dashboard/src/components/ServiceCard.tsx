@@ -1,5 +1,10 @@
 import ReactECharts from 'echarts-for-react'
 
+interface AxisRange {
+  min: number
+  max: number
+}
+
 interface ServiceCardProps {
   name: string
   requests: string
@@ -14,11 +19,11 @@ export default function ServiceCard({ name, requests, data }: ServiceCardProps) 
     yAxis: {
       type: 'value',
       show: false,
-      min: (value: any) => {
+      min: (value: AxisRange) => {
         const range = value.max - value.min || value.max * 0.1 || 1
         return Math.max(0, value.min - range * 0.2)
       },
-      max: (value: any) => {
+      max: (value: AxisRange) => {
         const range = value.max - value.min || value.max * 0.1 || 1
         return value.max + range * 0.2
       },

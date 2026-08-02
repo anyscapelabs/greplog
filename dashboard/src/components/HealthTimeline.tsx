@@ -6,6 +6,7 @@ interface HealthTimelineProps {
   showMarkers?: boolean
 }
 
-export default function HealthTimeline(_props: HealthTimelineProps) {
+export default function HealthTimeline(props: HealthTimelineProps) {
+  void props
   return <ChartEmptyState />
 }

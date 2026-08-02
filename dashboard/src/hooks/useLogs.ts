@@ -13,6 +13,7 @@ import {
 } from './placeholder-data.ts'
 import { useAgent } from '../context/AgentContext.tsx'
 import { buildLevelSection, buildServiceSection, buildStatusCodeSections } from '../lib/filterSections.ts'
+import { parseLogsHistogram } from '../lib/logsHistogram.ts'
 
 const EMPTY_CHARTS: LogCharts = {
   volumeTimeseries: [],
@@ -82,45 +83,7 @@ export function useLogs(whereClause?: string): LogsPageProps {
       // label so the x-axis stays readable. Rows are grouped by (bucket, level),
       // so pivot into one counts array per level aligned to bucket order. Unknown
       // cells are skipped (no fabricated bars).
-      const logsHistogram = histogramResult
-        ? (() => {
-            const order: number[] = []
-            const bucketIndexOf = new Map<number, number>()
-            const levelCells = new Map<string, Map<number, number>>()
-
-            for (const r of histogramResult.rows) {
-              const micros = Number(r[0])
-              const level = String(r[1])
-              const count = Number(r[2])
-              if (!Number.isFinite(micros) || micros <= 0 || !level || !Number.isFinite(count) || count < 0) continue
-
-              let bi = bucketIndexOf.get(micros)
-              if (bi === undefined) {
-                bi = order.length
-                bucketIndexOf.set(micros, bi)
-                order.push(micros)
-              }
-              let cells = levelCells.get(level)
-              if (cells === undefined) {
-                cells = new Map()
-                levelCells.set(level, cells)
-              }
-              cells.set(bi, (cells.get(bi) ?? 0) + count)
-            }
-
-            const n = order.length
-            const levels = Array.from(levelCells.entries()).map(([level, cells]) => {
-              const counts = new Array(n).fill(0)
-              for (const [bi, c] of cells) counts[bi] = c
-              return { level, counts }
-            })
-
-            return {
-              buckets: order.map((m) => new Date(m / 1000).toISOString().slice(11, 16)),
-              levels,
-            }
-          })()
-        : { buckets: [], levels: [] }
+      const logsHistogram = histogramResult ? parseLogsHistogram(histogramResult.rows, histogramResult.columns) : { buckets: [], levels: [] }
 
       const filterSections: FilterSectionConfig[] = []
       if (levelResult) filterSections.push(buildLevelSection(levelResult.rows, levelResult.columns))

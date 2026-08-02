@@ -48,10 +48,12 @@ export interface ToastStore {
   dismiss: (id: string) => void
 }
 
+type TimerId = number | ReturnType<typeof globalThis.setTimeout>
+
 export interface ToastStoreDeps {
   now?: () => number
-  schedule?: (fn: () => void, ms: number) => number
-  cancel?: (timerId: number) => void
+  schedule?: (fn: () => void, ms: number) => TimerId
+  cancel?: (timerId: TimerId) => void
 }
 
 export const DEFAULT_ERROR_DURATION_MS = 8_000
@@ -65,13 +67,13 @@ interface KeyState {
 
 export function createToastStore(deps: ToastStoreDeps = {}): ToastStore {
   const now = deps.now ?? Date.now
-  const schedule = deps.schedule ?? ((fn: () => void, ms: number) => window.setTimeout(fn, ms))
-  const cancel = deps.cancel ?? ((timerId: number) => window.clearTimeout(timerId))
+  const schedule = deps.schedule ?? ((fn: () => void, ms: number) => globalThis.setTimeout(fn, ms))
+  const cancel = deps.cancel ?? ((timerId: number) => globalThis.clearTimeout(timerId))
 
   let toasts: Toast[] = []
   let nextId = 0
   const listeners = new Set<() => void>()
-  const timers = new Map<string, number>()
+  const timers = new Map<string, TimerId>()
   const keyState = new Map<string, KeyState>()
 
   const notify = () => {
