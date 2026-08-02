@@ -62,7 +62,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
       acc.push(run)
     }
 
-    const bars = uPlot.paths!.bars
+    const bars = uPlot.paths!.bars!
 
     const opts: uPlot.Options = {
       width: holder.clientWidth,
@@ -92,7 +92,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
         {},
         ...ordered.map((lv, k) => {
           const base = colors[LEVEL_COLOR[lv.level] ?? 'label']
-          const paths = uPlot.paths.bars({
+          const paths = bars({
             disp: {
               y0: {
                 unit: 1,
@@ -113,7 +113,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
       ],
     }
 
-    plotRef.current = new uPlot(opts, [xs, ...acc] as number[][], holder)
+    plotRef.current = new uPlot(opts, [xs, ...acc] as uPlot.AlignedData, holder)
 
     const onResize = () => {
       plotRef.current?.setSize({

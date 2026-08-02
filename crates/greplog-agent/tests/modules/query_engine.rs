@@ -908,3 +908,27 @@ async fn test_union_all_http_level_and_status_filters() {
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+// TEMP reproduction for the dashboard per-minute per-level histogram query,
+// run against the real workspace data (read-only; QueryEngine does not
+// compact or write).
+#[tokio::test]
+async fn test_tmp_histogram_repro() {
+    let dir = std::path::PathBuf::from("/home/brnx/Desktop/greplog");
+    let engine = QueryEngine::new(&dir).expect("new engine");
+
+    for sql in [
+        "SELECT date_trunc('minute', timestamp) AS bucket, level, count(*) AS cnt FROM logs GROUP BY bucket, level ORDER BY bucket, level",
+        "SELECT date_trunc('minute', timestamp) AS bucket, count(*) AS cnt FROM logs GROUP BY bucket ORDER BY bucket",
+        "SELECT level, count(*) AS cnt FROM logs GROUP BY level ORDER BY cnt DESC",
+    ] {
+        match engine.query(sql).await {
+            Ok(result) => println!(
+                "OK  cnt={} sample={:?}",
+                result.row_count,
+                result.rows.into_iter().take(8).collect::<Vec<_>>()
+            ),
+            Err(e) => println!("ERR for {sql}\n  {e:#}"),
+        }
+    }
+}
