@@ -268,21 +268,21 @@ table.
 | Global filter bar (URL-synced FilterState) | High | ✅ Done |
 | Connect to real agent API | High | ✅ Done |
 | Live/refresh/auto-refresh unified mechanism | High | ✅ Done |
-| No fabricated chart data (honest empty states) | High | ✅ Done |
-| Analytics: ingestion, error rate, service health, noisy services, severity | High | ✅ Done (queries + server-side aggregation) |
-| Analytics metrics (error rate %, active services, unhealthy count, total events) | High | ✅ Done — all computed server-side |
-| `totalLogs`/`totalErrors` correct server-side count (not paginated slice length) | High | ✅ Done |
-| Metrics computed server-side (error rate ratio, healthy count) | High | ✅ Done — no frontend ratio computation |
-| Analytics charts: latency percentiles, status codes, avg response time | Medium | ✅ Done — dual-source: `spans` table (Go/Rust) `UNION ALL` `logs.attributes` via `json_get_str()` (Node.js/Python), combined server-side so percentiles/sums/counts are computed over the full population, not per-SDK. Filter predicates translated per arm (`timestamp`→`start_time`, `level`→status-code bucket, `message LIKE`→`name`/`route LIKE`, `line`→`status_code`). Unrecognized filter shapes fail loud (HTTP queries skipped, `console.warn`) rather than silently narrowing one arm and not the other. |
-| Analytics chart: system metrics (CPU, memory, disk, network) | Low | ✅ Done — agent `system.rs` collector extended with per-interface `rx_bytes_per_sec`/`tx_bytes_per_sec` (sysinfo `Networks` deltas); `GET /resources` returns them; dashboard `SystemMetricsChart` renders 4 real gauges from a 5s-polled `resourcesQuery` |
-| Logs page charts (LogVolume, Errors, StatusCodes) | Medium | ✅ Done — `LogVolume`/`Errors` timeseries aggregated per-date; **`StatusCodes` uses the dual-source (`spans` `UNION ALL` `attributes`) treatment** via the shared `lib/httpQueries.ts` module, so Node/Python HTTP status codes render instead of silently showing empty |
-| Errors page charts (ErrorCount, ErrorRate, ErrorByService) | Medium | ✅ Done — per-date error counts, error rate vs. all-log total, per-service distribution from the existing `useErrors` queries |
-| Services page charts (RequestsByService, ErrorRateByService) | Medium | ✅ Done — real event counts + derived error rates from the health query, metric-aware (count/rate) chart props |
-| Services page chart: AvgLatencyByService | Medium | ✅ Done — **dual-source (`spans` `UNION ALL` `logs.attributes` via `json_get_str`)**, reusing `buildAvgLatencyByServiceSql` from `lib/httpQueries.ts` (same predicate translation as Analytics), windowed by the Services time range |
-| Errors page (wired filtering) | Medium | ✅ Done |
-| Services page (sidebar filtering) | Medium | ✅ Done |
-| Service Cards: sparklines from time-bucketed queries | Medium | ✅ Done |
-| ServicesDrawer: Recent Errors from `useErrors` + Related Logs from `useLogs` | Medium | ✅ Done |
+| No fabricated chart data (honest empty states) | High | 🚧 In progress — source audit shows no fabricated data in the real query path, but live-browser re-verification pending after connection-stability fix |
+| Analytics: ingestion, error rate, service health, noisy services, severity | High | 🚧 In progress (queries + server-side aggregation) |
+| Analytics metrics (error rate %, active services, unhealthy count, total events) | High | 🚧 In progress — all computed server-side |
+| `totalLogs`/`totalErrors` correct server-side count (not paginated slice length) | High | 🚧 In progress |
+| Metrics computed server-side (error rate ratio, healthy count) | High | 🚧 In progress — no frontend ratio computation |
+| Analytics charts: latency percentiles, status codes, avg response time | Medium | 🚧 In progress — dual-source: `spans` table (Go/Rust) `UNION ALL` `logs.attributes` via `json_get_str()` (Node.js/Python), combined server-side so percentiles/sums/counts are computed over the full population, not per-SDK. Filter predicates translated per arm (`timestamp`→`start_time`, `level`→status-code bucket, `message LIKE`→`name`/`route LIKE`, `line`→`status_code`). Unrecognized filter shapes fail loud (HTTP queries skipped, `console.warn`) rather than silently narrowing one arm and not the other. |
+| Analytics chart: system metrics (CPU, memory, disk, network) | Low | 🚧 In progress — agent `system.rs` collector extended with per-interface `rx_bytes_per_sec`/`tx_bytes_per_sec` (sysinfo `Networks` deltas); `GET /resources` returns them; dashboard `SystemMetricsChart` renders 4 real gauges from a 5s-polled `resourcesQuery` |
+| Logs page charts (LogVolume, Errors, StatusCodes) | Medium | 🚧 In progress — `LogVolume`/`Errors` timeseries aggregated per-date; **`StatusCodes` uses the dual-source (`spans` `UNION ALL` `attributes`) treatment** via the shared `lib/httpQueries.ts` module, so Node/Python HTTP status codes render instead of silently showing empty |
+| Errors page charts (ErrorCount, ErrorRate, ErrorByService) | Medium | 🚧 In progress — per-date error counts, error rate vs. all-log total, per-service distribution from the existing `useErrors` queries |
+| Services page charts (RequestsByService, ErrorRateByService) | Medium | 🚧 In progress — real event counts + derived error rates from the health query, metric-aware (count/rate) chart props |
+| Services page chart: AvgLatencyByService | Medium | 🚧 In progress — **dual-source (`spans` `UNION ALL` `logs.attributes` via `json_get_str`)**, reusing `buildAvgLatencyByServiceSql` from `lib/httpQueries.ts` (same predicate translation as Analytics), windowed by the Services time range |
+| Errors page (wired filtering) | Medium | 🚧 In progress |
+| Services page (sidebar filtering) | Medium | 🚧 In progress |
+| Service Cards: sparklines from time-bucketed queries | Medium | 🚧 In progress |
+| ServicesDrawer: Recent Errors from `useErrors` + Related Logs from `useLogs` | Medium | 🚧 In progress |
 | Service Details: honest "Streaming since" proxy from `MIN(timestamp)` | Medium | ✅ Done |
 | Sidebar filter real counts from query | Medium | ✅ Done — `GROUP BY level`, `GROUP BY service`, per-status-code (HTTP logs), `exception_type`, and per-service health counts wired into the filter sidebar; Logs/Errors compute them in-hook (respecting the active filter), Services derives them from the live health query. Counts update with the filtered result set. |
 | Service version/hostname in Service Details | Low | 📋 Pending — requires cross-SDK protocol change (new handshake field) |
