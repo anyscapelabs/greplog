@@ -283,8 +283,8 @@ table.
 | Services page (sidebar filtering) | Medium | 🚧 In progress |
 | Service Cards: sparklines from time-bucketed queries | Medium | 🚧 In progress |
 | ServicesDrawer: Recent Errors from `useErrors` + Related Logs from `useLogs` | Medium | 🚧 In progress |
-| Service Details: honest "Streaming since" proxy from `MIN(timestamp)` | Medium | ✅ Done |
-| Sidebar filter real counts from query | Medium | ✅ Done — `GROUP BY level`, `GROUP BY service`, per-status-code (HTTP logs), `exception_type`, and per-service health counts wired into the filter sidebar; Logs/Errors compute them in-hook (respecting the active filter), Services derives them from the live health query. Counts update with the filtered result set. |
+| Service Details: honest "Streaming since" proxy from `MIN(timestamp)` | Medium | 🚧 In progress |
+| Sidebar filter real counts from query | Medium | 🚧 In progress — `GROUP BY level`, `GROUP BY service`, per-status-code (HTTP logs), `exception_type`, and per-service health counts wired into the filter sidebar; Logs/Errors compute them in-hook (respecting the active filter), Services derives them from the live health query. Counts update with the filtered result set. |
 | Service version/hostname in Service Details | Low | 📋 Pending — requires cross-SDK protocol change (new handshake field) |
 | Traces page | Medium | ⏸️ **On hold — deprioritized, not scheduled.** Requires span trace-tree query support (Agent table, above) which isn't being pursued right now. Kept visible rather than deleted; revisit if/when distributed tracing (§7) is picked up. |
 | Views page (saved filters) | Medium | ⏸️ **On hold — deprioritized, not scheduled.** Still blocked on the unresolved question of whether saved-view persistence needs a new agent-side CRUD surface, per earlier discovery — not being pursued right now. |
