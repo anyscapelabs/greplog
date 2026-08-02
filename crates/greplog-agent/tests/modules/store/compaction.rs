@@ -112,7 +112,7 @@ fn count_parquet_files(dir: &Path) -> usize {
 }
 
 fn read_all_rows_from_partition(dir: &Path) -> Vec<String> {
-    let files = get_source_files(dir).expect("get sources");
+    let files = get_source_files(dir, DEFAULT_TARGET_SIZE).expect("get sources");
     let mut rows = Vec::new();
     for f in &files {
         let file = File::open(f).expect("open");
@@ -166,7 +166,7 @@ fn test_basic_merge() {
 
     assert_eq!(count_parquet_files(&part_dir), 3);
 
-    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false).expect("compact");
+    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, None).expect("compact");
     assert_eq!(result.files_compacted, 3);
 
     let remaining = count_parquet_files(&part_dir);
@@ -190,7 +190,7 @@ fn test_manifest_before_deletion() {
         .join("date=2024-01-01");
     write_files(&part_dir, 2, 3, "test");
 
-    let sources = get_source_files(&part_dir).expect("get sources");
+    let sources = get_source_files(&part_dir, DEFAULT_TARGET_SIZE).expect("get sources");
     assert_eq!(sources.len(), 2);
 
     let manifest = compact_phase1(&part_dir, &sources).expect("phase1");
@@ -236,7 +236,7 @@ fn test_crash_between_merge_and_deletion() {
         .join("date=2024-01-01");
     write_files(&part_dir, 3, 2, "test");
 
-    let sources = get_source_files(&part_dir).expect("get sources");
+    let sources = get_source_files(&part_dir, DEFAULT_TARGET_SIZE).expect("get sources");
     let manifest = compact_phase1(&part_dir, &sources).expect("phase1");
 
     let half = manifest.source_files.len() / 2;
@@ -278,7 +278,7 @@ fn test_reconciliation_idempotent() {
         .join("date=2024-01-01");
     write_files(&part_dir, 2, 3, "test");
 
-    let sources = get_source_files(&part_dir).expect("get sources");
+    let sources = get_source_files(&part_dir, DEFAULT_TARGET_SIZE).expect("get sources");
     let manifest = compact_phase1(&part_dir, &sources).expect("phase1");
 
     reconcile_compactions(&dir).expect("reconcile first");
@@ -309,7 +309,7 @@ fn test_small_partition() {
         .join("date=2024-01-01");
     write_files(&part_dir, 2, 1, "test");
 
-    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false).expect("compact");
+    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, None).expect("compact");
     assert_eq!(result.files_compacted, 2);
 
     assert_eq!(count_parquet_files(&part_dir), 1);
@@ -333,15 +333,22 @@ fn test_skip_today_partition() {
 
     assert_eq!(count_parquet_files(&part_dir), 3);
 
-    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, true).expect("compact");
-    assert_eq!(result.files_compacted, 0, "should skip today's partition");
+    // active_partition_file_threshold: None reproduces the original
+    // unconditional skip_today=true behavior exactly.
+    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, None).expect("compact");
+    assert_eq!(
+        result.files_compacted, 0,
+        "should skip today's partition when active-partition compaction is disabled",
+    );
 
     assert_eq!(count_parquet_files(&part_dir), 3);
 
-    let result2 = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false).expect("compact");
+    // Some(1): today's partition is eligible as soon as there's anything
+    // to compact — the new equivalent of the old skip_today=false case.
+    let result2 = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, Some(1)).expect("compact");
     assert_eq!(
         result2.files_compacted, 3,
-        "should compact when not skipping"
+        "should compact once today's partition is eligible"
     );
 
     let _ = fs::remove_dir_all(&dir);
@@ -357,7 +364,7 @@ fn test_crash_after_merge_write_before_manifest_update() {
         .join("date=2024-01-01");
     write_files(&part_dir, 3, 2, "test");
 
-    let sources = get_source_files(&part_dir).expect("get sources");
+    let sources = get_source_files(&part_dir, DEFAULT_TARGET_SIZE).expect("get sources");
     let batches = read_parquet_files(&sources).expect("read");
     let merged = concatenate_batches(&batches).expect("concat");
 
@@ -409,7 +416,7 @@ fn test_crash_after_merge_write_before_manifest_update() {
     assert_eq!(parsed.entries[0].status, "completed");
 
     let result =
-        compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false).expect("second compact pass");
+        compact_partition(&part_dir, DEFAULT_TARGET_SIZE, None).expect("second compact pass");
     assert_eq!(
         result.files_compacted, 0,
         "no files to compact on second pass"
@@ -431,7 +438,7 @@ fn test_crash_before_merge_write() {
         .join("date=2024-01-01");
     write_files(&part_dir, 2, 3, "test");
 
-    let sources = get_source_files(&part_dir).expect("get sources");
+    let sources = get_source_files(&part_dir, DEFAULT_TARGET_SIZE).expect("get sources");
     let source_names: Vec<String> = sources
         .iter()
         .map(|p| {
@@ -475,17 +482,17 @@ fn test_pending_delete_sources_excluded() {
         .join("date=2024-01-01");
     write_files(&part_dir, 2, 3, "test");
 
-    let sources = get_source_files(&part_dir).expect("get sources");
+    let sources = get_source_files(&part_dir, DEFAULT_TARGET_SIZE).expect("get sources");
     let _manifest = compact_phase1(&part_dir, &sources).expect("phase1");
 
-    let candidates = get_source_files(&part_dir).expect("get sources after phase1");
+    let candidates = get_source_files(&part_dir, DEFAULT_TARGET_SIZE).expect("get sources after phase1");
     assert!(
         candidates.is_empty(),
         "sources referenced by a pending_delete entry must not be re-selected: got {:?}",
         candidates
     );
 
-    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, false)
+    let result = compact_partition(&part_dir, DEFAULT_TARGET_SIZE, None)
         .expect("compact after phase1 (no phase2)");
     assert_eq!(result.files_compacted, 0, "no files should be compacted");
 
@@ -506,4 +513,24 @@ fn test_pending_delete_sources_excluded() {
     }
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_is_eligible_for_compaction_historical_partition_always_eligible() {
+    assert!(is_eligible_for_compaction(false, 0, None));
+    assert!(is_eligible_for_compaction(false, 1, None));
+    assert!(is_eligible_for_compaction(false, 0, Some(50)));
+}
+
+#[test]
+fn test_is_eligible_for_compaction_active_partition_disabled_when_none() {
+    assert!(!is_eligible_for_compaction(true, 0, None));
+    assert!(!is_eligible_for_compaction(true, 1_000_000, None));
+}
+
+#[test]
+fn test_is_eligible_for_compaction_active_partition_respects_threshold() {
+    assert!(!is_eligible_for_compaction(true, 49, Some(50)));
+    assert!(is_eligible_for_compaction(true, 50, Some(50)));
+    assert!(is_eligible_for_compaction(true, 51, Some(50)));
 }

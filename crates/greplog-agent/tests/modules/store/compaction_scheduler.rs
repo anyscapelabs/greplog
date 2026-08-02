@@ -146,7 +146,7 @@ async fn test_compaction_runs_during_normal_operation() {
     write_files(&part_dir, 3, 5);
     assert_eq!(count_parquet_files(&part_dir), 3);
 
-    let compacted = compact_eligible_partitions(&dir).expect("compact cycle");
+    let compacted = compact_eligible_partitions(&dir, 50).expect("compact cycle");
     assert!(compacted >= 1, "should have compacted at least 1 partition");
 
     let remaining = count_parquet_files(&part_dir);
@@ -156,8 +156,13 @@ async fn test_compaction_runs_during_normal_operation() {
 }
 
 #[tokio::test]
-async fn test_today_partition_untouched() {
-    let dir = test_dir("scheduler_today_untouched");
+async fn test_today_partition_below_threshold_still_untouched() {
+    // Replaces the old test_today_partition_untouched, whose "today's
+    // partition must never be touched" premise no longer holds
+    // universally — see docs/adr/0008-compaction-background-idempotent.md.
+    // Below the threshold, the invariant this test now checks still
+    // holds: a quiet active partition is left alone.
+    let dir = test_dir("scheduler_today_below_threshold");
     let today = today_date();
 
     let part_dir = dir
@@ -168,14 +173,41 @@ async fn test_today_partition_untouched() {
     write_files(&part_dir, 3, 5);
     assert_eq!(count_parquet_files(&part_dir), 3);
 
-    let compacted = compact_eligible_partitions(&dir).expect("compact cycle");
+    // Threshold of 10 is not met by only 3 files.
+    let compacted = compact_eligible_partitions(&dir, 10).expect("compact cycle");
 
     assert_eq!(
         count_parquet_files(&part_dir),
         3,
-        "today's partition must not be touched",
+        "today's partition below the file-count threshold must not be touched",
     );
     assert_eq!(compacted, 0, "no partitions should have been compacted");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_today_partition_compacted_once_threshold_met() {
+    let dir = test_dir("scheduler_today_threshold_met");
+    let today = today_date();
+
+    let part_dir = dir
+        .join("data")
+        .join("table_type=logs")
+        .join("service=test-svc")
+        .join(format!("date={}", today));
+    write_files(&part_dir, 3, 5);
+    assert_eq!(count_parquet_files(&part_dir), 3);
+
+    // Threshold of 3 is met exactly by the 3 files just written.
+    let compacted = compact_eligible_partitions(&dir, 3).expect("compact cycle");
+
+    assert_eq!(
+        count_parquet_files(&part_dir),
+        1,
+        "today's partition should be compacted once it meets the threshold",
+    );
+    assert_eq!(compacted, 1, "exactly 1 partition should have been compacted");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -216,7 +248,7 @@ async fn test_no_ingest_interference() {
     }
 
     let compact_dir = dir.clone();
-    let compacted = tokio::task::spawn_blocking(move || compact_eligible_partitions(&compact_dir))
+    let compacted = tokio::task::spawn_blocking(move || compact_eligible_partitions(&compact_dir, 50))
         .await
         .expect("spawn_blocking")
         .expect("compact");
@@ -257,7 +289,7 @@ async fn test_query_correctness_before_and_after_compaction() {
     );
 
     let compact_dir = dir.clone();
-    tokio::task::spawn_blocking(move || compact_eligible_partitions(&compact_dir))
+    tokio::task::spawn_blocking(move || compact_eligible_partitions(&compact_dir, 50))
         .await
         .expect("spawn_blocking")
         .expect("compact");

@@ -67,6 +67,7 @@ fn make_state(dir: &Path) -> Arc<AppState> {
             socket_path: PathBuf::from(".greplog/test.sock"),
             max_buffer_events: 50_000,
             compaction_interval_secs: 300,
+            active_partition_compaction_threshold: 50,
         }),
         query_engine: engine,
         dropped_events: Arc::new(AtomicUsize::new(0)),

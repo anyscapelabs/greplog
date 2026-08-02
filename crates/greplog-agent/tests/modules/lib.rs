@@ -91,6 +91,7 @@ async fn start_agent(
         socket_path: PathBuf::from(".greplog/test.sock"),
         max_buffer_events,
         compaction_interval_secs: 9999,
+        active_partition_compaction_threshold: 50,
     });
 
     let (batch_tx, batch_rx) = mpsc::channel(INGEST_CHANNEL_CAPACITY);

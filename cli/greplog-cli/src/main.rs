@@ -67,6 +67,7 @@ async fn main() -> anyhow::Result<()> {
             max_buffer_events,
             flush_interval_secs,
             compaction_interval_secs,
+            active_partition_compaction_threshold,
         } => {
             commands::dev::run(
                 foreground,
@@ -76,6 +77,7 @@ async fn main() -> anyhow::Result<()> {
                 max_buffer_events,
                 flush_interval_secs,
                 compaction_interval_secs,
+                active_partition_compaction_threshold,
             )
             .await
         }

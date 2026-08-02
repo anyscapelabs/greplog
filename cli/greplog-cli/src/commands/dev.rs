@@ -2,15 +2,30 @@ use anyhow::Result;
 use colored::Colorize;
 use std::path::PathBuf;
 
-pub async fn run(
-    foreground: bool,
-    ui_port: u16,
-    tcp_port: u16,
-    workspace: Option<PathBuf>,
-    max_buffer_events: usize,
-    flush_interval_secs: u64,
-    compaction_interval_secs: u64,
-) -> Result<()> {
+/// Options forwarded to the local workspace agent + dashboard.
+pub struct DevOptions {
+    pub foreground: bool,
+    pub ui_port: u16,
+    pub tcp_port: u16,
+    pub workspace: Option<PathBuf>,
+    pub max_buffer_events: usize,
+    pub flush_interval_secs: u64,
+    pub compaction_interval_secs: u64,
+    pub active_partition_compaction_threshold: usize,
+}
+
+pub async fn run(opts: DevOptions) -> Result<()> {
+    let DevOptions {
+        foreground,
+        ui_port,
+        tcp_port,
+        workspace,
+        max_buffer_events,
+        flush_interval_secs,
+        compaction_interval_secs,
+        active_partition_compaction_threshold,
+    } = opts;
+
     let workspace = resolve_workspace(workspace)?;
 
     println!(
@@ -27,6 +42,7 @@ pub async fn run(
         socket_path: PathBuf::from(".greplog/greplog.sock"),
         max_buffer_events,
         compaction_interval_secs,
+        active_partition_compaction_threshold,
     };
 
     if foreground {
