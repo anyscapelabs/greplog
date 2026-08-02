@@ -103,7 +103,7 @@ Filter definitions stored as JSON (`~/.greplog/views.json`). FilterState's URL-p
 
 Latency percentiles and error-rate over time, computed by the agent's query engine via Parquet/Arrow scans (no external database). Chart click-to-filter is deferred to a future round.
 
-Per-service sparklines on Service Cards use the same time-bucketed query pattern as the Analytics ingestion chart, scoped per service via an existing `service` filter. The time bucket is 1 minute (`FLOOR(timestamp / 60000000)`) and sparklines are grouped client-side.
+Per-service sparklines on Service Cards use the same time-bucketed query pattern as the Analytics ingestion chart, scoped per service via an existing `service` filter. The time bucket is 1 minute (`FLOOR(CAST(timestamp AS BIGINT) / 60000000)`) and sparklines are grouped client-side.
 
 Service Drawer Recent Errors and Related Logs sections reuse `useErrors()` and `useLogs()` hooks with a service-scoped WHERE clause — no separate query path.
 
@@ -141,7 +141,10 @@ the same way — a filter that only applied to one arm would aggregate over a
 mathematically wrong mixed population. Translation rules:
 
 - `service IN (...)`, `correlation_id = 'x'` — unchanged on both arms.
-- `timestamp op N` (the time-range filter) — `timestamp` on the logs arm,
+- `timestamp op to_timestamp_micros(N)` (the time-range filter) — the filter
+  builder emits the cutoff as `to_timestamp_micros(N)` (N = micros since
+  epoch) so DataFusion can compare it against the `Timestamp(µs)` columns
+  (a bare integer literal fails coercion). `timestamp` on the logs arm,
   `start_time` on the spans arm (the spans table has no `timestamp` column).
 - `level IN (...)`, `message LIKE '%x%'`, `line op N` — the `logs`-only
   columns, translated per arm:

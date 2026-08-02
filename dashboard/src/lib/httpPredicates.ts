@@ -70,7 +70,11 @@ export function splitQuotedList(body: string): string[] {
  *
  * Per-clause handling:
  *   - `service IN (...)`, `correlation_id = 'x'` — unchanged on both arms.
- *   - `timestamp op N` — `timestamp` (logs) / `start_time` (spans).
+ *   - `timestamp op to_timestamp_micros(N)` (the time-range filter) —
+ *     `timestamp` (logs) / `start_time` (spans). The filter builder emits the
+ *     cutoff as `to_timestamp_micros(N)` (N = micros since epoch) because
+ *     DataFusion cannot coerce a bare integer literal against a
+ *     `Timestamp(µs)` column.
  *   - `level IN (...)` — raw `level` on the logs arm (equivalent to a status
  *     bucket by the SDK mapping above); a `status_code` bucket predicate on the
  *     spans arm. Levels the middleware never emits (debug/critical/fatal)
@@ -108,10 +112,13 @@ export function httpArmPredicates(userWhere: string): { spans: string; logs: str
     }
 
     // Time range: `timestamp` is a logs column; the spans time column is
-    // `start_time`.
-    const timeMatch = clause.match(/^timestamp\s*([<>]=?)\s*(-?\d+)$/i)
+    // `start_time`. The predicate arrives as `timestamp op
+    // to_timestamp_micros(N)` (see useFilterState.ts); N is already micros
+    // since epoch, and `to_timestamp_micros(N)` yields a Timestamp(µs)
+    // directly comparable to both time columns.
+    const timeMatch = clause.match(/^timestamp\s*([<>]=?)\s*to_timestamp_micros\((-?\d+)\)$/i)
     if (timeMatch) {
-      spans.push(`start_time ${timeMatch[1]} ${timeMatch[2]}`)
+      spans.push(`start_time ${timeMatch[1]} to_timestamp_micros(${timeMatch[2]})`)
       logs.push(clause)
       continue
     }

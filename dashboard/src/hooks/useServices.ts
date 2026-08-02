@@ -82,7 +82,7 @@ export function useServices(timeRange?: string): ServicesPageProps {
       userInitiatedRef.current = false
       const nowMicros = Date.now() * 1_000
       const result = await postQuery(
-        `SELECT DISTINCT service FROM logs WHERE timestamp > ${nowMicros - windowNs / 1_000}`,
+        `SELECT DISTINCT service FROM logs WHERE timestamp > to_timestamp_micros(${nowMicros - windowNs / 1_000})`,
         { userInitiated },
       )
       if (!result) return { services: [] }
@@ -101,7 +101,7 @@ export function useServices(timeRange?: string): ServicesPageProps {
       userInitiatedRef.current = false
       const nowMicros = Date.now() * 1_000
       const result = await postQuery(
-        `SELECT service, count(*) AS total, count(*) FILTER (WHERE level = 'error') AS errors, CAST(count(*) FILTER (WHERE level = 'error') AS DOUBLE) / CAST(count(*) AS DOUBLE) AS error_rate, MIN(timestamp) AS first_seen FROM logs WHERE timestamp > ${nowMicros - windowNs / 1_000} GROUP BY service`,
+        `SELECT service, count(*) AS total, count(*) FILTER (WHERE level = 'error') AS errors, CAST(count(*) FILTER (WHERE level = 'error') AS DOUBLE) / CAST(count(*) AS DOUBLE) AS error_rate, MIN(timestamp) AS first_seen FROM logs WHERE timestamp > to_timestamp_micros(${nowMicros - windowNs / 1_000}) GROUP BY service`,
         { userInitiated },
       )
       if (!result) return []
@@ -129,7 +129,7 @@ export function useServices(timeRange?: string): ServicesPageProps {
       userInitiatedRef.current = false
       const nowMicros = Date.now() * 1_000
       const result = await postQuery(
-        `SELECT service, FLOOR(timestamp / 60000000) AS bucket, count(*) AS cnt FROM logs WHERE timestamp > ${nowMicros - windowNs / 1_000} GROUP BY service, bucket ORDER BY service, bucket`,
+        `SELECT service, FLOOR(CAST(timestamp AS BIGINT) / 60000000) AS bucket, count(*) AS cnt FROM logs WHERE timestamp > to_timestamp_micros(${nowMicros - windowNs / 1_000}) GROUP BY service, bucket ORDER BY service, bucket`,
         { userInitiated },
       )
       if (!result) return new Map()
@@ -167,7 +167,7 @@ export function useServices(timeRange?: string): ServicesPageProps {
       const userInitiated = userInitiatedRef.current
       userInitiatedRef.current = false
       const nowMicros = Date.now() * 1_000
-      const dual = buildAvgLatencyByServiceSql(`timestamp > ${nowMicros - windowNs / 1_000}`)
+      const dual = buildAvgLatencyByServiceSql(`timestamp > to_timestamp_micros(${nowMicros - windowNs / 1_000})`)
       if (!dual.sql) return []
       const result = await postQuery(dual.sql, { userInitiated })
       if (!result) return []

@@ -72,7 +72,7 @@ The dashboard doesn't talk to Parquet directly. The agent exposes a small HTTP q
   - `GROUP BY` with any column combination including Hive partition columns (`service`, `date`)
   - Aggregate functions: `COUNT(*)`, `COUNT(*) FILTER (WHERE ...)`, `SUM(...)`, `MIN(...)`, `MAX(...)`, `AVG(...)`
   - Arithmetic in SELECT expressions: `CAST(x AS DOUBLE) / CAST(y AS DOUBLE) AS ratio` — used for server-side error-rate computation
-  - `FLOOR(...)` for bucket arithmetic on timestamp columns
+  - `FLOOR(CAST(timestamp AS BIGINT) / ...)` for bucket arithmetic on timestamp columns (DataFusion will not divide a `Timestamp(µs)` value directly; the dashboard casts to `BIGINT` micros first)
   - Scalar subqueries (`SELECT ... FROM (SELECT ... GROUP BY ...) sub`)
   - `IN (...)` predicates
   - `UNION ALL` — used by the dashboard's HTTP charts to combine `spans` rows (Go/Rust SDKs) with `logs.attributes` rows (Node.js/Python SDKs) into one aggregate over the combined population

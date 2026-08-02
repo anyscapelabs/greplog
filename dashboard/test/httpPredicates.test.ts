@@ -56,17 +56,34 @@ test('correlation_id with escaped quotes and AND in the value stays one literal'
 
 test('mixed realistic filter translates every clause on both arms', () => {
   const r = httpArmPredicates(
-    "WHERE service IN ('web','api') AND timestamp > 1700000000000000 AND level IN ('error','warn') AND line >= 400",
+    "WHERE service IN ('web','api') AND timestamp > to_timestamp_micros(1700000000000000) AND level IN ('error','warn') AND line >= 400",
   )
   assert.equal(
     r.spans,
-    " WHERE service IN ('web','api') AND start_time > 1700000000000000 AND (status_code >= 500 OR status_code >= 400 AND status_code < 500) AND status_code >= 400",
+    " WHERE service IN ('web','api') AND start_time > to_timestamp_micros(1700000000000000) AND (status_code >= 500 OR status_code >= 400 AND status_code < 500) AND status_code >= 400",
   )
   assert.equal(
     r.logs,
-    " AND (service IN ('web','api') AND timestamp > 1700000000000000 AND level IN ('error','warn') AND CAST(json_get_str(attributes, 'http.status_code') AS INT) >= 400)",
+    " AND (service IN ('web','api') AND timestamp > to_timestamp_micros(1700000000000000) AND level IN ('error','warn') AND CAST(json_get_str(attributes, 'http.status_code') AS INT) >= 400)",
   )
   assert.deepEqual(r.unsupported, [])
+})
+
+test('time-range predicate keeps the to_timestamp_micros form on both arms', () => {
+  const r = httpArmPredicates('WHERE timestamp > to_timestamp_micros(1752500000000000)')
+  assert.equal(r.spans, ' WHERE start_time > to_timestamp_micros(1752500000000000)')
+  assert.equal(r.logs, " AND (timestamp > to_timestamp_micros(1752500000000000))")
+  assert.deepEqual(r.unsupported, [])
+})
+
+test('bare integer timestamp comparison is rejected as unsupported, not left on one arm', () => {
+  // The dashboard never emits `timestamp > 123` (it would fail DataFusion
+  // coercion against a Timestamp(µs) column); if such a clause ever appears,
+  // it must fail loudly rather than silently narrow only one arm.
+  const r = httpArmPredicates('WHERE timestamp > 1700000000000000')
+  assert.equal(r.spans, '')
+  assert.equal(r.logs, '')
+  assert.deepEqual(r.unsupported, ['timestamp > 1700000000000000'])
 })
 
 test('unrecognized shapes are reported as unsupported, never silently dropped', () => {

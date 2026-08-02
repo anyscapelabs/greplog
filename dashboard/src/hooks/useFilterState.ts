@@ -272,7 +272,7 @@ export function compileFilterToQuery(filters: FilterState): string {
   const windowNs = TIME_RANGE_NS[filters.timeRange]
   if (windowNs && windowNs > 0) {
     const nowMicros = Date.now() * 1_000
-    clauses.push(`timestamp > ${nowMicros - windowNs / 1_000}`)
+    clauses.push(`timestamp > to_timestamp_micros(${nowMicros - windowNs / 1_000})`)
   }
 
   if (clauses.length === 0) return ''
