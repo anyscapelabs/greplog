@@ -58,7 +58,7 @@ A background compaction scheduler runs on a configurable interval (default: ever
 - **Scope:** Reads all Parquet files in `logs/`, groups them by partition (date+hour).
 - **Merge candidates:** Files smaller than `max_file_size` (default 64 MiB) are candidates. If a partition has 2+ small files, they are merged into one.
 - **Merge process:** Opens a `CompactionReader` that streams sorted rows from all source files, writes to a temporary Parquet file, then atomically replaces originals.
-- **Skip today:** Compaction skips the current hour's partition to avoid contention with active flushes.
+- **Active-partition threshold:** Compaction skips the current date's (active) partition until it has at least `active_partition_compaction_threshold` candidate files (default 50), avoiding contention with active flushes on a quiet workspace while still bounding file count on a busy one.
 - **Idempotency:** Each compaction run records its output manifest; if interrupted, partial merges are discarded (temporary files cleaned up on next boot).
 
 ## Query Engine

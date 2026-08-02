@@ -226,7 +226,9 @@ A background compaction task runs on a configurable interval (default 5 min):
 - Scans all Parquet files in `logs/`, groups by partition (date+hour).
 - Partitions with 2+ files smaller than `max_file_size` (64 MiB) are merged.
 - The merge streams sorted rows from all source files, writes to a temp Parquet, then atomically replaces originals.
-- Skips the current hour's partition to avoid flush contention.
+- Skips the current date's (active) partition until it accumulates at
+  least `active_partition_compaction_threshold` candidate files (default
+  50).
 - Idempotent by design — partial merges are discarded on crash.
 
 **Redaction on write:** Before entering the buffer, attribute maps are scanned — keys matching `password`, `token`, `secret` get `RedactionMode::Full`; keys matching `email` get `RedactionMode::Partial`.

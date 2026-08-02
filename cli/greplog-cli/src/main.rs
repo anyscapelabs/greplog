@@ -69,16 +69,16 @@ async fn main() -> anyhow::Result<()> {
             compaction_interval_secs,
             active_partition_compaction_threshold,
         } => {
-            commands::dev::run(
+            commands::dev::run(commands::dev::DevOptions {
                 foreground,
-                port,
+                ui_port: port,
                 tcp_port,
                 workspace,
                 max_buffer_events,
                 flush_interval_secs,
                 compaction_interval_secs,
                 active_partition_compaction_threshold,
-            )
+            })
             .await
         }
         Commands::Init { workspace } => commands::init::run(workspace).await,

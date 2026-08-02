@@ -20,6 +20,9 @@ Background compaction scheduler that merges small Parquet partitions. Idempotent
 ## Consequences
 
 - Compaction runs on a configurable interval (default 5 min).
-- Skips the current hour's partition to avoid flush contention.
+- Skips the current date's (active) partition until it accumulates at
+  least `active_partition_compaction_threshold` candidate files (default
+  50), avoiding flush contention on a quiet workspace while still bounding
+  file count on a busy one.
 - Uses atomic file replacement (write `.tmp`, then rename) — crash during merge only loses the in-progress output, not the source files.
 - Idempotent: each run records its output manifest; interrupted runs leave no partial state.
