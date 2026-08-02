@@ -54,12 +54,37 @@ server.listen(0, '127.0.0.1', () => {
   }, 400)
 })
 
+// Manual greplog.* logs at every level (logger_name = 'greplog'). These feed
+// the log-volume, severity, error-rate and noisy-services charts.
 setInterval(() => {
-  greplog.info('Handled request', { route: '/users', method: 'GET' })
+  const route = Math.random() < 0.5 ? '/users' : '/orders'
+  greplog.info('Handled request', { route, method: 'GET', http_status_code: '200' })
+  if (Math.random() < 0.2) {
+    greplog.warn('Slow response', {
+      route,
+      method: 'GET',
+      latency_ms: String(80 + Math.floor(Math.random() * 200)),
+    })
+  }
   if (Math.random() < 0.15) {
     greplog.error('Payment failed', {
       order_id: 'ord-' + Math.floor(Math.random() * 100000),
       amount: '99.99',
+      route,
+      error_code: 'payment_declined',
     })
   }
+  greplog.debug('Cache miss', { route, cache_key: 'user:42' })
 }, 800)
+
+// Periodic unhandled promise rejection so the SDK's unhandledRejection hook
+// emits rows with exception_type / exception_message / stack_trace columns
+// (logger_name = 'unhandledRejection', level = 'error'). These feed the
+// Errors page error-type filter and the log drawer's Stack Trace section.
+// Safe: the SDK registers an unhandledRejection listener at init(), so the
+// process never terminates on these.
+setInterval(() => {
+  if (Math.random() < 0.5) {
+    Promise.reject(new Error('simulated unhandled rejection in api-node'))
+  }
+}, 2000)

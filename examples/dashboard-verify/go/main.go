@@ -6,6 +6,15 @@
 // StatusCodesChart and AvgLatencyByServiceChart queries (spans UNION ALL
 // logs.attributes), and the only way the spans arm ever gets data.
 //
+// In addition to spans, it also emits MANUAL greplog.* log events at every
+// level and periodically re-runs a simulated panic through greplog.Go().
+// Without these the `go-api` service contributes zero rows to the `logs`
+// table, so the Errors page, error-type filter, severity distribution,
+// noisy-services and error-rate-by-service charts would all be empty for
+// this service. The panic capture (PanicPolicyLog) is what produces rows
+// with exception_type = 'panic' + a real stack trace, feeding the Errors
+// page error-type filter and the error drawer's Stack Trace section.
+//
 // ~10% of /orders requests return HTTP 500 with a short random sleep so the
 // latency percentiles / avg-latency charts have real spread.
 //
@@ -22,6 +31,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
@@ -41,10 +51,51 @@ func env(key, fallback string) string {
 
 func main() {
 	greplog.Init(&greplog.Options{
-		Service:    env("GREPLOG_SERVICE", "go-api"),
-		SocketPath: env("GREPLOG_SOCKET", ".greplog/greplog.sock"),
+		Service:      env("GREPLOG_SERVICE", "go-api"),
+		SocketPath:   env("GREPLOG_SOCKET", ".greplog/greplog.sock"),
+		CaptureBodies: true,
+		PanicPolicy:  greplog.PanicPolicyLog,
 	})
 	defer greplog.Shutdown()
+
+	// Manual greplog.* logs at every level (logger_name = 'greplog'). These
+	// feed the log-volume, severity, error-rate and noisy-services charts.
+	go func() {
+		for {
+			time.Sleep(800 * time.Millisecond)
+			route := "/orders"
+			if rand.Float64() < 0.5 {
+				route = "/health"
+			}
+			greplog.Info("handled request", map[string]string{"route": route, "method": "GET", "http_status_code": "200"})
+			if rand.Float64() < 0.2 {
+				greplog.Warn("slow upstream", map[string]string{"route": route, "method": "GET", "latency_ms": "120"})
+			}
+			if rand.Float64() < 0.15 {
+				greplog.Error("payment declined", map[string]string{
+					"order_id":   "ord-" + randomIntString(),
+					"amount":     "99.99",
+					"route":      route,
+					"error_code": "card_declined",
+				})
+			}
+			greplog.Debug("cache miss", map[string]string{"route": route})
+		}
+	}()
+
+	// Simulated panics through greplog.Go(). PanicPolicyLog keeps the process
+	// alive while the SDK logs the panic with exception_type='panic' and a
+	// real stack trace — the only Go path that populates those columns.
+	go func() {
+		for {
+			time.Sleep(2500 * time.Millisecond)
+			if rand.Float64() < 0.5 {
+				greplog.Go(func() {
+					panic("simulated panic in go-api")
+				})
+			}
+		}
+	}()
 
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
@@ -67,4 +118,8 @@ func main() {
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("greplog-verify-go: %v", err)
 	}
+}
+
+func randomIntString() string {
+	return fmt.Sprintf("%d", rand.Intn(100000))
 }
