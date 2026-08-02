@@ -12,7 +12,6 @@ import {
   placeholderStatusCodesGroupBy,
 } from './placeholder-data.ts'
 import { useAgent } from '../context/AgentContext.tsx'
-import { buildStatusCodesSql, parseStatusCodes } from '../lib/httpQueries.ts'
 import { buildLevelSection, buildServiceSection, buildStatusCodeSections } from '../lib/filterSections.ts'
 
 const EMPTY_CHARTS: LogCharts = {
@@ -60,26 +59,13 @@ export function useLogs(whereClause?: string): LogsPageProps {
       const w = whereClause ?? ''
       const andClause = w ? ` AND (${w.replace(/^WHERE\s+/i, '')})` : ''
 
-      // Status-code distribution must come from the same dual-source HTTP
-      // population as the Analytics page (spans UNION ALL logs.attributes),
-      // so this page shows the same real data for mixed-SDK workspaces instead
-      // of a second hand-rolled implementation. Unsupported predicate shapes
-      // leave the chart empty (honest empty state), mirroring Analytics.
-      const statusCodesDual = buildStatusCodesSql(w)
-      if (statusCodesDual.unsupported.length > 0) {
-        console.warn(
-          `[logs] skipping status-code chart: ${statusCodesDual.unsupported.length} filter clause(s) ` +
-            `cannot be translated to the spans/logs-attributes tables. Add a case to httpArmPredicates ` +
-            `in httpPredicates.ts. Unsupported clause(s): ${statusCodesDual.unsupported.join('; ')}`,
-        )
-      }
-
-      const [result, volResult, errResult, countResult, statusCodeResult, levelResult, serviceResult, httpStatusResult] = await Promise.all([
+      // NOTE: the top-of-page charts (Total Requests / Errors / Status Codes)
+      // were removed and their data queries unwired; a replacement chart will
+      // add its own queries here. Only the log rows, counts and filter-sidebar
+      // sections are fetched below.
+      const [result, countResult, levelResult, serviceResult, httpStatusResult] = await Promise.all([
         postQuery(`${BASE_SQL} ${w} ORDER BY timestamp DESC LIMIT 1000`, { userInitiated }),
-        postQuery(`SELECT date, count(*) AS cnt FROM logs ${w} GROUP BY date ORDER BY date`, { userInitiated }),
-        postQuery(`SELECT date, count(*) AS cnt FROM logs WHERE level IN ('error','critical','fatal')${andClause} GROUP BY date ORDER BY date`, { userInitiated }),
         postQuery(`SELECT count(*) AS total FROM logs ${w}`, { userInitiated }),
-        !statusCodesDual.sql ? Promise.resolve(null) : postQuery(statusCodesDual.sql, { userInitiated }),
         postQuery(`SELECT level, count(*) AS cnt FROM logs ${w} GROUP BY level ORDER BY cnt DESC`, { userInitiated }),
         postQuery(`SELECT service, count(*) AS cnt FROM logs ${w} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
         postQuery(`SELECT json_get_str(attributes, 'http.status_code') AS code, count(*) AS cnt FROM logs WHERE logger_name = 'greplog.http'${andClause} GROUP BY json_get_str(attributes, 'http.status_code') ORDER BY cnt DESC`, { userInitiated }),
@@ -88,13 +74,6 @@ export function useLogs(whereClause?: string): LogsPageProps {
       const logs = result ? rowsToLogs(result.rows, result.columns) : []
       const cntIdx = countResult ? countResult.columns.indexOf('total') : -1
       const totalCount = cntIdx >= 0 && countResult && countResult.rows[0] ? Number(countResult.rows[0][cntIdx] ?? 0) : logs.length
-
-      const volumeTimeseries = volResult
-        ? volResult.rows.map((r) => ({ timestamp: String(r[0] ?? ''), value: Number(r[1] ?? 0) }))
-        : []
-      const errorTimeseries = errResult
-        ? errResult.rows.map((r) => ({ timestamp: String(r[0] ?? ''), count: Number(r[1] ?? 0) }))
-        : []
 
       const filterSections: FilterSectionConfig[] = []
       if (levelResult) filterSections.push(buildLevelSection(levelResult.rows, levelResult.columns))
@@ -107,11 +86,7 @@ export function useLogs(whereClause?: string): LogsPageProps {
       return {
         logs,
         totalCount,
-        charts: {
-          volumeTimeseries,
-          errorTimeseries,
-          statusCodeDistribution: statusCodeResult ? parseStatusCodes(statusCodeResult) : [],
-        },
+        charts: EMPTY_CHARTS,
         filterSections,
         isWaiting: false,
       }

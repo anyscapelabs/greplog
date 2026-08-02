@@ -1,10 +1,8 @@
 import { useState } from 'react'
 import { useAnalytics, useFilterState, compileFilterToQuery, useRefreshControl } from '../hooks/index.ts'
-import { useAgent } from '../context/AgentContext.tsx'
 import PageHeader from '../components/PageHeader.tsx'
 import AnalyticsMetricCard from '../components/AnalyticsMetricCard.tsx'
 import AnalyticsChartPanel from '../components/AnalyticsChartPanel.tsx'
-import WaitingOverlay, { SDK_SETUP_TERMINAL } from '../components/WaitingOverlay.tsx'
 import IngestionChart from '../components/IngestionChart.tsx'
 import ErrorOverTimeChart from '../components/ErrorOverTimeChart.tsx'
 import LatencyPercentilesChart from '../components/LatencyPercentilesChart.tsx'
@@ -15,7 +13,6 @@ import SeverityChart from '../components/SeverityChart.tsx'
 import SystemMetricsChart from '../components/SystemMetricsChart.tsx'
 import AvgResponseTimeChart from '../components/AvgResponseTimeChart.tsx'
 export default function Analytics() {
-  const { connected } = useAgent()
   const {
     filters,
     setServices,
@@ -84,11 +81,6 @@ export default function Analytics() {
         onServiceChange={handleServiceChange}
       />
       <div className="flex-1 overflow-y-auto p-0.5 relative">
-          <WaitingOverlay
-              visible={!connected}
-              message="Run the Greplog agent and configure an SDK to start collecting analytics"
-              terminal={SDK_SETUP_TERMINAL}
-            />
         <div className="grid grid-cols-6 gap-0.5">
           {metrics.map((metric) => (
             <AnalyticsMetricCard key={metric.title} title={metric.title} value={metric.value} color={metric.color} rgb={metric.rgb} data={metric.sparkline} />

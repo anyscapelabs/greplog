@@ -5,7 +5,6 @@ import LogsIcon from '../icons/LogsIcon.tsx'
 import AnalyticsIcon from '../icons/AnalyticsIcon.tsx'
 import ServicesIcon from '../icons/ServicesIcon.tsx'
 import { useTheme } from '../context/ThemeContext.tsx'
-import { useAgent } from '../context/AgentContext.tsx'
 
 const allTabs = [
   { to: '/logs', icon: LogsIcon, label: 'Logs' },
@@ -16,12 +15,6 @@ const allTabs = [
 
 export default function Sidebar() {
   const { theme, toggleTheme } = useTheme()
-  const { connected } = useAgent()
-
-  const primaryTabs = allTabs.map((tab) => ({
-    ...tab,
-    enabled: tab.to === '/logs' || connected,
-  }))
 
   return (
     <div
@@ -60,34 +53,22 @@ export default function Sidebar() {
         </div>
       </div>
       <nav className="flex flex-col gap-0.5 px-3 flex-1">
-        {primaryTabs.map((tab) =>
-          tab.enabled ? (
-            <NavLink
-              key={tab.to}
-              to={tab.to}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 px-2 py-1.5 text-sm font-medium transition-colors ${
-                isActive
-                  ? 'text-[var(--accent)] bg-[var(--accent)]/10'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-[var(--hover-bg)]'
-              }`
-              }
-            >
-              <tab.icon className="size-5" />
-              {tab.label}
-            </NavLink>
-          ) : (
-            <div
-              key={tab.to}
-              className="flex items-center gap-2.5 px-2 py-1.5 text-sm font-medium cursor-not-allowed"
-              style={{ color: 'var(--border-primary)', opacity: 0.5 }}
-              title="Available once the agent connects"
-            >
-              <tab.icon className="size-5" />
-              {tab.label}
-            </div>
-          )
-        )}
+        {allTabs.map((tab) => (
+          <NavLink
+            key={tab.to}
+            to={tab.to}
+            className={({ isActive }) =>
+              `flex items-center gap-2.5 px-2 py-1.5 text-sm font-medium transition-colors ${
+              isActive
+                ? 'text-[var(--accent)] bg-[var(--accent)]/10'
+                : 'text-text-secondary hover:text-text-primary hover:bg-[var(--hover-bg)]'
+            }`
+            }
+          >
+            <tab.icon className="size-5" />
+            {tab.label}
+          </NavLink>
+        ))}
       </nav>
       <div className="px-3 pb-3">
         <button

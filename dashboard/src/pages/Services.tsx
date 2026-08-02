@@ -112,11 +112,6 @@ export default function Services() {
         onFilterToggle={() => setFilterOpen(!filterOpen)}
       />
       <div className="flex flex-1 min-h-0 relative">
-          <WaitingOverlay
-            visible={!connected}
-            message="Run the Greplog agent and configure an SDK to start collecting services data"
-            terminal={SDK_SETUP_TERMINAL}
-          />
         {filterOpen && <ServicesFilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex gap-1.5 px-2 pt-2 pb-1.5 shrink-0">
