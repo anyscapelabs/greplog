@@ -221,6 +221,14 @@ export function placeholderLogCharts(): LogCharts {
     volumeTimeseries: timestamps.map((ts) => ({ timestamp: ts, value: Math.round(Math.random() * 500 + 100) })),
     errorTimeseries: timestamps.map((ts) => ({ timestamp: ts, count: Math.round(Math.random() * 20) })),
     statusCodeDistribution: placeholderStatusCodeDistribution,
+    logsHistogram: {
+      buckets: timestamps.map((ts) => new Date(ts).toISOString().slice(11, 16)),
+      levels: [
+        { level: 'info', counts: Array.from({ length: 60 }, () => Math.round(Math.random() * 120)) },
+        { level: 'warn', counts: Array.from({ length: 60 }, () => Math.round(Math.random() * 40)) },
+        { level: 'error', counts: Array.from({ length: 60 }, () => Math.round(Math.random() * 15)) },
+      ],
+    },
   }
 }
 

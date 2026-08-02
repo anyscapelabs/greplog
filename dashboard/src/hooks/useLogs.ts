@@ -18,7 +18,7 @@ const EMPTY_CHARTS: LogCharts = {
   volumeTimeseries: [],
   errorTimeseries: [],
   statusCodeDistribution: [],
-  logsHistogram: [],
+  logsHistogram: { buckets: [], levels: [] },
 }
 
 function rowsToLogs(rows: unknown[][], columns: string[]): LogEntry[] {
@@ -70,26 +70,57 @@ export function useLogs(whereClause?: string): LogsPageProps {
         postQuery(`SELECT level, count(*) AS cnt FROM logs ${w} GROUP BY level ORDER BY cnt DESC`, { userInitiated }),
         postQuery(`SELECT service, count(*) AS cnt FROM logs ${w} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
         postQuery(`SELECT json_get_str(attributes, 'http.status_code') AS code, count(*) AS cnt FROM logs WHERE logger_name = 'greplog.http'${andClause} GROUP BY json_get_str(attributes, 'http.status_code') ORDER BY cnt DESC`, { userInitiated }),
-        postQuery(`SELECT date_trunc('minute', timestamp) AS bucket, count(*) AS cnt FROM logs ${w} GROUP BY bucket ORDER BY bucket LIMIT 500`, { userInitiated }),
+        postQuery(`SELECT date_trunc('minute', timestamp) AS bucket, level, count(*) AS cnt FROM logs ${w} GROUP BY bucket, level ORDER BY bucket, level`, { userInitiated }),
       ])
 
       const logs = result ? rowsToLogs(result.rows, result.columns) : []
       const cntIdx = countResult ? countResult.columns.indexOf('total') : -1
       const totalCount = cntIdx >= 0 && countResult && countResult.rows[0] ? Number(countResult.rows[0][cntIdx] ?? 0) : logs.length
 
-      // Histogram of log volume per minute, ascending. Buckets come back from
-      // DataFusion as microsecond timestamps; collapse to an HH:MM label so the
-      // x-axis stays readable. Unknown cells are skipped (no fabricated bars).
+      // Histogram of log volume per minute per level, ascending. Buckets come
+      // back from DataFusion as microsecond timestamps; collapse to an HH:MM
+      // label so the x-axis stays readable. Rows are grouped by (bucket, level),
+      // so pivot into one counts array per level aligned to bucket order. Unknown
+      // cells are skipped (no fabricated bars).
       const logsHistogram = histogramResult
-        ? histogramResult.rows
-            .map((r) => {
-              const micros = Number(r[0] ?? 0)
-              const count = Number(r[1] ?? 0)
-              if (!Number.isFinite(micros) || micros <= 0 || !Number.isFinite(count)) return null
-              return { timestamp: new Date(micros / 1000).toISOString().slice(11, 16), count }
+        ? (() => {
+            const order: number[] = []
+            const bucketIndexOf = new Map<number, number>()
+            const levelCells = new Map<string, Map<number, number>>()
+
+            for (const r of histogramResult.rows) {
+              const micros = Number(r[0])
+              const level = String(r[1])
+              const count = Number(r[2])
+              if (!Number.isFinite(micros) || micros <= 0 || !level || !Number.isFinite(count) || count < 0) continue
+
+              let bi = bucketIndexOf.get(micros)
+              if (bi === undefined) {
+                bi = order.length
+                bucketIndexOf.set(micros, bi)
+                order.push(micros)
+              }
+              let cells = levelCells.get(level)
+              if (cells === undefined) {
+                cells = new Map()
+                levelCells.set(level, cells)
+              }
+              cells.set(bi, (cells.get(bi) ?? 0) + count)
+            }
+
+            const n = order.length
+            const levels = Array.from(levelCells.entries()).map(([level, cells]) => {
+              const counts = new Array(n).fill(0)
+              for (const [bi, c] of cells) counts[bi] = c
+              return { level, counts }
             })
-            .filter((p): p is { timestamp: string; count: number } => p !== null)
-        : []
+
+            return {
+              buckets: order.map((m) => new Date(m / 1000).toISOString().slice(11, 16)),
+              levels,
+            }
+          })()
+        : { buckets: [], levels: [] }
 
       const filterSections: FilterSectionConfig[] = []
       if (levelResult) filterSections.push(buildLevelSection(levelResult.rows, levelResult.columns))

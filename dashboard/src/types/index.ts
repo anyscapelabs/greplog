@@ -91,11 +91,25 @@ export interface LogEntry {
   stackTrace?: string
 }
 
+export interface LogsHistogramSeries {
+  /** raw level string (info / warn / error / ...) */
+  level: string
+  /** count per bucket, aligned by index to LogsHistogramData.buckets */
+  counts: number[]
+}
+
+export interface LogsHistogramData {
+  /** per-minute bucket labels, ascending by time */
+  buckets: string[]
+  /** per-level counts, one series per level */
+  levels: LogsHistogramSeries[]
+}
+
 export interface LogCharts {
   volumeTimeseries: TimeseriesPoint[]
   errorTimeseries: { timestamp: string; count: number }[]
   statusCodeDistribution: PieSlice[]
-  logsHistogram: { timestamp: string; count: number }[]
+  logsHistogram: LogsHistogramData
 }
 
 export interface LogsPageProps {
@@ -400,7 +414,7 @@ export interface AvgLatencyByServiceChartProps {
 }
 
 export interface LogsHistogramChartProps {
-  data: { timestamp: string; count: number }[]
+  data: LogsHistogramData
 }
 
 export interface AnalyticsChartPanelProps {
