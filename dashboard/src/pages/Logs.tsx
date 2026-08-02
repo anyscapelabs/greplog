@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useLogs, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl } from '../hooks/index.ts'
 import PageHeader from '../components/PageHeader.tsx'
 import FilterSidebar from '../components/FilterSidebar.tsx'
+import LogsHistogramChart from '../components/LogsHistogramChart.tsx'
 import LogsTable from '../components/LogsTable.tsx'
 import LogsDrawer from '../components/LogsDrawer.tsx'
 import type { LogEntry } from '../types/index.ts'
@@ -25,6 +26,7 @@ export default function Logs() {
     totalRows,
     querySeconds,
     filterSections,
+    charts,
     refetch,
     manualRefetch,
   } = useLogs(predicate)
@@ -105,6 +107,16 @@ export default function Logs() {
       <div className="flex flex-1 min-h-0 relative">
         {filterOpen && <FilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex gap-1.5 px-2 pt-2">
+            <div className="flex-1 h-56 rounded border flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+              <div className="flex items-center justify-between px-2 pt-2 border-b pb-2" style={{ borderColor: 'var(--border-primary)' }}>
+                <span className="text-sm font-semibold text-text-primary">Logs Histogram</span>
+              </div>
+              <div className="flex-1 p-1">
+                <LogsHistogramChart data={charts.logsHistogram} />
+              </div>
+            </div>
+          </div>
           <LogsTable data={logs} totalRows={totalRows} totalLogs={totalLogs} querySeconds={querySeconds} onView={setDrawerLog} />
         </div>
       </div>

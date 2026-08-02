@@ -95,6 +95,7 @@ export interface LogCharts {
   volumeTimeseries: TimeseriesPoint[]
   errorTimeseries: { timestamp: string; count: number }[]
   statusCodeDistribution: PieSlice[]
+  logsHistogram: { timestamp: string; count: number }[]
 }
 
 export interface LogsPageProps {
@@ -365,24 +366,6 @@ export interface AvgResponseTimeChartProps {
   data: BarDataPoint[]
 }
 
-export interface LogVolumeChartProps {
-  metric: string
-  groupBy: string
-  data: TimeseriesPoint[]
-}
-
-export interface ErrorsChartProps {
-  metric: string
-  groupBy: string
-  data: { timestamp: string; count: number }[]
-}
-
-export interface StatusCodesChartProps {
-  metric: string
-  groupBy: string
-  data: PieSlice[]
-}
-
 export interface ErrorCountChartProps {
   metric: string
   groupBy: string
@@ -414,6 +397,10 @@ export interface ErrorRateByServiceChartProps {
 export interface AvgLatencyByServiceChartProps {
   metric: string
   data: BarDataPoint[]
+}
+
+export interface LogsHistogramChartProps {
+  data: { timestamp: string; count: number }[]
 }
 
 export interface AnalyticsChartPanelProps {
