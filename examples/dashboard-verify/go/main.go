@@ -22,6 +22,7 @@
 package main
 
 import (
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -64,6 +65,6 @@ func main() {
 
 	addr := "127.0.0.1:" + env("PORT", "8080")
 	if err := r.Run(addr); err != nil {
-		panic(err)
+		log.Fatalf("greplog-verify-go: %v", err)
 	}
 }
