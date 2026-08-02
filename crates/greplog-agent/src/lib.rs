@@ -37,6 +37,15 @@ pub struct Config {
 
     #[arg(long, default_value_t = 300)]
     pub compaction_interval_secs: u64,
+
+    /// Minimum number of candidate (non-sealed) Parquet files the
+    /// actively-written partition (today's, in UTC) must accumulate
+    /// before it becomes eligible for background compaction. Below this,
+    /// today's partition is left alone so a quiet workspace doesn't
+    /// churn on every scheduler tick. See
+    /// docs/adr/0008-compaction-background-idempotent.md.
+    #[arg(long, default_value_t = 50)]
+    pub active_partition_compaction_threshold: usize,
 }
 
 impl Config {
@@ -81,6 +90,7 @@ pub async fn run(config: Config) -> Result<()> {
     let compaction_handle = store::compaction_scheduler::spawn_compaction_scheduler(
         config.workspace.clone(),
         compaction_interval,
+        config.active_partition_compaction_threshold,
     );
 
     let server_state = server::AppState {

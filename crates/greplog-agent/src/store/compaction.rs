@@ -46,28 +46,78 @@ pub struct CompactionResult {
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Whether a partition should be compacted this cycle, given whether it's
+/// the actively‑written (today, UTC) partition, how many merge‑candidate
+/// files it currently has, and the configured active‑partition threshold.
+///
+/// Historical (non‑today) partitions are always eligible here — they only
+/// need ≥2 candidate files to actually produce a merge, which is checked
+/// separately by the caller. Today's partition is additionally gated:
+/// `None` means it is never compacted (preserves the original,
+/// unconditional `skip_today` behavior); `Some(threshold)` makes it
+/// eligible once `candidate_count >= threshold`.
+fn is_eligible_for_compaction(
+    is_today: bool,
+    candidate_count: usize,
+    active_partition_file_threshold: Option<usize>,
+) -> bool {
+    if !is_today {
+        return true;
+    }
+    match active_partition_file_threshold {
+        None => false,
+        Some(threshold) => candidate_count >= threshold,
+    }
+}
+
 /// Compact a single partition directory.
 ///
-/// Reads all small parquet files, merges them into one, writes the merged
-/// file atomically, writes a manifest entry, deletes the source files,
-/// and marks the entry as completed.  Uses the temp‑file → fsync → rename
-/// → dir‑fsync pattern for both the merged data file and the manifest.
+/// Reads eligible parquet files (see [`get_source_files`]), merges them
+/// into one, writes the merged file atomically, writes a manifest entry,
+/// deletes the source files, and marks the entry as completed. Uses the
+/// temp‑file → fsync → rename → dir‑fsync pattern for both the merged
+/// data file and the manifest.
 ///
-/// If `skip_today` is true and the partition directory corresponds to the
-/// current UTC date, the function returns `Ok(0)` without doing anything.
+/// `target_size` bounds which files are even considered a merge
+/// candidate: any `.parquet` file already at or above `target_size`
+/// bytes is treated as sealed and excluded (see [`get_source_files`]).
+/// This keeps repeated compaction of a still‑growing partition bounded to
+/// its newest small files instead of re‑merging the whole partition's
+/// history on every cycle.
+///
+/// `active_partition_file_threshold` controls whether the partition
+/// corresponding to the current UTC date (the one the flush path is
+/// actively writing to) is eligible at all — see
+/// [`is_eligible_for_compaction`]. Non‑today partitions are unaffected by
+/// this parameter.
 pub fn compact_partition(
     dir: &Path,
-    _target_size: u64,
-    skip_today: bool,
+    target_size: u64,
+    active_partition_file_threshold: Option<usize>,
 ) -> Result<CompactionResult> {
-    if skip_today && is_today_partition(dir) {
-        debug!("Skipping today's partition: {:?}", dir);
+    let is_today = is_today_partition(dir);
+    let sources = get_source_files(dir, target_size)?;
+
+    if !is_eligible_for_compaction(is_today, sources.len(), active_partition_file_threshold) {
+        debug!(
+            "Active partition {:?} not yet eligible ({} candidate file(s), threshold {:?}) — skipping this cycle",
+            dir,
+            sources.len(),
+            active_partition_file_threshold,
+        );
         return Ok(CompactionResult { files_compacted: 0 });
     }
 
-    let sources = get_source_files(dir)?;
     if sources.len() < 2 {
         return Ok(CompactionResult { files_compacted: 0 });
+    }
+
+    if is_today {
+        info!(
+            "Active partition {:?} has {} candidate file(s) — compacting",
+            dir,
+            sources.len(),
+        );
     }
 
     let manifest = compact_phase1(dir, &sources)?;
@@ -264,8 +314,9 @@ pub fn reconcile_compactions(base_dir: &Path) -> Result<()> {
 
 /// List `.parquet` files in `dir` that are not currently referenced as
 /// sources or merged files by any in‑flight manifest entry
-/// (`pending_merge` or `pending_delete`).
-fn get_source_files(dir: &Path) -> Result<Vec<PathBuf>> {
+/// (`pending_merge` or `pending_delete`), and are not already sealed (at
+/// or above `target_size` bytes).
+fn get_source_files(dir: &Path, target_size: u64) -> Result<Vec<PathBuf>> {
     let manifest_path = dir.join(MANIFEST_FILE);
     let active_merged: HashSet<String>;
     let active_sources: HashSet<String>;
@@ -314,11 +365,27 @@ fn get_source_files(dir: &Path) -> Result<Vec<PathBuf>> {
         .map(|e| e.path())
         .filter(|p| {
             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            name.ends_with(".parquet")
+            let is_candidate_name = name.ends_with(".parquet")
                 && !active_sources.contains(name)
                 && !active_merged.contains(name)
                 && name != MANIFEST_FILE
-                && !name.ends_with(".tmp")
+                && !name.ends_with(".tmp");
+            if !is_candidate_name {
+                return false;
+            }
+            // Files already at/above target_size are treated as sealed and
+            // excluded from the merge set. Without this, repeatedly
+            // compacting a partition that's still being written to (the
+            // active/today partition) would re-read and rewrite its entire
+            // accumulated history on every cycle instead of just the
+            // newest small files. A file that can't be stat'd is kept as a
+            // candidate rather than silently dropped: read_parquet_files
+            // will surface a clear error for a genuinely missing/unreadable
+            // file instead of it being quietly excluded forever.
+            match fs::metadata(p) {
+                Ok(meta) => meta.len() < target_size,
+                Err(_) => true,
+            }
         })
         .collect();
 

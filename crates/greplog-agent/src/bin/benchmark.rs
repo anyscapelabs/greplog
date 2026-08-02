@@ -576,6 +576,7 @@ async fn run_benchmark_for_scale(
         socket_path: PathBuf::from(".greplog/bench.sock"),
         max_buffer_events: 100_000,
         compaction_interval_secs: COMPACTION_INTERVAL_SECS,
+        active_partition_compaction_threshold: 0,
     };
 
     let config = Arc::new(config.clone());
@@ -622,7 +623,9 @@ async fn run_benchmark_for_scale(
     info!("Running compaction...");
     let workspace = config.workspace.clone();
     tokio::task::spawn_blocking(move || {
-        let _ = compact_eligible_partitions(&workspace);
+        // 0 forces immediate compaction of every partition, including
+        // today's, for deterministic benchmark measurement.
+        let _ = compact_eligible_partitions(&workspace, 0);
     })
     .await?;
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -687,6 +690,7 @@ async fn main() -> Result<()> {
         socket_path: PathBuf::from(".greplog/bench.sock"),
         max_buffer_events: 100_000,
         compaction_interval_secs: 30,
+        active_partition_compaction_threshold: 0,
     });
 
     let (batch_tx, batch_rx) = mpsc::channel(1024);

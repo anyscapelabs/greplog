@@ -5,12 +5,18 @@ use std::time::Duration;
 /// Run one compaction cycle on all eligible partitions.
 ///
 /// Discovers every `date=YYYY-MM-DD` leaf directory under `data_dir/data/`
-/// and calls [`compact_partition`] on each with `skip_today=true` so the
-/// actively‑written partition is never touched.
+/// and calls [`compact_partition`] on each. Historical partitions are
+/// always eligible; the partition for the current UTC date (the one the
+/// flush path is actively writing to) is only compacted once it has
+/// accumulated at least `active_partition_file_threshold` candidate
+/// files, so a quiet workspace doesn't churn on every scheduler tick.
 ///
 /// Returns the number of partitions that were actually compacted
 /// (i.e. had ≥2 source files merged).
-pub fn compact_eligible_partitions(data_dir: &Path) -> Result<usize> {
+pub fn compact_eligible_partitions(
+    data_dir: &Path,
+    active_partition_file_threshold: usize,
+) -> Result<usize> {
     let data = data_dir.join("data");
     if !data.exists() {
         return Ok(0);
@@ -21,7 +27,7 @@ pub fn compact_eligible_partitions(data_dir: &Path) -> Result<usize> {
         match super::compaction::compact_partition(
             dir,
             super::compaction::DEFAULT_TARGET_SIZE,
-            true, // skip_today – never compact the partition being written to
+            Some(active_partition_file_threshold),
         ) {
             Ok(result) => {
                 if result.files_compacted > 0 {
@@ -42,7 +48,8 @@ pub fn compact_eligible_partitions(data_dir: &Path) -> Result<usize> {
 }
 
 /// Spawn a background task that periodically calls
-/// [`compact_eligible_partitions`] on the given `data_dir`.
+/// [`compact_eligible_partitions`] on the given `data_dir`, passing
+/// `active_partition_file_threshold` through on every cycle.
 ///
 /// The first tick is skipped (the agent has just started and may still be
 /// recovering); subsequent ticks run compaction inside `spawn_blocking`
@@ -50,6 +57,7 @@ pub fn compact_eligible_partitions(data_dir: &Path) -> Result<usize> {
 pub fn spawn_compaction_scheduler(
     data_dir: PathBuf,
     interval: Duration,
+    active_partition_file_threshold: usize,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(interval);
@@ -59,9 +67,11 @@ pub fn spawn_compaction_scheduler(
         loop {
             ticker.tick().await;
             let dir = data_dir.clone();
-            if let Err(e) = tokio::task::spawn_blocking(move || compact_eligible_partitions(&dir))
-                .await
-                .unwrap_or_else(|e| Err(anyhow::anyhow!("spawn_blocking join: {e}")))
+            if let Err(e) = tokio::task::spawn_blocking(move || {
+                compact_eligible_partitions(&dir, active_partition_file_threshold)
+            })
+            .await
+            .unwrap_or_else(|e| Err(anyhow::anyhow!("spawn_blocking join: {e}")))
             {
                 tracing::error!("Compaction cycle failed: {e}");
             }

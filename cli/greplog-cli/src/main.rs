@@ -31,6 +31,8 @@ enum Commands {
         flush_interval_secs: u64,
         #[arg(long, default_value_t = 300)]
         compaction_interval_secs: u64,
+        #[arg(long, default_value_t = 50)]
+        active_partition_compaction_threshold: usize,
     },
     /// Detect frameworks and write greplog.config.json
     Init {
