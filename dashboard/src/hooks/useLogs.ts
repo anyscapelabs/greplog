@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useCallback, useRef } from 'react'
 import type { LogsPageProps, LogEntry, LogCharts, FilterSectionConfig, LogsHistogramGranularity } from '../types/index.ts'
 import { postQuery } from './api.ts'

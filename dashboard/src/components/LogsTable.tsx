@@ -81,11 +81,9 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
     })
   }, [filtered, sortDirection])
 
-  const parsedLimit = limit === 'All' ? sortedData.length : parseInt(limit.replace('k', '000'), 10)
-  const displayData = useMemo(() => sortedData.slice(0, parsedLimit), [sortedData, parsedLimit])
-
-  const pageSize = limit === 'All' ? Math.max(displayData.length, 1) : parseInt(limit.replace('k', '000'), 10)
-  const totalPages = Math.ceil(displayData.length / pageSize)
+  const pageSize = limit === 'All' ? Math.max(sortedData.length, 1) : parseInt(limit.replace('k', '000'), 10)
+  const displayData = sortedData
+  const totalPages = Math.max(1, Math.ceil(displayData.length / pageSize))
   const currentPage = Math.min(page, Math.max(totalPages - 1, 0))
   const pageData = useMemo(() => displayData.slice(currentPage * pageSize, (currentPage + 1) * pageSize), [displayData, currentPage, pageSize])
 
@@ -99,7 +97,7 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
 return (
           <div
             key={row.id}
-            className="group relative flex items-start gap-4 py-2.5 pl-4 pr-3 border-b text-xs hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono font-medium cursor-pointer"
+            className="group relative flex items-start gap-4 py-2.5 pl-4 pr-3 border-b text-sm hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono font-medium cursor-pointer"
             style={{ borderColor: 'var(--border-primary)' }}
             onClick={() => onView?.(row)}
           >
