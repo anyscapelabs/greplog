@@ -370,7 +370,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
       plotRef.current?.destroy()
       plotRef.current = null
     }
-  }, [baselines, colors, data.buckets, hasData, isAreaMode, orderedLevels, tops, totalsMax])
+  }, [baselines, colors, data.buckets, hasData, isAreaMode, isWideLabels, orderedLevels, tops, totalsMax])
 
   if (!hasData) {
     return <ChartEmptyState message="No logs in the selected time range." />

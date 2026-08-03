@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useLogs, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl } from '../hooks/index.ts'
 import PageHeader from '../components/PageHeader.tsx'
 import FilterSidebar from '../components/FilterSidebar.tsx'
@@ -33,14 +33,15 @@ export default function Logs() {
     manualRefetch,
   } = useLogs(predicate, filters.timeRange)
 
-  // Preserve previous chart data while loading new data to avoid flicker
-  const previousChartRef = useRef(charts)
+  // Preserve previous chart data while loading new data to avoid flicker.
+  // When fetching completes, sync the display to show the latest data.
+  const [displayCharts, setDisplayCharts] = useState(charts)
   useEffect(() => {
     if (!isFetching) {
-      previousChartRef.current = charts
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDisplayCharts(charts)
     }
   }, [isFetching, charts])
-  const displayCharts = isFetching && previousChartRef.current.logsHistogram.buckets.length > 0 ? previousChartRef.current : charts
 
   const {
     isLive,
@@ -69,6 +70,9 @@ export default function Logs() {
     }
     return merged
   }, [filters.checked, filters.services])
+
+  // Ensure consistent colors across all chart modes (bars and areas)
+  // Colors are derived from log levels and should match both rendering styles
 
   function handleQueryKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter' && filters.query.trim()) {
@@ -120,14 +124,14 @@ export default function Logs() {
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex gap-1.5 px-2 pt-2 pb-1">
             <div
-              className="relative flex-1 min-h-40 h-56 max-h-[70vh] resize-y overflow-hidden rounded border flex flex-col"
+              className="relative flex-1 min-h-56 h-72 max-h-[75vh] resize-y overflow-hidden rounded border flex flex-col p-2"
               style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}
             >
               <TopLoadingBar active={isFetching} />
               <div className="flex items-center justify-between px-2 py-1 border-b shrink-0" style={{ borderColor: 'var(--border-primary)' }}>
                 <span className="text-sm font-semibold text-text-primary">Logs Histogram</span>
               </div>
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-hidden">
                 <LogsHistogramChart data={displayCharts.logsHistogram} />
               </div>
             </div>

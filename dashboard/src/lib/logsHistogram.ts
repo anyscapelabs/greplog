@@ -155,8 +155,8 @@ function fillFullDateRange(
 ): { buckets: string[]; levels: Array<{ level: string; counts: number[] }> } {
   if (data.buckets.length === 0) return data
 
-  // Only fill for longer time ranges (not minute granularity)
-  if (granularity === 'minute') return data
+  // Only fill for 12-hour and day granularities, not minute or hour
+  if (granularity === 'minute' || granularity === 'hour') return data
 
   // Calculate step size based on granularity
   const stepMs = granularity === '12-hour' ? 12 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000
