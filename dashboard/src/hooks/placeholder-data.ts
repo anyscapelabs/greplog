@@ -448,6 +448,7 @@ export const placeholderTimeRanges = [
   { label: 'Last 6 hours', value: 'Last 6 hours' },
   { label: 'Last 24 hours', value: 'Last 24 hours' },
   { label: 'Last 7 days', value: 'Last 7 days' },
+  { label: 'Last 30 days', value: 'Last 30 days' },
   { label: 'Custom', value: 'Custom' },
 ]
 

@@ -3,7 +3,7 @@ import { LuRefreshCw, LuCircleDot, LuPanelLeftClose, LuPanelLeftOpen, LuServer }
 import SearchInput from './SearchInput.tsx'
 import Dropdown from './Dropdown.tsx'
 
-const timeRanges = ['Last 15 min', 'Last 1 hour', 'Last 6 hours', 'Last 24 hours', 'Last 7 days', 'Custom']
+const timeRanges = ['Last 15 min', 'Last 1 hour', 'Last 6 hours', 'Last 24 hours', 'Last 7 days', 'Last 30 days', 'Custom']
 const autoRefreshOptions = ['Off', '10s', '30s', '1m', '5m']
 const defaultServices = ['All Services', 'web', 'api', 'db', 'worker']
 

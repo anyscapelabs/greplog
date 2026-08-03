@@ -272,16 +272,34 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
               tooltip.replaceChildren(buildTooltipContent(bucketLabel, rows))
               tooltip.style.display = 'block'
 
+              // Position tooltip bottom-right of cursor with 10px offset
               const plotLeftOffsetCss = u.bbox.left / uPlot.pxRatio
-              const bucketCenter = plotLeftOffsetCss + left
-              const tooltipWidth = tooltip.offsetWidth || 176
-              const clampedLeft = Math.min(
-                Math.max(8, bucketCenter - tooltipWidth / 2),
-                Math.max(8, width - tooltipWidth - 8),
-              )
+              const plotTopOffsetCss = u.bbox.top / uPlot.pxRatio
+              const cursorScreenLeft = plotLeftOffsetCss + left
+              const cursorScreenTop = plotTopOffsetCss + (u.cursor.top ?? 0)
 
-              tooltip.style.left = `${clampedLeft}px`
-              tooltip.style.top = '10px'
+              const tooltipWidth = tooltip.offsetWidth || 176
+              const tooltipHeight = tooltip.offsetHeight || 60
+              const CURSOR_OFFSET = 10
+
+              // Position to bottom-right of cursor
+              let tooltipLeft = cursorScreenLeft + CURSOR_OFFSET
+              let tooltipTop = cursorScreenTop + CURSOR_OFFSET
+
+              // Clamp horizontally to avoid overflow
+              const maxLeft = Math.max(8, width - tooltipWidth - 8)
+              if (tooltipLeft + tooltipWidth > maxLeft + 8) {
+                tooltipLeft = Math.max(8, maxLeft - tooltipWidth)
+              }
+
+              // Clamp vertically to avoid overflow
+              const maxTop = Math.max(8, height - tooltipHeight - 8)
+              if (tooltipTop + tooltipHeight > maxTop + 8) {
+                tooltipTop = Math.max(8, maxTop - tooltipHeight)
+              }
+
+              tooltip.style.left = `${tooltipLeft}px`
+              tooltip.style.top = `${tooltipTop}px`
             },
           ],
         },

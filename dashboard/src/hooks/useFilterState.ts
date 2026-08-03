@@ -25,6 +25,7 @@ export const TIME_RANGE_NS: Record<string, number> = {
   'Last 6 hours': 6 * 60 * 60 * 1_000_000_000,
   'Last 24 hours': 24 * 60 * 60 * 1_000_000_000,
   'Last 7 days': 7 * 24 * 60 * 60 * 1_000_000_000,
+  'Last 30 days': 30 * 24 * 60 * 60 * 1_000_000_000,
 }
 
 function parseChips(raw: string | null): FilterChip[] {

@@ -44,6 +44,24 @@ function rowsToLogs(rows: unknown[][], columns: string[]): LogEntry[] {
 
 const BASE_SQL = 'SELECT id, timestamp, level, service, message, logger_name, file, line, correlation_id, stack_trace FROM logs'
 
+// Fill missing (bucket, level) combinations with zero counts so all buckets show all levels
+function fillMissingHistogramBuckets(histogram: ReturnType<typeof parseLogsHistogram>) {
+  if (histogram.buckets.length === 0 || histogram.levels.length === 0) {
+    return histogram
+  }
+
+  const bucketCount = histogram.buckets.length
+
+  // Ensure each level has a count entry for every bucket
+  for (const levelData of histogram.levels) {
+    while (levelData.counts.length < bucketCount) {
+      levelData.counts.push(0)
+    }
+  }
+
+  return histogram
+}
+
 function stableQueryKeyWhereClause(whereClause?: string): string | undefined {
   if (!whereClause) return undefined
   return whereClause.replace(/to_timestamp_micros\(\d+\)/g, 'to_timestamp_micros(<now>)')
@@ -87,9 +105,10 @@ export function useLogs(whereClause?: string): LogsPageProps {
       // Histogram of log volume per minute per level, ascending. Buckets come
       // back from DataFusion as microsecond timestamps; collapse to an HH:MM
       // label so the x-axis stays readable. Rows are grouped by (bucket, level),
-      // so pivot into one counts array per level aligned to bucket order. Unknown
-      // cells are skipped (no fabricated bars).
-      const logsHistogram = histogramResult ? parseLogsHistogram(histogramResult.rows, histogramResult.columns) : { buckets: [], levels: [] }
+      // so pivot into one counts array per level aligned to bucket order. Fill
+      // missing (bucket, level) combinations with zero counts.
+      const parsed = histogramResult ? parseLogsHistogram(histogramResult.rows, histogramResult.columns) : { buckets: [], levels: [] }
+      const logsHistogram = fillMissingHistogramBuckets(parsed)
 
       const filterSections: FilterSectionConfig[] = []
       if (levelResult) filterSections.push(buildLevelSection(levelResult.rows, levelResult.columns))
