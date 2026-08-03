@@ -23,7 +23,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 anyhow = "1"
 arrow = "58"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 crc32fast = "1"
 parquet = "58"
 sysinfo = "0.33"

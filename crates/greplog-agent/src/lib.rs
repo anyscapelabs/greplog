@@ -13,7 +13,7 @@ pub mod server;
 pub mod store;
 
 /// Channel capacity between the ingest handler and the writer.
-const INGEST_CHANNEL_CAPACITY: usize = 1024;
+const INGEST_CHANNEL_CAPACITY: usize = 8192;
 
 #[derive(Debug, Clone, clap::Parser)]
 pub struct Config {

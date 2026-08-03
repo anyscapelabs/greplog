@@ -13,7 +13,7 @@ use std::time::Duration;
 use tracing::debug;
 
 const WAL_DIR: &str = "wal";
-const DEFAULT_FSYNC_INTERVAL: Duration = Duration::from_millis(50);
+const DEFAULT_FSYNC_INTERVAL: Duration = Duration::from_millis(100);
 const DEFAULT_MAX_SEGMENT_SIZE: u64 = 16 * 1024 * 1024;
 
 struct WalInner {
@@ -171,11 +171,10 @@ impl WalWriter {
         Ok(())
     }
 
-    /// Append multiple pre-encoded frames in a single `write_vectored` call.
+    /// Append multiple pre-encoded frames in a single write call.
     ///
-    /// All frames are written atomically (from the kernel's perspective) in
-    /// order.  If the combined size exceeds the segment threshold the segment
-    /// is rotated before writing.
+    /// All frames are written in order. If the combined size exceeds the 
+    /// segment threshold the segment is rotated before writing.
     pub fn append_raw_batch(&mut self, bufs: &[&[u8]]) -> Result<()> {
         if bufs.is_empty() {
             return Ok(());
@@ -193,11 +192,14 @@ impl WalWriter {
             Some(f) => f,
             None => bail!("WAL is not open"),
         };
+        
+        // Flatten to a single buffer and write once
         let mut flat = Vec::with_capacity(total_len);
         for buf in bufs {
             flat.extend_from_slice(buf);
         }
         file.write_all(&flat)?;
+        
         inner.current_size += total_len as u64;
         self.pending_writes.store(true, Ordering::SeqCst);
 
