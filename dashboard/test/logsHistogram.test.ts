@@ -18,6 +18,7 @@ test('parseLogsHistogram accepts ISO timestamp buckets from query results', () =
       { level: 'info', counts: [3, 2] },
       { level: 'error', counts: [1, 0] },
     ],
+    granularity: 'minute',
   })
 })
 
@@ -40,6 +41,7 @@ test('parseLogsHistogram accepts microsecond epoch buckets from query results', 
       { level: 'warn', counts: [4, 1] },
       { level: 'error', counts: [2, 0] },
     ],
+    granularity: 'minute',
   })
 })
 
@@ -55,5 +57,40 @@ test('parseLogsHistogram skips rows with unknown bucket values instead of fabric
   assert.deepEqual(result, {
     buckets: ['12:35'],
     levels: [{ level: 'error', counts: [1] }],
+    granularity: 'minute',
+  })
+})
+
+test('parseLogsHistogram formats hour-granularity buckets with month/day and hour', () => {
+  const result = parseLogsHistogram(
+    [
+      ['2026-08-03T12:00:00Z', 'info', 5],
+      ['2026-08-04T09:00:00Z', 'info', 7],
+    ],
+    ['bucket', 'level', 'cnt'],
+    'hour',
+  )
+
+  assert.deepEqual(result, {
+    buckets: ['08/03 12:00', '08/04 09:00'],
+    levels: [{ level: 'info', counts: [5, 7] }],
+    granularity: 'hour',
+  })
+})
+
+test('parseLogsHistogram formats day-granularity buckets with month/day only', () => {
+  const result = parseLogsHistogram(
+    [
+      ['2026-08-03T00:00:00Z', 'info', 5],
+      ['2026-08-04T00:00:00Z', 'info', 7],
+    ],
+    ['bucket', 'level', 'cnt'],
+    'day',
+  )
+
+  assert.deepEqual(result, {
+    buckets: ['08/03', '08/04'],
+    levels: [{ level: 'info', counts: [5, 7] }],
+    granularity: 'day',
   })
 })

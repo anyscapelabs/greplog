@@ -65,12 +65,23 @@ function levelColor(level: string, colors: ChartColors): string {
   return key ? colors[key] : colors.label
 }
 
-function labelStep(bucketCount: number, width: number): number {
-  const approxVisible = Math.max(1, Math.floor(width / 56))
+function labelStep(bucketCount: number, width: number, approxLabelWidth: number): number {
+  const approxVisible = Math.max(1, Math.floor(width / approxLabelWidth))
   return Math.max(1, Math.ceil(bucketCount / approxVisible))
 }
 
 const AXIS_FONT = '11px Inter, ui-sans-serif, system-ui, sans-serif'
+const AREA_FILL_ALPHA = 0.75
+
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace('#', '')
+  if (clean.length !== 6) return hex
+  const r = parseInt(clean.slice(0, 2), 16)
+  const g = parseInt(clean.slice(2, 4), 16)
+  const b = parseInt(clean.slice(4, 6), 16)
+  if ([r, g, b].some((c) => Number.isNaN(c))) return hex
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
 
 function buildTooltipContent(bucketLabel: string, rows: { label: string; color: string; value: number }[]): DocumentFragment {
   const frag = document.createDocumentFragment()
@@ -156,12 +167,15 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
 
   const hasData = data.buckets.length > 0 && totalsMax > 0
 
+  const isAreaMode = data.granularity !== 'minute'
+
   useEffect(() => {
     const host = plotHostRef.current
     const tooltip = tooltipRef.current
     if (!host || !tooltip || !hasData) return
 
     const bars = uPlot.paths!.bars!
+    const linear = uPlot.paths!.linear!
     const xVals = data.buckets.map((_, index) => index)
 
     const hideTooltip = () => {
@@ -176,8 +190,52 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
       plotRef.current?.destroy()
       hideTooltip()
 
-      const step = labelStep(data.buckets.length, width)
+      // Multi-day ranges (hour/day buckets) use wider date-inclusive labels
+      // (e.g. "08/03 12:00") that need more horizontal room per tick than a
+      // bare "HH:MM" minute label.
+      const step = labelStep(data.buckets.length, width, isAreaMode ? 84 : 56)
       const yMax = Math.max(1, totalsMax * 1.08)
+
+      // Area mode plots each level as its cumulative (stacked) curve and
+      // fills the band between adjacent curves — the official uPlot
+      // technique for stacked area charts (see leeoniya/uPlot#438). The
+      // bottom-most series has no band and fills straight down to zero
+      // automatically. Bar mode instead uses non-cumulative per-bucket
+      // counts with explicit y0/y1 disp facets (see below), so raw counts
+      // are what get passed as chart data there.
+      const plotData = isAreaMode ? orderedLevels.map((_, k) => tops[k]) : orderedLevels.map((series) => series.counts)
+
+      const seriesOpts: uPlot.Series[] = isAreaMode
+        ? orderedLevels.map((series) => ({
+            label: series.label,
+            stroke: series.color,
+            fill: hexToRgba(series.color, AREA_FILL_ALPHA),
+            width: 1.5,
+            points: { show: false },
+            paths: linear(),
+          }))
+        : orderedLevels.map((series, k) => ({
+            label: series.label,
+            stroke: series.color,
+            fill: series.color,
+            width: 1,
+            points: { show: false },
+            paths: bars({
+              size: [0.85, 24, 1],
+              disp: {
+                y0: { unit: 1, values: () => baselines[k] },
+                y1: { unit: 1, values: () => tops[k] },
+              },
+            }),
+          }))
+
+      const bandsOpts: uPlot.Band[] =
+        isAreaMode && orderedLevels.length > 1
+          ? orderedLevels.slice(1).map((series, i) => ({
+              series: [i + 1, i + 2] as [number, number],
+              fill: hexToRgba(series.color, AREA_FILL_ALPHA),
+            }))
+          : []
 
       const opts: uPlot.Options = {
         width,
@@ -199,7 +257,10 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
         scales: {
           x: {
             time: false,
-            range: (_u, min, max) => [min - 0.6, max + 0.6],
+            // Bars need half a bucket of padding on each edge so the
+            // outermost bars aren't clipped; a continuous area chart looks
+            // better flush with the plot edges, like Grafana's.
+            range: (_u, min, max) => (isAreaMode ? [min, max] : [min - 0.6, max + 0.6]),
           },
           y: {
             range: () => [0, yMax],
@@ -231,23 +292,8 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
             gap: 4,
           },
         ],
-        series: [
-          {},
-          ...orderedLevels.map((series, k) => ({
-            label: series.label,
-            stroke: series.color,
-            fill: series.color,
-            width: 1,
-            points: { show: false },
-            paths: bars({
-              size: [0.85, 24, 1],
-              disp: {
-                y0: { unit: 1, values: () => baselines[k] },
-                y1: { unit: 1, values: () => tops[k] },
-              },
-            }),
-          })) as uPlot.Series[],
-        ],
+        series: [{}, ...seriesOpts],
+        bands: bandsOpts,
         hooks: {
           setCursor: [
             (u) => {
@@ -305,7 +351,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
         },
       }
 
-      plotRef.current = new uPlot(opts, [xVals, ...orderedLevels.map((series) => series.counts)], host)
+      plotRef.current = new uPlot(opts, [xVals, ...plotData], host)
     }
 
     drawPlot()

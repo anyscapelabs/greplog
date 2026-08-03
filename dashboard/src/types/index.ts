@@ -100,11 +100,15 @@ export interface LogsHistogramSeries {
   counts: number[]
 }
 
+export type LogsHistogramGranularity = 'minute' | 'hour' | 'day'
+
 export interface LogsHistogramData {
-  /** per-minute bucket labels, ascending by time */
+  /** bucket labels, ascending by time, formatted according to `granularity` */
   buckets: string[]
   /** per-level counts, one series per level */
   levels: LogsHistogramSeries[]
+  /** bucket time unit; determines chart rendering (bars vs area) and label format */
+  granularity: LogsHistogramGranularity
 }
 
 export interface LogCharts {
@@ -120,6 +124,7 @@ export interface LogsPageProps {
   totalRows: number
   querySeconds: number
   isWaiting: boolean
+  isFetching: boolean
   filterSections: FilterSectionConfig[]
   charts: LogCharts
   timeRanges: DropdownOption[]

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useCallback, useRef } from 'react'
-import type { LogsPageProps, LogEntry, LogCharts, FilterSectionConfig } from '../types/index.ts'
+import type { LogsPageProps, LogEntry, LogCharts, FilterSectionConfig, LogsHistogramGranularity } from '../types/index.ts'
 import { postQuery } from './api.ts'
 import {
   placeholderTimeRanges,
@@ -19,7 +19,7 @@ const EMPTY_CHARTS: LogCharts = {
   volumeTimeseries: [],
   errorTimeseries: [],
   statusCodeDistribution: [],
-  logsHistogram: { buckets: [], levels: [] },
+  logsHistogram: { buckets: [], levels: [], granularity: 'minute' },
 }
 
 function rowsToLogs(rows: unknown[][], columns: string[]): LogEntry[] {
@@ -67,12 +67,31 @@ function stableQueryKeyWhereClause(whereClause?: string): string | undefined {
   return whereClause.replace(/to_timestamp_micros\(\d+\)/g, 'to_timestamp_micros(<now>)')
 }
 
-export function useLogs(whereClause?: string): LogsPageProps {
+// Bucket granularity scales with the selected time range so the histogram
+// stays readable: per-minute buckets over 7-30 days would be tens of
+// thousands of near-empty bars. Ranges spanning multiple days also switch
+// the chart to an area rendering (see LogsHistogramChart) since individual
+// bars are meaningless at that scale.
+function histogramGranularity(timeRange?: string): LogsHistogramGranularity {
+  if (timeRange === 'Last 30 days') return 'day'
+  if (timeRange === 'Last 7 days') return 'hour'
+  return 'minute'
+}
+
+export function useLogs(whereClause?: string, timeRange?: string): LogsPageProps {
   const { connected } = useAgent()
   const userInitiatedRef = useRef(false)
 
   const stableWhereClause = stableQueryKeyWhereClause(whereClause)
-  const queryKey = stableWhereClause ? ['logs', stableWhereClause] : ['logs']
+  const granularity = histogramGranularity(timeRange)
+  // `timeRange` is included explicitly (not just folded into the where
+  // clause) because `stableWhereClause` intentionally normalizes away the
+  // absolute `to_timestamp_micros(...)` threshold to avoid refetching on
+  // every render (it changes by a few ms each time `Date.now()` is called).
+  // Without this, switching from e.g. "Last 1 hour" to "Last 7 days" would
+  // produce an identical query key and React Query would keep serving the
+  // stale cached result instead of refetching.
+  const queryKey = stableWhereClause ? ['logs', stableWhereClause, timeRange] : ['logs', timeRange]
 
   const query = useQuery({
     queryKey,
@@ -95,19 +114,22 @@ export function useLogs(whereClause?: string): LogsPageProps {
         postQuery(`SELECT level, count(*) AS cnt FROM logs ${w} GROUP BY level ORDER BY cnt DESC`, { userInitiated }),
         postQuery(`SELECT service, count(*) AS cnt FROM logs ${w} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
         postQuery(`SELECT json_get_str(attributes, 'http.status_code') AS code, count(*) AS cnt FROM logs WHERE logger_name = 'greplog.http'${andClause} GROUP BY json_get_str(attributes, 'http.status_code') ORDER BY cnt DESC`, { userInitiated }),
-        postQuery(`SELECT date_trunc('minute', timestamp) AS bucket, level, count(*) AS cnt FROM logs ${w} GROUP BY bucket, level ORDER BY bucket, level`, { userInitiated }),
+        postQuery(`SELECT date_trunc('${granularity}', timestamp) AS bucket, level, count(*) AS cnt FROM logs ${w} GROUP BY bucket, level ORDER BY bucket, level`, { userInitiated }),
       ])
 
       const logs = result ? rowsToLogs(result.rows, result.columns) : []
       const cntIdx = countResult ? countResult.columns.indexOf('total') : -1
       const totalCount = cntIdx >= 0 && countResult && countResult.rows[0] ? Number(countResult.rows[0][cntIdx] ?? 0) : logs.length
 
-      // Histogram of log volume per minute per level, ascending. Buckets come
-      // back from DataFusion as microsecond timestamps; collapse to an HH:MM
-      // label so the x-axis stays readable. Rows are grouped by (bucket, level),
-      // so pivot into one counts array per level aligned to bucket order. Fill
-      // missing (bucket, level) combinations with zero counts.
-      const parsed = histogramResult ? parseLogsHistogram(histogramResult.rows, histogramResult.columns) : { buckets: [], levels: [] }
+      // Histogram of log volume per bucket per level, ascending. Buckets come
+      // back from DataFusion as microsecond timestamps; collapse to a label
+      // (time-of-day, or date + hour / date for multi-day ranges) so the
+      // x-axis stays readable. Rows are grouped by (bucket, level), so pivot
+      // into one counts array per level aligned to bucket order. Fill missing
+      // (bucket, level) combinations with zero counts.
+      const parsed = histogramResult
+        ? parseLogsHistogram(histogramResult.rows, histogramResult.columns, granularity)
+        : { buckets: [], levels: [], granularity }
       const logsHistogram = fillMissingHistogramBuckets(parsed)
 
       const filterSections: FilterSectionConfig[] = []
@@ -147,6 +169,7 @@ export function useLogs(whereClause?: string): LogsPageProps {
     filterSections: data.filterSections,
     charts: data.charts,
     isWaiting: data.isWaiting,
+    isFetching: query.isFetching,
     timeRanges: placeholderTimeRanges,
     services: placeholderServices,
     autoRefreshOptions: placeholderAutoRefreshOptions,

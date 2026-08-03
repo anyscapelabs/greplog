@@ -5,6 +5,7 @@ import FilterSidebar from '../components/FilterSidebar.tsx'
 import LogsHistogramChart from '../components/LogsHistogramChart.tsx'
 import LogsTable from '../components/LogsTable.tsx'
 import LogsDrawer from '../components/LogsDrawer.tsx'
+import TopLoadingBar from '../components/TopLoadingBar.tsx'
 import type { LogEntry } from '../types/index.ts'
 
 export default function Logs() {
@@ -27,9 +28,10 @@ export default function Logs() {
     querySeconds,
     filterSections,
     charts,
+    isFetching,
     refetch,
     manualRefetch,
-  } = useLogs(predicate)
+  } = useLogs(predicate, filters.timeRange)
 
   const {
     isLive,
@@ -109,9 +111,10 @@ export default function Logs() {
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex gap-1.5 px-2 pt-2 pb-1">
             <div
-              className="flex-1 min-h-40 h-56 max-h-[70vh] resize-y overflow-hidden rounded border flex flex-col"
+              className="relative flex-1 min-h-40 h-56 max-h-[70vh] resize-y overflow-hidden rounded border flex flex-col"
               style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}
             >
+              <TopLoadingBar active={isFetching} />
               <div className="flex items-center justify-between px-2 py-1 border-b shrink-0" style={{ borderColor: 'var(--border-primary)' }}>
                 <span className="text-sm font-semibold text-text-primary">Logs Histogram</span>
               </div>

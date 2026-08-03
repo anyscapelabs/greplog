@@ -1,4 +1,4 @@
-import type { LogsHistogramData } from '../types/index.ts'
+import type { LogsHistogramData, LogsHistogramGranularity } from '../types/index.ts'
 
 function parseBucketEpochMs(raw: unknown): number | null {
   if (typeof raw === 'bigint') {
@@ -35,16 +35,33 @@ function parseBucketEpochMs(raw: unknown): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
-function formatBucketLabel(epochMs: number): string {
-  return new Date(epochMs).toISOString().slice(11, 16)
+function pad2(n: number): string {
+  return String(n).padStart(2, '0')
 }
 
-export function parseLogsHistogram(rows: unknown[][], columns: string[]): LogsHistogramData {
+// Bucket label format depends on granularity: minute buckets only need a
+// time-of-day label (the whole range fits in a few hours), but hour/day
+// buckets span multiple calendar days, so the date must be shown or the
+// x-axis becomes ambiguous (e.g. every "12:00" tick looks identical across
+// a 7-day range).
+function formatBucketLabel(epochMs: number, granularity: LogsHistogramGranularity): string {
+  const d = new Date(epochMs)
+  const month = pad2(d.getUTCMonth() + 1)
+  const day = pad2(d.getUTCDate())
+  const hours = pad2(d.getUTCHours())
+  const minutes = pad2(d.getUTCMinutes())
+
+  if (granularity === 'day') return `${month}/${day}`
+  if (granularity === 'hour') return `${month}/${day} ${hours}:00`
+  return `${hours}:${minutes}`
+}
+
+export function parseLogsHistogram(rows: unknown[][], columns: string[], granularity: LogsHistogramGranularity = 'minute'): LogsHistogramData {
   const bucketIdx = columns.indexOf('bucket')
   const levelIdx = columns.indexOf('level')
   const countIdx = columns.indexOf('cnt')
   if (bucketIdx < 0 || levelIdx < 0 || countIdx < 0) {
-    return { buckets: [], levels: [] }
+    return { buckets: [], levels: [], granularity }
   }
 
   const order: number[] = []
@@ -81,7 +98,8 @@ export function parseLogsHistogram(rows: unknown[][], columns: string[]): LogsHi
   })
 
   return {
-    buckets: order.map(formatBucketLabel),
+    buckets: order.map((epochMs) => formatBucketLabel(epochMs, granularity)),
     levels,
+    granularity,
   }
 }
