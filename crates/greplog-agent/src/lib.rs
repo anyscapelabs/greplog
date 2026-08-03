@@ -32,7 +32,7 @@ pub struct Config {
     #[arg(long, default_value = ".greplog/greplog.sock")]
     pub socket_path: PathBuf,
 
-    #[arg(long, default_value_t = 50_000)]
+    #[arg(long, default_value_t = 500_000, env = "GREPLOG_MAX_BUFFER_EVENTS")]
     pub max_buffer_events: usize,
 
     #[arg(long, default_value_t = 300)]
