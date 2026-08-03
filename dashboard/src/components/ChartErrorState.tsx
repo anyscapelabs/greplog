@@ -1,4 +1,4 @@
-import { LuAlertCircle, LuRefreshCw } from 'react-icons/lu'
+import { LuCircleAlert, LuRefreshCw } from 'react-icons/lu'
 
 interface ChartErrorStateProps {
   message?: string
@@ -8,7 +8,7 @@ interface ChartErrorStateProps {
 export default function ChartErrorState({ message = 'An error occurred. Please try again.', onRetry }: ChartErrorStateProps) {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-3 px-4">
-      <LuAlertCircle className="size-12 shrink-0" style={{ color: 'var(--error)' }} />
+      <LuCircleAlert className="size-12 shrink-0" style={{ color: 'var(--error)' }} />
       <p className="text-sm text-center" style={{ color: 'var(--text-secondary)' }}>
         {message}
       </p>
