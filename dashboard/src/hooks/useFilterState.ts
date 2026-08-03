@@ -255,7 +255,8 @@ function chipToClause(chip: FilterChip, includeService: boolean): string | null 
     }
     return `line = '${chip.value.replace(/'/g, "''")}'`
   }
-  return `message LIKE '%${chip.value.replace(/'/g, "''")}%'`
+  const escaped = chip.value.replace(/'/g, "''")
+  return `(message LIKE '%${escaped}%' OR level = '${escaped}')`
 }
 
 // Compile filter state into a SQL WHERE clause. `liveQuery` is the raw text
@@ -282,8 +283,14 @@ export function compileFilterToQuery(filters: FilterState, liveQuery?: string): 
 
   const trimmedLive = liveQuery?.trim()
   if (trimmedLive) {
-    const clause = chipToClause(parseQueryToChip(trimmedLive), true)
-    if (clause) clauses.push(clause)
+    const liveChip = parseQueryToChip(trimmedLive)
+    const alreadyPinned = filters.chips.some(
+      (c) => c.prefix === liveChip.prefix && c.value === liveChip.value,
+    )
+    if (!alreadyPinned) {
+      const clause = chipToClause(liveChip, true)
+      if (clause) clauses.push(clause)
+    }
   }
 
   const windowNs = TIME_RANGE_NS[filters.timeRange]

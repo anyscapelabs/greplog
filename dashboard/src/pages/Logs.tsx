@@ -86,7 +86,6 @@ export default function Logs() {
   function handleQueryKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter' && filters.query.trim()) {
       addChip(parseQueryToChip(filters.query.trim()))
-      setQuery('')
     }
   }
 
