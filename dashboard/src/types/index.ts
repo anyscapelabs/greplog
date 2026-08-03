@@ -48,6 +48,8 @@ export interface FilterSidebarProps {
   onCheck: (sectionId: string, id: string) => void
   width?: number
   searchPlaceholder?: string
+  /** show skeleton rows inside sections while filter counts are loading */
+  loading?: boolean
 }
 
 export interface AnalyticsMetric {

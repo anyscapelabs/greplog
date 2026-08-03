@@ -223,9 +223,10 @@ interface FilterSectionConfig {
 interface FilterSidebarProps {
   sections: FilterSectionConfig[]
   checked: Record<string, boolean>
-  onCheck: (id: string) => void
+  onCheck: (sectionId: string, id: string) => void
   width?: number        // default 280
   searchPlaceholder?: string
+  loading?: boolean     // show skeleton rows while filter counts load
 }
 ```
 

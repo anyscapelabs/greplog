@@ -38,6 +38,33 @@ hooks run the count queries alongside the data queries, and Services derives
 its sections from the live health query. Counts update whenever the filtered
 result set changes.
 
+### Filter Sidebar
+
+The filter sidebar (shared `FilterSidebar` component, used by Logs, Errors and
+Services) is driven by the sections built in `filterSections.ts`. The Logs and
+Errors hooks always emit their full set of sections, so section headers persist
+even when a dimension has no rows.
+
+- **Checkboxes compile to SQL:** checking items writes section-aware state to
+  `?ch=` as `{"section_id": ["item", ...]}` and `compileCheckedToQuery()` folds
+  it into the predicate, so the histogram chart and the table update together.
+  Mapping: `log_level` → `level IN (...)`, `status_code` → `line IN (...)`,
+  `response_status` → `(line < 300 OR line >= 400 ...)` ranges, `error_type` →
+  `exception_type IN (...)`, `service_name` → `service IN (...)` (also mirrored
+  into `?s=`). Client-side-only sections (Services `health_status`) store state
+  but compile to no SQL. Because checked state is keyed by section, not by the
+  current item list, a checked value survives even when its section temporarily
+  has zero rows (e.g. narrowed away by another dimension) and is not silently
+  dropped from the filter.
+- **Collapse state persists:** each section's open/closed state is saved to
+  `localStorage` under `greplog:filterSidebar:open` and restored on load.
+- **Empty state:** a section with no rows keeps its header and shows a muted
+  "No data" line under it when expanded.
+- **Loading skeletons:** while filter counts are loading (`isLoading`, the
+  first fetch for the current key), sections render animated skeleton rows.
+- `onCheck` receives the section id and item id, so the pages route `service_name`
+  items to the unified services filter and everything else to per-section state.
+
 ### Service Drawer
 
 The Service Drawer (shown when clicking a service row) includes:

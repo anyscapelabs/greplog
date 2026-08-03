@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { LuSearch, LuChevronDown, LuChevronRight } from 'react-icons/lu'
-import type { FilterSectionConfig, FilterSectionItem, FilterSidebarProps } from '../types/index.ts'
+import type { FilterSectionItem, FilterSidebarProps } from '../types/index.ts'
 
 const STORAGE_KEY = 'greplog:filterSidebar:open'
 
