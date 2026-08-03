@@ -45,7 +45,7 @@ export interface FilterSectionConfig {
 export interface FilterSidebarProps {
   sections: FilterSectionConfig[]
   checked: Record<string, boolean>
-  onCheck: (id: string) => void
+  onCheck: (sectionId: string, id: string) => void
   width?: number
   searchPlaceholder?: string
 }
@@ -124,6 +124,7 @@ export interface LogsPageProps {
   totalRows: number
   querySeconds: number
   isWaiting: boolean
+  isLoading: boolean
   isFetching: boolean
   isError: boolean
   error: unknown
@@ -174,6 +175,7 @@ export interface ErrorsPageProps {
   totalRows: number
   querySeconds: number
   isWaiting: boolean
+  isLoading: boolean
   filterSections: FilterSectionConfig[]
   charts: ErrorCharts
   timeRanges: DropdownOption[]
@@ -246,6 +248,7 @@ export interface ServicesPageProps {
   totalRows: number
   querySeconds: number
   isWaiting: boolean
+  isLoading: boolean
   filterSections: FilterSectionConfig[]
   serviceCards: ServiceCardData[]
   charts: ServiceCharts

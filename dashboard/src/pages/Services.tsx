@@ -3,7 +3,7 @@ import { useServices, useFilterState, useRefreshControl } from '../hooks/index.t
 import ServicesDrawer from '../components/ServicesDrawer.tsx'
 import PageHeader from '../components/PageHeader.tsx'
 import ServiceCard from '../components/ServiceCard.tsx'
-import ServicesFilterSidebar from '../components/ServicesFilterSidebar.tsx'
+import FilterSidebar from '../components/FilterSidebar.tsx'
 import ServicesTable from '../components/ServicesTable.tsx'
 import AnalyticsChartPanel from '../components/AnalyticsChartPanel.tsx'
 import RequestsByServiceChart from '../components/RequestsByServiceChart.tsx'
@@ -30,6 +30,7 @@ export default function Services() {
     latencyOptions,
     refetch,
     manualRefetch,
+    isLoading,
   } = useServices(filters.timeRange)
 
   const {
@@ -61,19 +62,23 @@ export default function Services() {
     [charts.latencies, latencyMetric],
   )
 
-  function handleCheck(id: string) {
-    const section = filterSections.find((s) => s.items.some((i) => i.id === id))
-    if (section?.id === 'service_name') {
+  function handleCheck(sectionId: string, id: string) {
+    if (sectionId === 'service_name') {
       toggleService(id)
     } else {
-      toggleChecked(id)
+      toggleChecked(sectionId, id)
     }
   }
 
   const checked = useMemo(() => {
-    const merged: Record<string, boolean> = { ...filters.checked }
+    const merged: Record<string, boolean> = {}
     for (const s of filters.services) {
       merged[s] = true
+    }
+    for (const ids of Object.values(filters.checked)) {
+      for (const id of ids) {
+        merged[id] = true
+      }
     }
     return merged
   }, [filters.checked, filters.services])
@@ -84,9 +89,7 @@ export default function Services() {
       if (!healthServiceMap[svc.health]) healthServiceMap[svc.health] = []
       healthServiceMap[svc.health].push(svc.name)
     }
-    const checkedIds = Object.entries(filters.checked)
-      .filter(([, v]) => v)
-      .map(([k]) => k)
+    const checkedIds = Object.values(filters.checked).flat()
     const fromHealth = checkedIds
       .filter((id) => healthServiceMap[id])
       .flatMap((id) => healthServiceMap[id] ?? [])
@@ -112,7 +115,7 @@ export default function Services() {
         onFilterToggle={() => setFilterOpen(!filterOpen)}
       />
       <div className="flex flex-1 min-h-0 relative">
-        {filterOpen && <ServicesFilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
+        {filterOpen && <FilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} loading={isLoading} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex gap-1.5 px-2 pt-2 pb-1.5 shrink-0">
             {serviceCards.map((card) => (

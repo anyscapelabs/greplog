@@ -14,7 +14,9 @@ export interface FilterState {
   services: string[]
   timeRange: string
   logLevels: string[]
-  checked: Record<string, boolean>
+  /** which items are checked per filter section, keyed by section id
+   *  (e.g. `{ log_level: ['error'], response_status: ['server_error'] }`) */
+  checked: Record<string, string[]>
 }
 
 const DEFAULT_TIME_RANGE = 'Last 15 min'
@@ -53,13 +55,25 @@ function parseCommaList(raw: string | null): string[] {
   return raw.split(',').map((s) => s.trim()).filter(Boolean)
 }
 
-function parseChecked(raw: string | null): Record<string, boolean> {
+function parseChecked(raw: string | null): Record<string, string[]> {
   if (!raw) return {}
   try {
-    return JSON.parse(raw) as Record<string, boolean>
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const result: Record<string, string[]> = {}
+    for (const [sectionId, value] of Object.entries(parsed)) {
+      if (Array.isArray(value)) {
+        const ids = value.filter((v): v is string => typeof v === 'string' && v.length > 0)
+        if (ids.length > 0) result[sectionId] = ids
+      }
+    }
+    return result
   } catch {
     return {}
   }
+}
+
+function encodeChecked(checked: Record<string, string[]>): string {
+  return JSON.stringify(checked)
 }
 
 function filterStateFromParams(sp: URLSearchParams): FilterState {
@@ -168,21 +182,37 @@ export function useFilterState() {
     })
   }, [apply])
 
-  const toggleChecked = useCallback((id: string) => {
+  const toggleChecked = useCallback((sectionId: string, id: string) => {
     apply((p) => {
       const checked = parseChecked(p.get('ch'))
-      checked[id] = !checked[id]
-      p.set('ch', JSON.stringify(checked))
+      const ids = checked[sectionId] ?? []
+      const idx = ids.indexOf(id)
+      if (idx >= 0) {
+        ids.splice(idx, 1)
+      } else {
+        ids.push(id)
+      }
+      if (ids.length > 0) checked[sectionId] = ids
+      else delete checked[sectionId]
+      if (Object.keys(checked).length > 0) p.set('ch', encodeChecked(checked))
+      else p.delete('ch')
     })
   }, [apply])
 
-  const setChecked = useCallback((id: string, value: boolean) => {
+  const setChecked = useCallback((sectionId: string, id: string, value: boolean) => {
     apply((p) => {
       const checked = parseChecked(p.get('ch'))
-      if (value) checked[id] = true
-      else delete checked[id]
-      const keys = Object.keys(checked)
-      if (keys.length > 0) p.set('ch', JSON.stringify(checked))
+      const ids = checked[sectionId] ?? []
+      const idx = ids.indexOf(id)
+      if (value) {
+        if (idx < 0) ids.push(id)
+        checked[sectionId] = ids
+      } else if (idx >= 0) {
+        ids.splice(idx, 1)
+        if (ids.length > 0) checked[sectionId] = ids
+        else delete checked[sectionId]
+      }
+      if (Object.keys(checked).length > 0) p.set('ch', encodeChecked(checked))
       else p.delete('ch')
     })
   }, [apply])
@@ -259,6 +289,58 @@ function chipToClause(chip: FilterChip, includeService: boolean): string | null 
   return `(message LIKE '%${escaped}%' OR level = '${escaped}')`
 }
 
+function quoteSqlList(values: string[]): string {
+  return values.map((v) => `'${v.replace(/'/g, "''")}'`).join(',')
+}
+
+// Translate checked sidebar items into SQL. Each filter section maps to a
+// distinct predicate; sections that only narrow the client side (e.g. the
+// Services page's health_status) intentionally compile to nothing.
+export function compileCheckedToQuery(checked: Record<string, string[]>): string {
+  const clauses: string[] = []
+  for (const [sectionId, ids] of Object.entries(checked)) {
+    if (!ids || ids.length === 0) continue
+    let clause: string | null = null
+    switch (sectionId) {
+      case 'log_level': {
+        const values = ids.filter((v) => v.trim())
+        if (values.length > 0) clause = `level IN (${quoteSqlList(values)})`
+        break
+      }
+      case 'service_name': {
+        const values = ids.filter((v) => v.trim())
+        if (values.length > 0) clause = `service IN (${quoteSqlList(values)})`
+        break
+      }
+      case 'status_code': {
+        const nums = ids.map(Number).filter((n) => Number.isFinite(n))
+        if (nums.length > 0) clause = `line IN (${nums.join(',')})`
+        break
+      }
+      case 'response_status': {
+        const ranges: string[] = []
+        if (ids.includes('success')) ranges.push('line < 300')
+        if (ids.includes('redirect')) ranges.push('line >= 300 AND line < 400')
+        if (ids.includes('client_error')) ranges.push('line >= 400 AND line < 500')
+        if (ids.includes('server_error')) ranges.push('line >= 500')
+        if (ranges.length > 0) clause = `(${ranges.join(' OR ')})`
+        break
+      }
+      case 'error_type': {
+        const values = ids.filter((v) => v.trim())
+        if (values.length > 0) clause = `exception_type IN (${quoteSqlList(values)})`
+        break
+      }
+      default:
+        // Unknown / client-side-only sections (health_status, future ones)
+        // are not compiled to SQL.
+        clause = null
+    }
+    if (clause) clauses.push(clause)
+  }
+  return clauses.join(' AND ')
+}
+
 // Compile filter state into a SQL WHERE clause. `liveQuery` is the raw text
 // currently being typed in the search box (before it is committed as a chip):
 // it is compiled the same way a chip would be so the chart and log queries
@@ -292,6 +374,9 @@ export function compileFilterToQuery(filters: FilterState, liveQuery?: string): 
       if (clause) clauses.push(clause)
     }
   }
+
+  const checkedClause = compileCheckedToQuery(filters.checked)
+  if (checkedClause) clauses.push(checkedClause)
 
   const windowNs = TIME_RANGE_NS[filters.timeRange]
   if (windowNs && windowNs > 0) {

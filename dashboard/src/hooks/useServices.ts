@@ -247,6 +247,12 @@ export function useServices(timeRange?: string): ServicesPageProps {
     serviceCards,
     charts,
     isWaiting: !connected,
+    isLoading:
+      detectQuery.isLoading ||
+      logQuery.isLoading ||
+      healthQuery.isLoading ||
+      sparklineQuery.isLoading ||
+      latencyQuery.isLoading,
     timeRanges: placeholderTimeRanges,
     autoRefreshOptions: placeholderAutoRefreshOptions,
     countRateOptions: placeholderCountRateOptions,

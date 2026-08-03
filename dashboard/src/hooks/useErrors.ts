@@ -116,12 +116,13 @@ export function useErrors(whereClause?: string): ErrorsPageProps {
           }))
         : []
 
-      const filterSections: FilterSectionConfig[] = []
-      if (serviceResult) filterSections.push(buildServiceSection(serviceResult.rows, serviceResult.columns))
-      if (errorTypeResult) filterSections.push(buildErrorTypeSection(errorTypeResult.rows, errorTypeResult.columns))
-      if (levelResult) filterSections.push(buildLevelSection(levelResult.rows, levelResult.columns))
-      if (httpStatusResult) {
-        const { statusCode, responseStatus } = buildStatusCodeSections(httpStatusResult.rows, httpStatusResult.columns)
+      const filterSections: FilterSectionConfig[] = [
+        buildServiceSection(serviceResult?.rows ?? [], serviceResult?.columns ?? []),
+        buildErrorTypeSection(errorTypeResult?.rows ?? [], errorTypeResult?.columns ?? []),
+        buildLevelSection(levelResult?.rows ?? [], levelResult?.columns ?? []),
+      ]
+      {
+        const { statusCode, responseStatus } = buildStatusCodeSections(httpStatusResult?.rows ?? [], httpStatusResult?.columns ?? [])
         filterSections.push(statusCode, responseStatus)
       }
 
@@ -155,6 +156,7 @@ export function useErrors(whereClause?: string): ErrorsPageProps {
     filterSections: data.filterSections,
     charts: data.charts,
     isWaiting: data.isWaiting,
+    isLoading: query.isLoading,
     timeRanges: placeholderTimeRanges,
     services: placeholderServices,
     autoRefreshOptions: placeholderAutoRefreshOptions,

@@ -33,6 +33,7 @@ export default function Logs() {
     filterSections,
     charts,
     isFetching,
+    isLoading,
     refetch,
     manualRefetch,
   } = useLogs(predicate, filters.timeRange, parseInt(limit.replace('k', '000'), 10), page, sortDirection)
@@ -63,19 +64,23 @@ export default function Logs() {
   const [filterOpen, setFilterOpen] = useState(true)
   const [drawerLog, setDrawerLog] = useState<LogEntry | null>(null)
 
-  function handleCheck(id: string) {
-    const section = filterSections.find((s) => s.items.some((i) => i.id === id))
-    if (section?.id === 'service_name') {
+  function handleCheck(sectionId: string, id: string) {
+    if (sectionId === 'service_name') {
       toggleService(id)
     } else {
-      toggleChecked(id)
+      toggleChecked(sectionId, id)
     }
   }
 
   const checked = useMemo(() => {
-    const merged: Record<string, boolean> = { ...filters.checked }
+    const merged: Record<string, boolean> = {}
     for (const s of filters.services) {
       merged[s] = true
+    }
+    for (const ids of Object.values(filters.checked)) {
+      for (const id of ids) {
+        merged[id] = true
+      }
     }
     return merged
   }, [filters.checked, filters.services])
@@ -128,7 +133,7 @@ export default function Logs() {
         }
       />
       <div className="flex flex-1 min-h-0 relative">
-        {filterOpen && <FilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
+        {filterOpen && <FilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} loading={isLoading} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex gap-1.5 px-2 pt-2 pb-1">
             <div

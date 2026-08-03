@@ -136,11 +136,12 @@ export function useLogs(whereClause?: string, timeRange?: string, limit = 500, p
         : { buckets: [], levels: [], granularity }
       const logsHistogram = fillMissingHistogramBuckets(parsed)
 
-      const filterSections: FilterSectionConfig[] = []
-      if (levelResult) filterSections.push(buildLevelSection(levelResult.rows, levelResult.columns))
-      if (serviceResult) filterSections.push(buildServiceSection(serviceResult.rows, serviceResult.columns))
-      if (httpStatusResult) {
-        const { statusCode, responseStatus } = buildStatusCodeSections(httpStatusResult.rows, httpStatusResult.columns)
+      const filterSections: FilterSectionConfig[] = [
+        buildLevelSection(levelResult?.rows ?? [], levelResult?.columns ?? []),
+        buildServiceSection(serviceResult?.rows ?? [], serviceResult?.columns ?? []),
+      ]
+      {
+        const { statusCode, responseStatus } = buildStatusCodeSections(httpStatusResult?.rows ?? [], httpStatusResult?.columns ?? [])
         filterSections.push(statusCode, responseStatus)
       }
 
@@ -174,6 +175,7 @@ export function useLogs(whereClause?: string, timeRange?: string, limit = 500, p
     filterSections: data.filterSections,
     charts: data.charts,
     isWaiting: data.isWaiting,
+    isLoading: query.isLoading,
     isFetching: query.isFetching,
     isError: query.isError,
     error: query.error,

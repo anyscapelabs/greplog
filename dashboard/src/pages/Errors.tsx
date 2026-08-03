@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useErrors, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl } from '../hooks/index.ts'
 import PageHeader from '../components/PageHeader.tsx'
-import ErrorsFilterSidebar from '../components/ErrorsFilterSidebar.tsx'
+import FilterSidebar from '../components/FilterSidebar.tsx'
 import ErrorCountChart from '../components/ErrorCountChart.tsx'
 import ErrorRateChart from '../components/ErrorRateChart.tsx'
 import ErrorByServiceChart from '../components/ErrorByServiceChart.tsx'
@@ -35,6 +35,7 @@ export default function Errors() {
     charts,
     refetch,
     manualRefetch,
+    isLoading,
   } = useErrors(predicate)
 
   const {
@@ -54,19 +55,23 @@ export default function Errors() {
   const [chart3Group, setChart3Group] = useState('nothing')
   const [drawerError, setDrawerError] = useState<ErrorEntry | null>(null)
 
-  function handleCheck(id: string) {
-    const section = filterSections.find((s) => s.items.some((i) => i.id === id))
-    if (section?.id === 'service_name') {
+  function handleCheck(sectionId: string, id: string) {
+    if (sectionId === 'service_name') {
       toggleService(id)
     } else {
-      toggleChecked(id)
+      toggleChecked(sectionId, id)
     }
   }
 
   const checked = useMemo(() => {
-    const merged: Record<string, boolean> = { ...filters.checked }
+    const merged: Record<string, boolean> = {}
     for (const s of filters.services) {
       merged[s] = true
+    }
+    for (const ids of Object.values(filters.checked)) {
+      for (const id of ids) {
+        merged[id] = true
+      }
     }
     return merged
   }, [filters.checked, filters.services])
@@ -116,7 +121,7 @@ export default function Errors() {
         }
       />
       <div className="flex flex-1 min-h-0 relative">
-        {filterOpen && <ErrorsFilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
+        {filterOpen && <FilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} loading={isLoading} />}
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex gap-1.5 px-2 pt-2">
             <div className="flex-1 h-64 rounded border flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
