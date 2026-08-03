@@ -51,10 +51,28 @@ function rowsToErrors(rows: unknown[][], columns: string[]): ErrorEntry[] {
   })
 }
 
+export interface ErrorsCountPredicates {
+  /** for the level facet: predicate that ignores the user's own level selection */
+  level?: string
+  /** for the service facet: predicate that ignores the user's own service selection */
+  service?: string
+  /** for the error-type facet: predicate that ignores the user's own error-type selection */
+  errorType?: string
+  /** for the status facets: predicate that ignores the user's own status selections */
+  status?: string
+}
+
 const BASE_ERROR_FILTER = "level IN ('error','critical','fatal')"
 const BASE_SQL = 'SELECT id, timestamp, level, service, message, line, stack_trace, exception_type, correlation_id FROM logs'
 
-export function useErrors(whereClause?: string): ErrorsPageProps {
+// Scope a user predicate to the Errors page's error-level base filter, so the
+// facet counts only ever cover error-level rows.
+function errorScoped(predicate?: string): string {
+  const userWhere = predicate ? predicate.replace(/^WHERE\s+/i, '') : ''
+  return userWhere ? `WHERE ${BASE_ERROR_FILTER} AND (${userWhere})` : `WHERE ${BASE_ERROR_FILTER}`
+}
+
+export function useErrors(whereClause?: string, countPredicates?: ErrorsCountPredicates): ErrorsPageProps {
   const { connected } = useAgent()
   const userInitiatedRef = useRef(false)
 
@@ -73,16 +91,23 @@ export function useErrors(whereClause?: string): ErrorsPageProps {
         const userWhere = whereClause.replace(/^WHERE\s+/i, '')
         where = `WHERE ${BASE_ERROR_FILTER} AND (${userWhere})`
       }
-      const whereBody = where.replace(/^WHERE\s+/i, '')
+      const levelWhere = errorScoped(countPredicates?.level ?? whereClause)
+      const serviceWhere = errorScoped(countPredicates?.service ?? whereClause)
+      const errorTypePred = countPredicates?.errorType ?? whereClause
+      const errorTypeBody = errorTypePred ? errorTypePred.replace(/^WHERE\s+/i, '') : ''
+      const errorTypeWhere = `WHERE ${BASE_ERROR_FILTER} AND exception_type IS NOT NULL${errorTypeBody ? ` AND (${errorTypeBody})` : ''}`
+      const statusPred = countPredicates?.status ?? whereClause
+      const statusBody = statusPred ? statusPred.replace(/^WHERE\s+/i, '') : ''
+      const statusWhere = `WHERE ${BASE_ERROR_FILTER} AND logger_name = 'greplog.http'${statusBody ? ` AND (${statusBody})` : ''}`
       const [result, countResult, countTimeseriesResult, totalResult, serviceResult, levelResult, errorTypeResult, httpStatusResult] = await Promise.all([
         postQuery(`${BASE_SQL} ${where} ORDER BY timestamp DESC LIMIT 1000`, { userInitiated }),
         postQuery(`SELECT count(*) AS total FROM logs ${where}`, { userInitiated }),
         postQuery(`SELECT date, count(*) AS cnt FROM logs ${where} GROUP BY date ORDER BY date`, { userInitiated }),
         postQuery(`SELECT date, count(*) AS cnt FROM logs ${whereClause ?? ''} GROUP BY date ORDER BY date`, { userInitiated }),
-        postQuery(`SELECT service, count(*) AS cnt FROM logs ${where} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
-        postQuery(`SELECT level, count(*) AS cnt FROM logs ${where} GROUP BY level ORDER BY cnt DESC`, { userInitiated }),
-        postQuery(`SELECT exception_type, count(*) AS cnt FROM logs WHERE exception_type IS NOT NULL AND (${whereBody}) GROUP BY exception_type ORDER BY cnt DESC`, { userInitiated }),
-        postQuery(`SELECT json_get_str(attributes, 'http.status_code') AS code, count(*) AS cnt FROM logs WHERE logger_name = 'greplog.http' AND (${whereBody}) GROUP BY json_get_str(attributes, 'http.status_code') ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT service, count(*) AS cnt FROM logs ${serviceWhere} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT level, count(*) AS cnt FROM logs ${levelWhere} GROUP BY level ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT exception_type, count(*) AS cnt FROM logs ${errorTypeWhere} GROUP BY exception_type ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT json_get_str(attributes, 'http.status_code') AS code, count(*) AS cnt FROM logs ${statusWhere} GROUP BY json_get_str(attributes, 'http.status_code') ORDER BY cnt DESC`, { userInitiated }),
       ])
 
       const errors = result ? rowsToErrors(result.rows, result.columns) : []

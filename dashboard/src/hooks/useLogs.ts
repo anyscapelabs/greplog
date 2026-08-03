@@ -79,9 +79,30 @@ function histogramGranularity(timeRange?: string): LogsHistogramGranularity {
   return 'minute'
 }
 
-export function useLogs(whereClause?: string, timeRange?: string, limit = 500, page = 0, sortDirection: 'asc' | 'desc' = 'desc'): LogsPageProps {
+export interface LogsCountPredicates {
+  /** for the level facet: predicate that ignores the user's own level selection */
+  level?: string
+  /** for the service facet: predicate that ignores the user's own service selection */
+  service?: string
+  /** for the status facets: predicate that ignores the user's own status selections */
+  status?: string
+}
+
+export interface UseLogsOptions {
+  limit?: number
+  page?: number
+  sortDirection?: 'asc' | 'desc'
+  countPredicates?: LogsCountPredicates
+}
+
+export function useLogs(whereClause?: string, timeRange?: string, options: UseLogsOptions = {}): LogsPageProps {
   const { connected } = useAgent()
   const userInitiatedRef = useRef(false)
+
+  const limit = options.limit ?? 500
+  const page = options.page ?? 0
+  const sortDirection = options.sortDirection ?? 'desc'
+  const countPredicates = options.countPredicates
 
   const stableWhereClause = stableQueryKeyWhereClause(whereClause)
   const granularity = histogramGranularity(timeRange)
@@ -106,7 +127,10 @@ export function useLogs(whereClause?: string, timeRange?: string, limit = 500, p
       const userInitiated = userInitiatedRef.current
       userInitiatedRef.current = false
       const w = whereClause ?? ''
-      const andClause = w ? ` AND (${w.replace(/^WHERE\s+/i, '')})` : ''
+      const levelW = countPredicates?.level ?? w
+      const serviceW = countPredicates?.service ?? w
+      const statusW = countPredicates?.status ?? w
+      const statusAndClause = statusW ? ` AND (${statusW.replace(/^WHERE\s+/i, '')})` : ''
 
       // NOTE: the top-of-page charts (Total Requests / Errors / Status Codes)
       // were removed and their data queries unwired; a replacement chart will
@@ -115,9 +139,9 @@ export function useLogs(whereClause?: string, timeRange?: string, limit = 500, p
       const [result, countResult, levelResult, serviceResult, httpStatusResult, histogramResult] = await Promise.all([
         postQuery(`${BASE_SQL} ${w} ORDER BY timestamp ${sortDirection} LIMIT ${limit} OFFSET ${offset}`, { userInitiated }),
         postQuery(`SELECT count(*) AS total FROM logs ${w}`, { userInitiated }),
-        postQuery(`SELECT level, count(*) AS cnt FROM logs ${w} GROUP BY level ORDER BY cnt DESC`, { userInitiated }),
-        postQuery(`SELECT service, count(*) AS cnt FROM logs ${w} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
-        postQuery(`SELECT json_get_str(attributes, 'http.status_code') AS code, count(*) AS cnt FROM logs WHERE logger_name = 'greplog.http'${andClause} GROUP BY json_get_str(attributes, 'http.status_code') ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT level, count(*) AS cnt FROM logs ${levelW} GROUP BY level ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT service, count(*) AS cnt FROM logs ${serviceW} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
+        postQuery(`SELECT json_get_str(attributes, 'http.status_code') AS code, count(*) AS cnt FROM logs WHERE logger_name = 'greplog.http'${statusAndClause} GROUP BY json_get_str(attributes, 'http.status_code') ORDER BY cnt DESC`, { userInitiated }),
         postQuery(`SELECT date_trunc('${granularity === '12-hour' ? 'hour' : granularity}', timestamp) AS bucket, level, count(*) AS cnt FROM logs ${w} GROUP BY bucket, level ORDER BY bucket, level`, { userInitiated }),
       ])
 

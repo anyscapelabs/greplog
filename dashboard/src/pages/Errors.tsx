@@ -24,6 +24,23 @@ export default function Errors() {
   } = useFilterState()
 
   const predicate = compileFilterToQuery(filters)
+  // Facet counts for each sidebar section are computed from the population
+  // that excludes that section's own selection, so checking one item keeps
+  // the other options in the section visible and selectable.
+  const levelCountPredicate = compileFilterToQuery(filters, undefined, {
+    excludeCheckedSections: ['log_level'],
+    excludeLogLevels: true,
+  })
+  const serviceCountPredicate = compileFilterToQuery(filters, undefined, {
+    excludeCheckedSections: ['service_name'],
+    excludeServices: true,
+  })
+  const errorTypeCountPredicate = compileFilterToQuery(filters, undefined, {
+    excludeCheckedSections: ['error_type'],
+  })
+  const statusCountPredicate = compileFilterToQuery(filters, undefined, {
+    excludeCheckedSections: ['status_code', 'response_status'],
+  })
   const {
     errors,
     totalErrors,
@@ -36,7 +53,12 @@ export default function Errors() {
     refetch,
     manualRefetch,
     isLoading,
-  } = useErrors(predicate)
+  } = useErrors(predicate, {
+    level: levelCountPredicate,
+    service: serviceCountPredicate,
+    errorType: errorTypeCountPredicate,
+    status: statusCountPredicate,
+  })
 
   const {
     isLive,

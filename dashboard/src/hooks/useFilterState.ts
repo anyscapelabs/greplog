@@ -296,9 +296,17 @@ function quoteSqlList(values: string[]): string {
 // Translate checked sidebar items into SQL. Each filter section maps to a
 // distinct predicate; sections that only narrow the client side (e.g. the
 // Services page's health_status) intentionally compile to nothing.
-export function compileCheckedToQuery(checked: Record<string, string[]>): string {
+// `excludeSections` lets a section's own facet counts be computed from the
+// population that ignores that section's own selection, so checking one item
+// does not remove the other options in the same section (faceted search).
+export function compileCheckedToQuery(
+  checked: Record<string, string[]>,
+  excludeSections?: string[],
+): string {
+  const excluded = new Set(excludeSections ?? [])
   const clauses: string[] = []
   for (const [sectionId, ids] of Object.entries(checked)) {
+    if (excluded.has(sectionId)) continue
     if (!ids || ids.length === 0) continue
     let clause: string | null = null
     switch (sectionId) {
@@ -345,15 +353,26 @@ export function compileCheckedToQuery(checked: Record<string, string[]>): string
 // currently being typed in the search box (before it is committed as a chip):
 // it is compiled the same way a chip would be so the chart and log queries
 // narrow as the user types, without waiting for Enter.
-export function compileFilterToQuery(filters: FilterState, liveQuery?: string): string {
+//
+// `opts` tunes the predicate for building a single filter section's facet
+// counts: `excludeCheckedSections` drops that section's own checked items and
+// `excludeServices` / `excludeLogLevels` drop the equivalent lists, so the
+// section still lists every option present in the rest of the population.
+export interface CompileFilterOpts {
+  excludeCheckedSections?: string[]
+  excludeServices?: boolean
+  excludeLogLevels?: boolean
+}
+
+export function compileFilterToQuery(filters: FilterState, liveQuery?: string, opts?: CompileFilterOpts): string {
   const clauses: string[] = []
 
-  if (filters.services.length > 0) {
+  if (filters.services.length > 0 && !opts?.excludeServices) {
     const quoted = filters.services.map((s) => `'${s.replace(/'/g, "''")}'`).join(',')
     clauses.push(`service IN (${quoted})`)
   }
 
-  if (filters.logLevels.length > 0) {
+  if (filters.logLevels.length > 0 && !opts?.excludeLogLevels) {
     const quoted = filters.logLevels.map((l) => `'${l.replace(/'/g, "''")}'`).join(',')
     clauses.push(`level IN (${quoted})`)
   }
@@ -375,7 +394,7 @@ export function compileFilterToQuery(filters: FilterState, liveQuery?: string): 
     }
   }
 
-  const checkedClause = compileCheckedToQuery(filters.checked)
+  const checkedClause = compileCheckedToQuery(filters.checked, opts?.excludeCheckedSections)
   if (checkedClause) clauses.push(checkedClause)
 
   const windowNs = TIME_RANGE_NS[filters.timeRange]

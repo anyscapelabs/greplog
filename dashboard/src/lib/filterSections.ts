@@ -93,12 +93,14 @@ export function buildStatusCodeSections(
     bucketCounts[bucket] += count
   }
   codeItems.sort((a, b) => b.count - a.count)
+  // All four buckets are always shown so a checked bucket is never silently
+  // removed when its count drops to zero under other filters; zero counts are
+  // rendered as 0 rather than dropping the option.
   const responseItems: FilterSectionItem[] = Object.keys(STATUS_BUCKETS)
     .map((key) => {
       const meta = STATUS_BUCKETS[key]
       return { id: meta.id, label: meta.label, count: bucketCounts[key], color: meta.color }
     })
-    .filter((i) => i.count > 0)
   return {
     statusCode: { id: 'status_code', title: 'status_code', items: codeItems },
     responseStatus: { id: 'response_status', title: 'response_status', defaultOpen: true, items: responseItems },

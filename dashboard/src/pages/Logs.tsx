@@ -22,6 +22,20 @@ export default function Logs() {
 
   const debouncedQuery = useDebouncedValue(filters.query, 300)
   const predicate = compileFilterToQuery(filters, debouncedQuery)
+  // Facet counts for each sidebar section are computed from the population
+  // that excludes that section's own selection, so checking one item keeps
+  // the other options in the section visible and selectable.
+  const levelCountPredicate = compileFilterToQuery(filters, debouncedQuery, {
+    excludeCheckedSections: ['log_level'],
+    excludeLogLevels: true,
+  })
+  const serviceCountPredicate = compileFilterToQuery(filters, debouncedQuery, {
+    excludeCheckedSections: ['service_name'],
+    excludeServices: true,
+  })
+  const statusCountPredicate = compileFilterToQuery(filters, debouncedQuery, {
+    excludeCheckedSections: ['status_code', 'response_status'],
+  })
   const [limit, setLimit] = useState('500')
   const [page, setPage] = useState(0)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
@@ -36,7 +50,16 @@ export default function Logs() {
     isLoading,
     refetch,
     manualRefetch,
-  } = useLogs(predicate, filters.timeRange, parseInt(limit.replace('k', '000'), 10), page, sortDirection)
+  } = useLogs(predicate, filters.timeRange, {
+    limit: parseInt(limit.replace('k', '000'), 10),
+    page,
+    sortDirection,
+    countPredicates: {
+      level: levelCountPredicate,
+      service: serviceCountPredicate,
+      status: statusCountPredicate,
+    },
+  })
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
