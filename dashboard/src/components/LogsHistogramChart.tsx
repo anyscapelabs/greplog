@@ -168,6 +168,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
   const hasData = data.buckets.length > 0 && totalsMax > 0
 
   const isAreaMode = data.granularity !== 'minute'
+  const isWideLabels = data.granularity !== 'minute'
 
   useEffect(() => {
     const host = plotHostRef.current
@@ -190,10 +191,10 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
       plotRef.current?.destroy()
       hideTooltip()
 
-      // Multi-day ranges (hour/day buckets) use wider date-inclusive labels
+      // Multi-day ranges (hour/12-hour/day buckets) use wider date-inclusive labels
       // (e.g. "08/03 12:00") that need more horizontal room per tick than a
       // bare "HH:MM" minute label.
-      const step = labelStep(data.buckets.length, width, isAreaMode ? 84 : 56)
+      const step = labelStep(data.buckets.length, width, isWideLabels ? 84 : 56)
       const yMax = Math.max(1, totalsMax * 1.08)
 
       // Area mode plots each level as its cumulative (stacked) curve and

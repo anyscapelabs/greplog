@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useLogs, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl } from '../hooks/index.ts'
 import PageHeader from '../components/PageHeader.tsx'
 import FilterSidebar from '../components/FilterSidebar.tsx'
@@ -32,6 +32,15 @@ export default function Logs() {
     refetch,
     manualRefetch,
   } = useLogs(predicate, filters.timeRange)
+
+  // Preserve previous chart data while loading new data to avoid flicker
+  const previousChartRef = useRef(charts)
+  useEffect(() => {
+    if (!isFetching) {
+      previousChartRef.current = charts
+    }
+  }, [isFetching, charts])
+  const displayCharts = isFetching && previousChartRef.current.logsHistogram.buckets.length > 0 ? previousChartRef.current : charts
 
   const {
     isLive,
@@ -119,7 +128,7 @@ export default function Logs() {
                 <span className="text-sm font-semibold text-text-primary">Logs Histogram</span>
               </div>
               <div className="flex-1 min-h-0">
-                <LogsHistogramChart data={charts.logsHistogram} />
+                <LogsHistogramChart data={displayCharts.logsHistogram} />
               </div>
             </div>
           </div>

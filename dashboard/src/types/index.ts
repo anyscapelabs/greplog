@@ -100,7 +100,7 @@ export interface LogsHistogramSeries {
   counts: number[]
 }
 
-export type LogsHistogramGranularity = 'minute' | 'hour' | 'day'
+export type LogsHistogramGranularity = 'minute' | 'hour' | '12-hour' | 'day'
 
 export interface LogsHistogramData {
   /** bucket labels, ascending by time, formatted according to `granularity` */

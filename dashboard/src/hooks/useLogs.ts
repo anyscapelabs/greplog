@@ -72,9 +72,10 @@ function stableQueryKeyWhereClause(whereClause?: string): string | undefined {
 // thousands of near-empty bars. Ranges spanning multiple days also switch
 // the chart to an area rendering (see LogsHistogramChart) since individual
 // bars are meaningless at that scale.
+// For 7d and 30d ranges, we use 12-hour granularity to show 2 points per day.
 function histogramGranularity(timeRange?: string): LogsHistogramGranularity {
-  if (timeRange === 'Last 30 days') return 'day'
-  if (timeRange === 'Last 7 days') return 'hour'
+  if (timeRange === 'Last 30 days') return '12-hour'
+  if (timeRange === 'Last 7 days') return '12-hour'
   return 'minute'
 }
 
@@ -114,7 +115,7 @@ export function useLogs(whereClause?: string, timeRange?: string): LogsPageProps
         postQuery(`SELECT level, count(*) AS cnt FROM logs ${w} GROUP BY level ORDER BY cnt DESC`, { userInitiated }),
         postQuery(`SELECT service, count(*) AS cnt FROM logs ${w} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
         postQuery(`SELECT json_get_str(attributes, 'http.status_code') AS code, count(*) AS cnt FROM logs WHERE logger_name = 'greplog.http'${andClause} GROUP BY json_get_str(attributes, 'http.status_code') ORDER BY cnt DESC`, { userInitiated }),
-        postQuery(`SELECT date_trunc('${granularity}', timestamp) AS bucket, level, count(*) AS cnt FROM logs ${w} GROUP BY bucket, level ORDER BY bucket, level`, { userInitiated }),
+        postQuery(`SELECT date_trunc('${granularity === '12-hour' ? 'hour' : granularity}', timestamp) AS bucket, level, count(*) AS cnt FROM logs ${w} GROUP BY bucket, level ORDER BY bucket, level`, { userInitiated }),
       ])
 
       const logs = result ? rowsToLogs(result.rows, result.columns) : []
