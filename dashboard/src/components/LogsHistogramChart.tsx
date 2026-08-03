@@ -124,7 +124,13 @@ function buildTooltipContent(bucketLabel: string, rows: { label: string; color: 
   return frag
 }
 
-export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
+import { useEffect, useMemo, useRef } from 'react'
+import uPlot from 'uplot'
+import 'uplot/dist/uPlot.min.css'
+import ChartEmptyState from './ChartEmptyState.tsx'
+import ChartErrorState from './ChartErrorState.tsx'
+import { useChartTheme } from '../utils/useChartTheme.ts'
+import type { LogsHistogramChartProps } from '../types/index.ts'
   const plotHostRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const plotRef = useRef<uPlot | null>(null)

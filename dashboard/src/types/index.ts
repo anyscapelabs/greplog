@@ -125,6 +125,8 @@ export interface LogsPageProps {
   querySeconds: number
   isWaiting: boolean
   isFetching: boolean
+  isError: boolean
+  error: unknown
   filterSections: FilterSectionConfig[]
   charts: LogCharts
   timeRanges: DropdownOption[]
