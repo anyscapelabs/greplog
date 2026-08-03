@@ -39,7 +39,7 @@ export default function Logs() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(0)
-  }, [predicate, filters.timeRange])
+  }, [filters])
 
   // Preserve previous chart data while loading new data to avoid flicker.
   // When fetching completes, sync the display to show the latest data.
