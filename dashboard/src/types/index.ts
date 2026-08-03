@@ -424,6 +424,8 @@ export interface AvgLatencyByServiceChartProps {
 
 export interface LogsHistogramChartProps {
   data: LogsHistogramData
+  isError?: boolean
+  onRetry?: () => void
 }
 
 export interface AnalyticsChartPanelProps {
