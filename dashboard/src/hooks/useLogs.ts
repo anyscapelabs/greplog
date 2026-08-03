@@ -79,12 +79,13 @@ function histogramGranularity(timeRange?: string): LogsHistogramGranularity {
   return 'minute'
 }
 
-export function useLogs(whereClause?: string, timeRange?: string): LogsPageProps {
+export function useLogs(whereClause?: string, timeRange?: string, limit = 500, page = 0, sortDirection: 'asc' | 'desc' = 'desc'): LogsPageProps {
   const { connected } = useAgent()
   const userInitiatedRef = useRef(false)
 
   const stableWhereClause = stableQueryKeyWhereClause(whereClause)
   const granularity = histogramGranularity(timeRange)
+  const offset = page * limit
   // `timeRange` is included explicitly (not just folded into the where
   // clause) because `stableWhereClause` intentionally normalizes away the
   // absolute `to_timestamp_micros(...)` threshold to avoid refetching on
@@ -92,7 +93,9 @@ export function useLogs(whereClause?: string, timeRange?: string): LogsPageProps
   // Without this, switching from e.g. "Last 1 hour" to "Last 7 days" would
   // produce an identical query key and React Query would keep serving the
   // stale cached result instead of refetching.
-  const queryKey = stableWhereClause ? ['logs', stableWhereClause, timeRange] : ['logs', timeRange]
+  const queryKey = stableWhereClause
+    ? ['logs', stableWhereClause, timeRange, limit, offset]
+    : ['logs', timeRange, limit, offset]
 
   const query = useQuery({
     queryKey,
@@ -110,7 +113,7 @@ export function useLogs(whereClause?: string, timeRange?: string): LogsPageProps
       // add its own queries here. Only the log rows, counts and filter-sidebar
       // sections are fetched below.
       const [result, countResult, levelResult, serviceResult, httpStatusResult, histogramResult] = await Promise.all([
-        postQuery(`${BASE_SQL} ${w} ORDER BY timestamp DESC LIMIT 1000`, { userInitiated }),
+        postQuery(`${BASE_SQL} ${w} ORDER BY timestamp ${sortDirection} LIMIT ${limit} OFFSET ${offset}`, { userInitiated }),
         postQuery(`SELECT count(*) AS total FROM logs ${w}`, { userInitiated }),
         postQuery(`SELECT level, count(*) AS cnt FROM logs ${w} GROUP BY level ORDER BY cnt DESC`, { userInitiated }),
         postQuery(`SELECT service, count(*) AS cnt FROM logs ${w} GROUP BY service ORDER BY cnt DESC`, { userInitiated }),
@@ -153,6 +156,7 @@ export function useLogs(whereClause?: string, timeRange?: string): LogsPageProps
       }
     },
     enabled: connected,
+    placeholderData: keepPreviousData,
   })
 
   const data = query.data ?? { logs: [], totalCount: 0, charts: EMPTY_CHARTS, filterSections: [], isWaiting: true }

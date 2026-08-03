@@ -21,6 +21,9 @@ export default function Logs() {
   } = useFilterState()
 
   const predicate = compileFilterToQuery(filters)
+  const [limit, setLimit] = useState('500')
+  const [page, setPage] = useState(0)
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const {
     logs,
     totalLogs,
@@ -31,7 +34,12 @@ export default function Logs() {
     isFetching,
     refetch,
     manualRefetch,
-  } = useLogs(predicate, filters.timeRange)
+  } = useLogs(predicate, filters.timeRange, parseInt(limit.replace('k', '000'), 10), page, sortDirection)
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPage(0)
+  }, [predicate, filters.timeRange])
 
   // Preserve previous chart data while loading new data to avoid flicker.
   // When fetching completes, sync the display to show the latest data.
@@ -136,7 +144,26 @@ export default function Logs() {
               </div>
             </div>
           </div>
-          <LogsTable data={logs} totalRows={totalRows} totalLogs={totalLogs} querySeconds={querySeconds} onView={setDrawerLog} isFetching={isFetching} />
+          <LogsTable
+            data={logs}
+            totalRows={totalRows}
+            totalLogs={totalLogs}
+            querySeconds={querySeconds}
+            limit={limit}
+            page={page}
+            sortDirection={sortDirection}
+            onLimitChange={(next) => {
+              setLimit(next)
+              setPage(0)
+            }}
+            onPageChange={setPage}
+            onSortDirectionChange={(next) => {
+              setSortDirection(next)
+              setPage(0)
+            }}
+            onView={setDrawerLog}
+            isFetching={isFetching}
+          />
         </div>
       </div>
       <LogsDrawer open={!!drawerLog} onClose={() => setDrawerLog(null)} log={drawerLog} />

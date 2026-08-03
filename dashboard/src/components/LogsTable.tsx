@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { LuCircleCheck, LuDownload, LuChevronLeft, LuChevronRight, LuArrowUpDown } from 'react-icons/lu'
 import Dropdown from './Dropdown.tsx'
 import TopLoadingBar from './TopLoadingBar.tsx'
@@ -9,7 +9,12 @@ interface LogsTableProps {
   totalRows?: number
   totalLogs?: number
   querySeconds?: number
-  filteredServices?: string[]
+  limit: string
+  page: number
+  sortDirection: 'asc' | 'desc'
+  onLimitChange: (limit: string) => void
+  onPageChange: (page: number) => void
+  onSortDirectionChange: (direction: 'asc' | 'desc') => void
   onView?: (row: LogEntry) => void
   isFetching?: boolean
 }
@@ -58,36 +63,17 @@ function getStatusColor(code: number): string {
   return '#10b981'
 }
 
-export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: totalLogsProp, querySeconds: secondsProp, filteredServices, onView, isFetching }: LogsTableProps) {
+export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: totalLogsProp, querySeconds: secondsProp, limit, page, sortDirection, onLimitChange, onPageChange, onSortDirectionChange, onView, isFetching }: LogsTableProps) {
   const totalRows = totalRowsProp ?? data.length
   const totalLogs = totalLogsProp ?? data.length
   const seconds = secondsProp ?? 0.3
   const limits = ['500', '1k', '5k', '10k']
-  const [limit, setLimit] = useState('500')
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
-  const [page, setPage] = useState(0)
 
-  const filtered = filteredServices
-    ? data.filter((row) => filteredServices.includes(row.service))
-    : data
-
-  const sortedData = useMemo(() => {
-    return [...filtered].sort((a, b) => {
-      const aVal = a.timestamp
-      const bVal = b.timestamp
-      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
-      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
-      return 0
-    })
-  }, [filtered, sortDirection])
-
-  const pageSize = limit === 'All' ? Math.max(sortedData.length, 1) : parseInt(limit.replace('k', '000'), 10)
-  const displayData = sortedData
-  const totalPages = Math.max(1, Math.ceil(displayData.length / pageSize))
+  const pageSize = limit === 'All' ? Math.max(totalRows, 1) : parseInt(limit.replace('k', '000'), 10)
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
   const currentPage = Math.min(page, Math.max(totalPages - 1, 0))
-  const pageData = useMemo(() => displayData.slice(currentPage * pageSize, (currentPage + 1) * pageSize), [displayData, currentPage, pageSize])
 
-  const bodyRows = useMemo(() => pageData.map((row) => {
+  const bodyRows = useMemo(() => data.map((row) => {
     const levelColors = getLevelColors(row.level)
     const statusColor = getStatusColor(row.statusCode)
 
@@ -172,12 +158,12 @@ return (
         </div>
       </div>
     )
-  }), [pageData, onView])
+  }), [data, onView])
 
   function exportToCSV() {
     const columnsToExport = ['timestamp', 'level', 'service', 'statusCode', 'message']
     const headers = ['timestamp', 'level', 'service_name', 'status_code', 'message']
-    const rows = displayData.map(row =>
+    const rows = data.map(row =>
       columnsToExport.map(key => {
         const val = row[key as keyof typeof row] ?? ''
         return `"${String(val).replace(/"/g, '""')}"`
@@ -211,7 +197,7 @@ return (
           {/* Sort Button */}
           <div className="px-3 py-1.5 shrink-0">
             <button
-              onClick={() => setSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+              onClick={() => onSortDirectionChange(sortDirection === 'desc' ? 'asc' : 'desc')}
               className="flex items-center gap-1.5 px-2.5 py-1 text-sm text-text-secondary rounded hover:bg-[var(--hover-bg)] transition-colors border cursor-pointer"
               style={{ borderColor: 'var(--border-primary)' }}
             >
@@ -232,10 +218,7 @@ return (
               trigger={<span>{limit}</span>}
               items={limits.map((opt) => ({ label: opt, value: opt }))}
               value={limit}
-              onChange={(value) => {
-                setLimit(value)
-                setPage(0)
-              }}
+              onChange={(value) => onLimitChange(value)}
               minWidth="min-w-20"
             />
           </div>
@@ -257,7 +240,7 @@ return (
             <button
               className="flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors disabled:opacity-30"
               disabled={currentPage === 0}
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              onClick={() => onPageChange(Math.max(0, currentPage - 1))}
             >
               <LuChevronLeft className="size-3.5" style={{ color: 'var(--text-secondary)' }} />
             </button>
@@ -267,7 +250,7 @@ return (
             <button
               className="flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors disabled:opacity-30"
               disabled={currentPage >= totalPages - 1}
-              onClick={() => setPage((p) => Math.min(Math.max(totalPages - 1, 0), p + 1))}
+              onClick={() => onPageChange(Math.min(Math.max(totalPages - 1, 0), currentPage + 1))}
             >
               <LuChevronRight className="size-3.5" style={{ color: 'var(--text-secondary)' }} />
             </button>
