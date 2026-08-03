@@ -136,7 +136,7 @@ export default function Logs() {
               </div>
             </div>
           </div>
-          <LogsTable data={logs} totalRows={totalRows} totalLogs={totalLogs} querySeconds={querySeconds} onView={setDrawerLog} />
+          <LogsTable data={logs} totalRows={totalRows} totalLogs={totalLogs} querySeconds={querySeconds} onView={setDrawerLog} isFetching={isFetching} />
         </div>
       </div>
       <LogsDrawer open={!!drawerLog} onClose={() => setDrawerLog(null)} log={drawerLog} />

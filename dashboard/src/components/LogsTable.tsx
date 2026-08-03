@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { LuCircleCheck, LuDownload, LuChevronLeft, LuChevronRight, LuArrowUpDown } from 'react-icons/lu'
 import Dropdown from './Dropdown.tsx'
+import TopLoadingBar from './TopLoadingBar.tsx'
 import type { LogEntry } from '../types/index.ts'
 
 interface LogsTableProps {
@@ -10,6 +11,7 @@ interface LogsTableProps {
   querySeconds?: number
   filteredServices?: string[]
   onView?: (row: LogEntry) => void
+  isFetching?: boolean
 }
 
 function getLevelColors(level: string) {
@@ -56,7 +58,7 @@ function getStatusColor(code: number): string {
   return '#10b981'
 }
 
-export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: totalLogsProp, querySeconds: secondsProp, filteredServices, onView }: LogsTableProps) {
+export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: totalLogsProp, querySeconds: secondsProp, filteredServices, onView, isFetching }: LogsTableProps) {
   const totalRows = totalRowsProp ?? data.length
   const totalLogs = totalLogsProp ?? data.length
   const seconds = secondsProp ?? 0.3
@@ -90,10 +92,14 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
   const bodyRows = useMemo(() => pageData.map((row) => {
     const levelColors = getLevelColors(row.level)
     const statusColor = getStatusColor(row.statusCode)
+
+    // Helper to safely format strings inside JSON output
+    const escapeStr = (str: string) => str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+
     return (
       <div
         key={row.id}
-        className="group relative flex items-start gap-4 py-2 pl-4 pr-3 border-b text-xs hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono cursor-pointer"
+        className="group relative flex items-start gap-4 py-2.5 pl-4 pr-3 border-b text-xs hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono cursor-pointer"
         style={{ borderColor: 'var(--border-primary)' }}
         onClick={() => onView?.(row)}
       >
@@ -103,56 +109,68 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
           style={{ backgroundColor: levelColors.border }}
         />
 
-        {/* View Action Indicator on Hover */}
-        <div className="flex items-center gap-3 shrink-0 select-none text-text-secondary">
-          <span className="text-[var(--accent)] hover:underline font-semibold cursor-pointer whitespace-nowrap">
+        {/* View Action / Hover Indicator */}
+        <div className="flex items-center gap-1.5 shrink-0 select-none">
+          <span className="text-[var(--accent)] hover:underline font-bold cursor-pointer">
             View
           </span>
-          {/* Timestamp */}
-          <span className="text-text-secondary select-all font-light whitespace-nowrap">
-            {row.timestamp}
-          </span>
         </div>
 
-        {/* Level Badge */}
-        <div
-          className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase shrink-0 text-center tracking-wider min-w-[54px]"
-          style={{
-            backgroundColor: levelColors.bg,
-            color: levelColors.text,
-          }}
-        >
-          {row.level}
-        </div>
+        {/* Monospace JSON-like Structured Block */}
+        <div className="flex-1 min-w-0 select-all font-mono leading-relaxed text-text-primary whitespace-pre-wrap break-all">
+          <span className="text-text-secondary/70">{'{'}</span>{' '}
+          
+          <span className="text-[#a5d6ff]">"time"</span>
+          <span className="text-text-secondary/80">:</span>{' '}
+          <span className="text-[#79c0ff]">"{escapeStr(row.timestamp)}"</span>
+          <span className="text-text-secondary/70">,</span>{' '}
+          
+          <span className="text-[#a5d6ff]">"level"</span>
+          <span className="text-text-secondary/80">:</span>{' '}
+          <span className="font-bold" style={{ color: levelColors.text }}>"{escapeStr(row.level.toUpperCase())}"</span>
+          <span className="text-text-secondary/70">,</span>{' '}
+          
+          {row.service && (
+            <>
+              <span className="text-[#a5d6ff]">"service"</span>
+              <span className="text-text-secondary/80">:</span>{' '}
+              <span className="text-[#ffa657]">"{escapeStr(row.service)}"</span>
+              <span className="text-text-secondary/70">,</span>{' '}
+            </>
+          )}
 
-        {/* Service Pill */}
-        {row.service && (
-          <div
-            className="px-1.5 py-0.5 rounded text-[10px] bg-bg-primary border shrink-0 text-text-secondary font-medium"
-            style={{ borderColor: 'var(--border-primary)' }}
-          >
-            <span className="opacity-50 mr-1">service:</span>
-            {row.service}
-          </div>
-        )}
+          {row.statusCode > 0 && (
+            <>
+              <span className="text-[#a5d6ff]">"status"</span>
+              <span className="text-text-secondary/80">:</span>{' '}
+              <span className="font-bold" style={{ color: statusColor }}>{row.statusCode}</span>
+              <span className="text-text-secondary/70">,</span>{' '}
+            </>
+          )}
 
-        {/* Status Code Pill */}
-        {row.statusCode > 0 && (
-          <div
-            className="px-1.5 py-0.5 rounded text-[10px] border shrink-0 font-bold"
-            style={{
-              borderColor: statusColor,
-              color: statusColor,
-              backgroundColor: `${statusColor}14`, // Add ~8% transparency
-            }}
-          >
-            {row.statusCode}
-          </div>
-        )}
+          {row.logger && (
+            <>
+              <span className="text-[#a5d6ff]">"logger"</span>
+              <span className="text-text-secondary/80">:</span>{' '}
+              <span className="text-[#ffa657]">"{escapeStr(row.logger)}"</span>
+              <span className="text-text-secondary/70">,</span>{' '}
+            </>
+          )}
 
-        {/* Message */}
-        <div className="flex-1 min-w-0 text-text-primary break-all select-all font-normal whitespace-pre-wrap leading-relaxed">
-          {row.message}
+          {row.correlationId && (
+            <>
+              <span className="text-[#a5d6ff]">"trace_id"</span>
+              <span className="text-text-secondary/80">:</span>{' '}
+              <span className="text-[#ffa657]">"{escapeStr(row.correlationId)}"</span>
+              <span className="text-text-secondary/70">,</span>{' '}
+            </>
+          )}
+
+          <span className="text-[#a5d6ff]">"message"</span>
+          <span className="text-text-secondary/80">:</span>{' '}
+          <span className="text-[#7ee787]">"{escapeStr(row.message)}"</span>
+          
+          <span className="text-text-secondary/70">{' }'}</span>
         </div>
       </div>
     )
@@ -179,7 +197,8 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
 
   return (
     <div className="flex-1 min-h-0 min-w-0 overflow-hidden px-2 pt-1.5 pb-2">
-      <div className="h-full w-full border flex flex-col min-w-0 overflow-hidden" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+      <div className="h-full w-full border flex flex-col min-w-0 overflow-hidden relative" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+        <TopLoadingBar active={!!isFetching} />
         {/* Toolbar */}
         <div className="flex items-center border-b shrink-0 z-10" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-secondary)' }}>
           <div className="flex items-center gap-2 px-3 py-1.5 flex-1">
@@ -195,7 +214,7 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
           <div className="px-3 py-1.5 shrink-0">
             <button
               onClick={() => setSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
-              className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-secondary rounded hover:bg-[var(--hover-bg)] transition-colors border"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-sm text-text-secondary rounded hover:bg-[var(--hover-bg)] transition-colors border cursor-pointer"
               style={{ borderColor: 'var(--border-primary)' }}
             >
               <LuArrowUpDown className="size-3.5" />
@@ -227,7 +246,7 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
 
           {/* Export Button */}
           <div className="px-3 py-1.5 shrink-0">
-            <button onClick={exportToCSV} className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-secondary rounded hover:bg-[var(--hover-bg)] transition-colors">
+            <button onClick={exportToCSV} className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-secondary rounded hover:bg-[var(--hover-bg)] transition-colors cursor-pointer">
               <LuDownload className="size-3.5" />
               Export
             </button>
