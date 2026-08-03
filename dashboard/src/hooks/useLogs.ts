@@ -171,6 +171,8 @@ export function useLogs(whereClause?: string, timeRange?: string): LogsPageProps
     charts: data.charts,
     isWaiting: data.isWaiting,
     isFetching: query.isFetching,
+    isError: query.isError,
+    error: query.error,
     timeRanges: placeholderTimeRanges,
     services: placeholderServices,
     autoRefreshOptions: placeholderAutoRefreshOptions,
