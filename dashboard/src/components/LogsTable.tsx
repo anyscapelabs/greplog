@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { LuCircleCheck, LuDownload, LuChevronLeft, LuChevronRight, LuArrowUpDown } from 'react-icons/lu'
+import { LuCircleCheck, LuDownload, LuChevronLeft, LuChevronRight, LuArrowUpDown, LuRefreshCw, LuFileSearch, LuCircleAlert, LuLoader } from 'react-icons/lu'
 import Dropdown from './Dropdown.tsx'
 import TopLoadingBar from './TopLoadingBar.tsx'
 import type { LogEntry } from '../types/index.ts'
@@ -17,6 +17,14 @@ interface LogsTableProps {
   onSortDirectionChange: (direction: 'asc' | 'desc') => void
   onView?: (row: LogEntry) => void
   isFetching?: boolean
+  /** Initial load / no data yet — show a centered loading state. */
+  isLoading?: boolean
+  /** Last query failed and there is no data to show — offer a retry. */
+  isError?: boolean
+  onRetry?: () => void
+  /** Whether search/filter chips are active — tailors the empty state. */
+  hasActiveFilters?: boolean
+  onClearFilters?: () => void
 }
 
 function getLevelColors(level: string) {
@@ -63,7 +71,75 @@ function getStatusColor(code: number): string {
   return '#10b981'
 }
 
-export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: totalLogsProp, querySeconds: secondsProp, limit, page, sortDirection, onLimitChange, onPageChange, onSortDirectionChange, onView, isFetching }: LogsTableProps) {
+function TableStateScreen({
+  mode,
+  hasActiveFilters,
+  onRetry,
+  onClearFilters,
+}: {
+  mode: 'loading' | 'error' | 'empty'
+  hasActiveFilters?: boolean
+  onRetry?: () => void
+  onClearFilters?: () => void
+}) {
+  if (mode === 'loading') {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3 py-12">
+        <LuLoader className="size-6 animate-spin" style={{ color: 'var(--accent)' }} />
+        <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>Loading logs…</div>
+      </div>
+    )
+  }
+
+  if (mode === 'error') {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-2.5 px-6 py-12 text-center">
+        <div className="flex items-center justify-center size-11 rounded-full" style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)' }}>
+          <LuCircleAlert className="size-5" style={{ color: 'var(--error)' }} />
+        </div>
+        <div className="text-sm font-medium text-text-primary">Failed to load logs</div>
+        <div className="text-xs max-w-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          The log data couldn&apos;t be fetched. Check the connection to the agent and try again.
+        </div>
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="mt-1 flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded border cursor-pointer hover:bg-[var(--hover-bg)] transition-colors"
+            style={{ color: 'var(--accent)', borderColor: 'var(--border-primary)' }}
+          >
+            <LuRefreshCw className="size-3.5" />
+            Try Again
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-2.5 px-6 py-12 text-center">
+      <div className="flex items-center justify-center size-11 rounded-full" style={{ backgroundColor: 'var(--hover-bg-subtle)' }}>
+        <LuFileSearch className="size-5" style={{ color: 'var(--text-secondary)' }} />
+      </div>
+      <div className="text-sm font-medium text-text-primary">No logs found</div>
+      <div className="text-xs max-w-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+        {hasActiveFilters
+          ? 'No logs match the current search, filters, or time range. Try widening the time range or clearing your filters.'
+          : 'There are no logs in the selected time range yet. New logs will appear here as soon as they are ingested.'}
+      </div>
+      {hasActiveFilters && onClearFilters && (
+        <button
+          onClick={onClearFilters}
+          className="mt-1 flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded border cursor-pointer hover:bg-[var(--hover-bg)] transition-colors"
+          style={{ color: 'var(--accent)', borderColor: 'var(--border-primary)' }}
+        >
+          Clear all filters
+        </button>
+      )}
+    </div>
+  )
+}
+
+export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: totalLogsProp, querySeconds: secondsProp, limit, page, sortDirection, onLimitChange, onPageChange, onSortDirectionChange, onView, isFetching, isLoading, isError, onRetry, hasActiveFilters, onClearFilters }: LogsTableProps) {
   const totalRows = totalRowsProp ?? data.length
   const totalLogs = totalLogsProp ?? data.length
   const seconds = secondsProp ?? 0.3
