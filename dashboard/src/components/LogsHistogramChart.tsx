@@ -5,6 +5,16 @@ import ChartEmptyState from './ChartEmptyState.tsx'
 import { useChartTheme } from '../utils/useChartTheme.ts'
 import type { LogsHistogramChartProps } from '../types/index.ts'
 
+// Stacked bar histogram of log volume per minute, per level. Built directly on
+// uPlot's `bars` path builder using the `disp.y0`/`disp.y1` facets (both must
+// be supplied together — see uPlot's bars.js path builder) rather than a
+// custom canvas draw hook: this is the officially supported way to render
+// stacked bars in uPlot, and it's what keeps z-order, hit-testing and the
+// built-in cursor/legend machinery correct for free. Levels stack
+// bottom-to-top from highest to lowest severity (error at the bottom, like
+// Grafana's logs histogram), each level's own (non-cumulative) counts are
+// kept in `u.data` for tooltip/legend display, and the cumulative baseline
+// (y0) / top (y1) arrays are supplied as separate facets.
 const LEVEL_META = {
   fatal: { rank: 0, label: 'Fatal', color: 'red' },
   critical: { rank: 1, label: 'Critical', color: 'red' },
@@ -57,7 +67,6 @@ function labelStep(bucketCount: number, width: number): number {
 export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
   const plotHostRef = useRef<HTMLDivElement>(null)
   const plotRef = useRef<uPlot | null>(null)
-  const hoverRef = useRef<HoverState | null>(null)
   const [hover, setHover] = useState<HoverState | null>(null)
   const colors = useChartTheme()
 
@@ -77,11 +86,33 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
     [data.buckets, orderedLevels],
   )
 
-  const hasData = data.buckets.length > 0 && orderedLevels.some((series) => series.counts.some((count) => count > 0))
+  const totalsMax = useMemo(() => totals.reduce((max, value) => Math.max(max, value), 0), [totals])
+
+  // Cumulative baseline (y0) and top (y1) per level, bottom level first, so
+  // each series' bar spans [baseline, baseline+ownCount].
+  const { baselines, tops } = useMemo(() => {
+    const n = data.buckets.length
+    let running = new Array<number>(n).fill(0)
+    const baselineArrs: number[][] = []
+    const topArrs: number[][] = []
+    for (const series of orderedLevels) {
+      const baseline = running.slice()
+      const top = running.map((value, i) => value + (series.counts[i] ?? 0))
+      baselineArrs.push(baseline)
+      topArrs.push(top)
+      running = top
+    }
+    return { baselines: baselineArrs, tops: topArrs }
+  }, [data.buckets.length, orderedLevels])
+
+  const hasData = data.buckets.length > 0 && totalsMax > 0
 
   useEffect(() => {
     const host = plotHostRef.current
     if (!host || !hasData) return
+
+    const bars = uPlot.paths!.bars!
+    const xVals = data.buckets.map((_, index) => index)
 
     const drawPlot = () => {
       const width = host.clientWidth
@@ -90,13 +121,13 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
 
       plotRef.current?.destroy()
 
-      const xVals = data.buckets.map((_, index) => index)
       const step = labelStep(data.buckets.length, width)
+      const yMax = Math.max(1, totalsMax * 1.08)
 
       const opts: uPlot.Options = {
         width,
         height,
-        padding: [8, 12, 0, 8],
+        padding: [10, 8, 0, 8],
         legend: { show: false },
         cursor: {
           x: true,
@@ -111,8 +142,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
             range: (_u, min, max) => [min - 0.6, max + 0.6],
           },
           y: {
-            auto: false,
-            range: (_u, _min, max) => [0, Math.max(1, max * 1.08)],
+            range: () => [0, yMax],
           },
         },
         axes: [
@@ -121,12 +151,13 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
             grid: { stroke: colors.gridStrong, width: 1 },
             ticks: { stroke: 'rgba(0,0,0,0)' },
             font: '10px system-ui',
-            values: (_u, ticks) =>
-              ticks.map((tick) => {
-                const bucketIndex = Number(tick)
-                if (!Number.isFinite(bucketIndex)) return ''
-                return bucketIndex % step === 0 ? (data.buckets[bucketIndex] ?? '') : ''
-              }),
+            splits: (_u, _axisIdx, scaleMin, scaleMax) => {
+              const out: number[] = []
+              const first = Math.ceil(scaleMin)
+              for (let i = first; i <= scaleMax; i += step) out.push(i)
+              return out
+            },
+            values: (_u, ticks) => ticks.map((tick) => data.buckets[tick] ?? ''),
           },
           {
             stroke: colors.label,
@@ -137,88 +168,41 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
         ],
         series: [
           {},
-          {
-            stroke: 'rgba(0,0,0,0)',
-            width: 0,
+          ...orderedLevels.map((series, k) => ({
+            label: series.label,
+            stroke: series.color,
+            fill: series.color,
+            width: 1,
             points: { show: false },
-          },
+            paths: bars({
+              size: [0.85, 24, 1],
+              disp: {
+                y0: { unit: 1, values: () => baselines[k] },
+                y1: { unit: 1, values: () => tops[k] },
+              },
+            }),
+          })) as uPlot.Series[],
         ],
         hooks: {
-          draw: [
-            (u) => {
-              const ctx = u.ctx
-              const centers = xVals.map((value) => u.valToPos(value, 'x', true))
-              const span = centers.length > 1 ? Math.max(1, Math.min(...centers.slice(1).map((center, i) => center - centers[i]))) : u.bbox.width
-              const barWidth = Math.max(6, Math.floor(span * 0.72))
-
-              ctx.save()
-
-              for (let bucketIndex = 0; bucketIndex < centers.length; bucketIndex += 1) {
-                let running = 0
-                for (const series of orderedLevels) {
-                  const count = series.counts[bucketIndex] ?? 0
-                  if (count <= 0) continue
-
-                  const y0 = u.valToPos(running, 'y', true)
-                  const y1 = u.valToPos(running + count, 'y', true)
-                  const left = Math.round(centers[bucketIndex] - barWidth / 2)
-                  const top = Math.round(y1)
-                  const rectHeight = Math.max(1, Math.round(y0 - y1))
-
-                  ctx.fillStyle = series.color
-                  ctx.fillRect(left, top, barWidth, rectHeight)
-                  running += count
-                }
-              }
-
-              const activeHover = hoverRef.current
-              if (activeHover) {
-                const bucketIndex = activeHover.index
-                if (bucketIndex >= 0 && bucketIndex < centers.length) {
-                  ctx.save()
-                  ctx.strokeStyle = colors.label
-                  ctx.globalAlpha = 0.35
-                  ctx.lineWidth = 1
-                  ctx.beginPath()
-                  ctx.moveTo(centers[bucketIndex], u.bbox.top)
-                  ctx.lineTo(centers[bucketIndex], u.bbox.top + u.bbox.height)
-                  ctx.stroke()
-                  ctx.restore()
-                }
-              }
-
-              ctx.restore()
-            },
-          ],
           setCursor: [
             (u) => {
               const left = u.cursor.left
-              if (left == null || Number.isNaN(left)) {
-                hoverRef.current = null
-                setHover(null)
-                plotRef.current?.redraw()
+              const idx = u.cursor.idx
+              if (left == null || left < 0 || idx == null) {
+                setHover((prev) => (prev === null ? prev : null))
                 return
               }
-              const index = u.posToIdx(left)
-              if (index < 0 || index >= data.buckets.length) {
-                hoverRef.current = null
-                setHover(null)
-                plotRef.current?.redraw()
-                return
-              }
-              const tooltipLeft = Math.min(Math.max(12, u.bbox.left + left + 12), Math.max(12, host.clientWidth - 190))
-              hoverRef.current = { index, left: tooltipLeft }
+              const tooltipLeft = Math.min(Math.max(12, left + 12), Math.max(12, width - 190))
               setHover((prev) => {
-                if (prev && prev.index === index && prev.left === tooltipLeft) return prev
-                return { index, left: tooltipLeft }
+                if (prev && prev.index === idx && prev.left === tooltipLeft) return prev
+                return { index: idx, left: tooltipLeft }
               })
-              plotRef.current?.redraw()
             },
           ],
         },
       }
 
-      plotRef.current = new uPlot(opts, [xVals, totals], host)
+      plotRef.current = new uPlot(opts, [xVals, ...orderedLevels.map((series) => series.counts)], host)
     }
 
     drawPlot()
@@ -228,11 +212,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
     })
     ro.observe(host)
 
-    const clearHover = () => {
-      hoverRef.current = null
-      setHover(null)
-      plotRef.current?.redraw()
-    }
+    const clearHover = () => setHover((prev) => (prev === null ? prev : null))
     host.addEventListener('mouseleave', clearHover)
 
     return () => {
@@ -241,7 +221,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
       plotRef.current?.destroy()
       plotRef.current = null
     }
-  }, [colors, data.buckets, hasData, orderedLevels, totals])
+  }, [baselines, colors, data.buckets, hasData, orderedLevels, tops, totalsMax])
 
   if (!hasData) {
     return <ChartEmptyState message="No logs in the selected time range." />
@@ -288,7 +268,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
           </div>
         )}
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 px-2 pb-1 pt-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 px-2 py-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
         {orderedLevels.map((series) => (
           <div key={series.level} className="flex items-center gap-1.5">
             <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: series.color }} />
