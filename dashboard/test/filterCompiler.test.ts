@@ -72,3 +72,20 @@ test('status facet predicate excludes status sections but keeps other dimensions
   assert.doesNotMatch(pred, /line IN/)
   assert.doesNotMatch(pred, /line >= 500/)
 })
+
+test('facet predicate excludes every facet selection (page usage)', () => {
+  const pred = compileFilterToQuery(
+    makeFilters({ log_level: ['error'], service_name: ['api'], status_code: ['500'], response_status: ['server_error'] }),
+    undefined,
+    {
+      excludeCheckedSections: ['log_level', 'service_name', 'status_code', 'response_status'],
+      excludeServices: true,
+      excludeLogLevels: true,
+    },
+  )
+  assert.doesNotMatch(pred, /level IN/)
+  assert.doesNotMatch(pred, /service IN/)
+  assert.doesNotMatch(pred, /line IN/)
+  assert.doesNotMatch(pred, /line >= 500/)
+  assert.match(pred, /timestamp > to_timestamp_micros/)
+})

@@ -22,19 +22,13 @@ export default function Logs() {
 
   const debouncedQuery = useDebouncedValue(filters.query, 300)
   const predicate = compileFilterToQuery(filters, debouncedQuery)
-  // Facet counts for each sidebar section are computed from the population
-  // that excludes that section's own selection, so checking one item keeps
-  // the other options in the section visible and selectable.
-  const levelCountPredicate = compileFilterToQuery(filters, debouncedQuery, {
-    excludeCheckedSections: ['log_level'],
-    excludeLogLevels: true,
-  })
-  const serviceCountPredicate = compileFilterToQuery(filters, debouncedQuery, {
-    excludeCheckedSections: ['service_name'],
+  // Sidebar facet counts come from the base population (search text, chips,
+  // time range) with every facet selection excluded, so marking a filter never
+  // removes the other options in any section and multiple filters can be set.
+  const facetPredicate = compileFilterToQuery(filters, debouncedQuery, {
+    excludeCheckedSections: ['log_level', 'service_name', 'status_code', 'response_status'],
     excludeServices: true,
-  })
-  const statusCountPredicate = compileFilterToQuery(filters, debouncedQuery, {
-    excludeCheckedSections: ['status_code', 'response_status'],
+    excludeLogLevels: true,
   })
   const [limit, setLimit] = useState('500')
   const [page, setPage] = useState(0)
@@ -54,11 +48,7 @@ export default function Logs() {
     limit: parseInt(limit.replace('k', '000'), 10),
     page,
     sortDirection,
-    countPredicates: {
-      level: levelCountPredicate,
-      service: serviceCountPredicate,
-      status: statusCountPredicate,
-    },
+    facetPredicate,
   })
 
   useEffect(() => {
