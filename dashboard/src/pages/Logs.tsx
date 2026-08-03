@@ -107,12 +107,12 @@ export default function Logs() {
       <div className="flex flex-1 min-h-0 relative">
         {filterOpen && <FilterSidebar checked={checked} onCheck={handleCheck} sections={filterSections} />}
         <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex gap-1.5 px-2 pt-2">
+          <div className="flex gap-1.5 px-2 pt-2 pb-1">
             <div
               className="flex-1 min-h-40 h-56 max-h-[70vh] resize-y overflow-hidden rounded border flex flex-col"
               style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}
             >
-              <div className="flex items-center justify-between px-2 py-1.5 border-b shrink-0" style={{ borderColor: 'var(--border-primary)' }}>
+              <div className="flex items-center justify-between px-2 py-1 border-b shrink-0" style={{ borderColor: 'var(--border-primary)' }}>
                 <span className="text-sm font-semibold text-text-primary">Logs Histogram</span>
               </div>
               <div className="flex-1 min-h-0">

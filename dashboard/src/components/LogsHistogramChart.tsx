@@ -64,6 +64,8 @@ function labelStep(bucketCount: number, width: number): number {
   return Math.max(1, Math.ceil(bucketCount / approxVisible))
 }
 
+const AXIS_FONT = '11px Inter, ui-sans-serif, system-ui, sans-serif'
+
 export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
   const plotHostRef = useRef<HTMLDivElement>(null)
   const plotRef = useRef<uPlot | null>(null)
@@ -127,7 +129,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
       const opts: uPlot.Options = {
         width,
         height,
-        padding: [10, 8, 0, 8],
+        padding: [8, 6, 0, 0],
         legend: { show: false },
         cursor: {
           x: true,
@@ -135,6 +137,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
           lock: false,
           drag: { x: false, y: false },
           points: { show: false },
+          move: (u, mouseLeft, mouseTop) => [u.valToPos(u.posToIdx(mouseLeft), 'x'), mouseTop],
         },
         scales: {
           x: {
@@ -150,7 +153,9 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
             stroke: colors.label,
             grid: { stroke: colors.gridStrong, width: 1 },
             ticks: { stroke: 'rgba(0,0,0,0)' },
-            font: '10px system-ui',
+            font: AXIS_FONT,
+            size: 24,
+            gap: 4,
             splits: (_u, _axisIdx, scaleMin, scaleMax) => {
               const out: number[] = []
               const first = Math.ceil(scaleMin)
@@ -160,10 +165,13 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
             values: (_u, ticks) => ticks.map((tick) => data.buckets[tick] ?? ''),
           },
           {
+            side: 1,
             stroke: colors.label,
             grid: { stroke: colors.grid, width: 1 },
             ticks: { stroke: 'rgba(0,0,0,0)' },
-            font: '10px system-ui',
+            font: AXIS_FONT,
+            size: 40,
+            gap: 4,
           },
         ],
         series: [
@@ -188,11 +196,14 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
             (u) => {
               const left = u.cursor.left
               const idx = u.cursor.idx
-              if (left == null || left < 0 || idx == null) {
+              if (left == null || left < 0 || left > u.bbox.width || idx == null) {
                 setHover((prev) => (prev === null ? prev : null))
                 return
               }
-              const tooltipLeft = Math.min(Math.max(12, left + 12), Math.max(12, width - 190))
+
+              const bucketCenter = u.bbox.left + u.valToPos(idx, 'x')
+              const tooltipLeft = Math.min(Math.max(8, bucketCenter - 80), Math.max(8, width - 180))
+
               setHover((prev) => {
                 if (prev && prev.index === idx && prev.left === tooltipLeft) return prev
                 return { index: idx, left: tooltipLeft }
@@ -261,14 +272,14 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
                     <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: entry.color }} />
                     <span>{entry.label}</span>
                   </div>
-                  <span className="font-mono">{entry.value}</span>
+                  <span className="font-medium">{entry.value}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 px-2 py-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 px-1.5 pt-0.5 pb-0 text-xs" style={{ color: 'var(--text-secondary)' }}>
         {orderedLevels.map((series) => (
           <div key={series.level} className="flex items-center gap-1.5">
             <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: series.color }} />
