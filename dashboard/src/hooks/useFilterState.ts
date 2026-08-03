@@ -237,7 +237,32 @@ export function chipDisplay(chip: FilterChip): string {
   return chip.prefix ? `${chip.prefix}:${chip.value}` : chip.value
 }
 
-export function compileFilterToQuery(filters: FilterState): string {
+function chipToClause(chip: FilterChip, includeService: boolean): string | null {
+  if (chip.prefix === 'service') {
+    if (!includeService) return null
+    return `service = '${chip.value.replace(/'/g, "''")}'`
+  }
+  if (chip.prefix === 'correlation_id') {
+    return `correlation_id = '${chip.value.replace(/'/g, "''")}'`
+  }
+  if (chip.prefix === 'route') {
+    return `message LIKE '%${chip.value.replace(/'/g, "''")}%'`
+  }
+  if (chip.prefix === 'status') {
+    const match = chip.value.match(/^([><=!]+)(\d+)$/)
+    if (match) {
+      return `line ${match[1]} ${match[2]}`
+    }
+    return `line = '${chip.value.replace(/'/g, "''")}'`
+  }
+  return `message LIKE '%${chip.value.replace(/'/g, "''")}%'`
+}
+
+// Compile filter state into a SQL WHERE clause. `liveQuery` is the raw text
+// currently being typed in the search box (before it is committed as a chip):
+// it is compiled the same way a chip would be so the chart and log queries
+// narrow as the user types, without waiting for Enter.
+export function compileFilterToQuery(filters: FilterState, liveQuery?: string): string {
   const clauses: string[] = []
 
   if (filters.services.length > 0) {
@@ -251,23 +276,14 @@ export function compileFilterToQuery(filters: FilterState): string {
   }
 
   for (const chip of filters.chips) {
-    if (chip.prefix === 'service') continue
-    if (chip.prefix === 'correlation_id') {
-      clauses.push(`correlation_id = '${chip.value.replace(/'/g, "''")}'`)
-      continue
-    }
-    if (chip.prefix === 'route') {
-      clauses.push(`message LIKE '%${chip.value.replace(/'/g, "''")}%'`)
-    } else if (chip.prefix === 'status') {
-      const match = chip.value.match(/^([><=!]+)(\d+)$/)
-      if (match) {
-        clauses.push(`line ${match[1]} ${match[2]}`)
-      } else {
-        clauses.push(`line = '${chip.value.replace(/'/g, "''")}'`)
-      }
-    } else {
-      clauses.push(`message LIKE '%${chip.value.replace(/'/g, "''")}%'`)
-    }
+    const clause = chipToClause(chip, false)
+    if (clause) clauses.push(clause)
+  }
+
+  const trimmedLive = liveQuery?.trim()
+  if (trimmedLive) {
+    const clause = chipToClause(parseQueryToChip(trimmedLive), true)
+    if (clause) clauses.push(clause)
   }
 
   const windowNs = TIME_RANGE_NS[filters.timeRange]

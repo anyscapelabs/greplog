@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useLogs, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl } from '../hooks/index.ts'
+import { useLogs, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl, useDebouncedValue } from '../hooks/index.ts'
 import PageHeader from '../components/PageHeader.tsx'
 import FilterSidebar from '../components/FilterSidebar.tsx'
 import { LogsHistogramChart } from '../components/LogsHistogramChart.tsx'
@@ -20,7 +20,8 @@ export default function Logs() {
     clearAll,
   } = useFilterState()
 
-  const predicate = compileFilterToQuery(filters)
+  const debouncedQuery = useDebouncedValue(filters.query, 300)
+  const predicate = compileFilterToQuery(filters, debouncedQuery)
   const [limit, setLimit] = useState('500')
   const [page, setPage] = useState(0)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
