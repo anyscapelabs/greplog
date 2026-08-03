@@ -42,7 +42,7 @@ export function buildLevelSection(rows: unknown[][], columns: string[]): FilterS
       color: LEVEL_COLORS[level] ?? undefined,
     }
   })
-  return { id: 'log_level', title: 'log_level', defaultOpen: true, items }
+  return { id: 'log_level', title: 'log_level', items }
 }
 
 export function buildServiceSection(rows: unknown[][], columns: string[]): FilterSectionConfig {
@@ -52,7 +52,7 @@ export function buildServiceSection(rows: unknown[][], columns: string[]): Filte
     const service = String(r[svcIdx] ?? '')
     return { id: service, label: service, count: Number(r[cntIdx] ?? 0) }
   })
-  return { id: 'service_name', title: 'service_name', defaultOpen: true, items }
+  return { id: 'service_name', title: 'service_name', items }
 }
 
 export function buildErrorTypeSection(rows: unknown[][], columns: string[]): FilterSectionConfig {
@@ -67,7 +67,7 @@ export function buildErrorTypeSection(rows: unknown[][], columns: string[]): Fil
       color: ERROR_TYPE_PALETTE[i % ERROR_TYPE_PALETTE.length],
     }
   })
-  return { id: 'error_type', title: 'error_type', defaultOpen: true, items }
+  return { id: 'error_type', title: 'error_type', items }
 }
 
 /**
@@ -103,6 +103,6 @@ export function buildStatusCodeSections(
     })
   return {
     statusCode: { id: 'status_code', title: 'status_code', items: codeItems },
-    responseStatus: { id: 'response_status', title: 'response_status', defaultOpen: true, items: responseItems },
+    responseStatus: { id: 'response_status', title: 'response_status', items: responseItems },
   }
 }

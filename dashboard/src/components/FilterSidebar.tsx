@@ -80,7 +80,7 @@ function FilterSection({
           {loading ? (
             <FilterSectionSkeleton />
           ) : visibleItems.length === 0 ? (
-            <div className="px-1 py-1 text-sm" style={{ color: 'var(--text-secondary)' }}>No data</div>
+            <div className="px-1 py-1 text-sm" style={{ color: 'var(--text-secondary)' }}>No Filters</div>
           ) : (
             <>
               {visibleItems.map((item) => (

@@ -210,7 +210,6 @@ export function useServices(timeRange?: string): ServicesPageProps {
     {
       id: 'health_status',
       title: 'health_status',
-      defaultOpen: true,
       items: HEALTH_META.map((h) => ({ id: h.id, label: h.label, count: healthCounts[h.id], color: h.color })),
     },
     {
