@@ -32,11 +32,17 @@ Service filtering is unified: sidebar checkboxes and `service:` chips both write
 Filter sidebar counts are real aggregation results, not placeholder numbers:
 `GROUP BY level`, `GROUP BY service`, per-status-code counts from HTTP logs
 (`json_get_str(attributes, 'http.status_code')`), `exception_type` counts
-(Errors), and per-service health counts (Services) — all respecting the active
-filter predicate. Builders live in `src/lib/filterSections.ts`; the Logs/Errors
-hooks run the count queries alongside the data queries, and Services derives
-its sections from the live health query. Counts update whenever the filtered
-result set changes.
+(Errors), and per-service health counts (Services). Builders live in
+`src/lib/filterSections.ts`; the Logs/Errors hooks run the count queries
+alongside the data queries, and Services derives its sections from the live
+health query.
+
+The facet counts are computed from the *base population* — search text, chips
+and the selected time range, with **every** sidebar selection excluded. This
+is deliberate: checking one filter never removes the other options in any
+section, so a user can stack multiple filters (e.g. check both `error` and
+`warn` levels, or several status buckets). The Logs/Errors hooks receive a
+`facetPredicate` compiled by the page for this purpose.
 
 ### Filter Sidebar
 
@@ -56,6 +62,8 @@ even when a dimension has no rows.
   current item list, a checked value survives even when its section temporarily
   has zero rows (e.g. narrowed away by another dimension) and is not silently
   dropped from the filter.
+- **Multiple filters stack:** facet counts exclude every sidebar selection, so
+  marking one filter leaves the others visible and selectable.
 - **Collapse state persists:** each section's open/closed state is saved to
   `localStorage` under `greplog:filterSidebar:open` and restored on load.
 - **Empty state:** a section with no rows keeps its header and shows a muted

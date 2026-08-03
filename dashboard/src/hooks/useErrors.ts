@@ -84,9 +84,9 @@ export function useErrors(whereClause?: string, facetPredicate?: string): Errors
       // with every facet selection excluded, so marking one filter never
       // removes the other options in any sidebar section.
       const facetWhere = errorScoped(facetPredicate ?? whereClause)
-      const facetBody = facetWhere.replace(/^WHERE\s+/i, '')
-      const errorTypeWhere = `WHERE ${BASE_ERROR_FILTER} AND exception_type IS NOT NULL AND (${facetBody})`
-      const statusWhere = `WHERE ${BASE_ERROR_FILTER} AND logger_name = 'greplog.http' AND (${facetBody})`
+      const facetBody = facetPredicate ? facetPredicate.replace(/^WHERE\s+/i, '') : ''
+      const errorTypeWhere = `WHERE ${BASE_ERROR_FILTER} AND exception_type IS NOT NULL${facetBody ? ` AND (${facetBody})` : ''}`
+      const statusWhere = `WHERE ${BASE_ERROR_FILTER} AND logger_name = 'greplog.http'${facetBody ? ` AND (${facetBody})` : ''}`
       const [result, countResult, countTimeseriesResult, totalResult, serviceResult, levelResult, errorTypeResult, httpStatusResult] = await Promise.all([
         postQuery(`${BASE_SQL} ${where} ORDER BY timestamp DESC LIMIT 1000`, { userInitiated }),
         postQuery(`SELECT count(*) AS total FROM logs ${where}`, { userInitiated }),
