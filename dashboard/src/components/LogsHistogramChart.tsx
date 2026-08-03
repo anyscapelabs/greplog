@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import ChartEmptyState from './ChartEmptyState.tsx'
@@ -15,6 +15,17 @@ import type { LogsHistogramChartProps } from '../types/index.ts'
 // Grafana's logs histogram), each level's own (non-cumulative) counts are
 // kept in `u.data` for tooltip/legend display, and the cumulative baseline
 // (y0) / top (y1) arrays are supplied as separate facets.
+//
+// The tooltip is updated imperatively (direct DOM writes from the `setCursor`
+// hook) rather than through React state. uPlot fires `setCursor` on every
+// mousemove tick; wiring that into `useState` would re-render this component
+// on every tick, which changes the identity of anything computed with
+// `useMemo`/inline objects and — because those values are dependencies of the
+// effect that builds the chart — re-triggers that effect, tearing down and
+// rebuilding the whole uPlot instance while the user is mid-hover. That was
+// the cause of the tooltip flicker/jitter: not a positioning bug, but a
+// render loop. Keeping the tooltip fully outside React state removes the
+// loop entirely.
 const LEVEL_META = {
   fatal: { rank: 0, label: 'Fatal', color: 'red' },
   critical: { rank: 1, label: 'Critical', color: 'red' },
@@ -34,11 +45,6 @@ type HistogramLevel = {
   label: string
   color: string
   counts: number[]
-}
-
-type HoverState = {
-  index: number
-  left: number
 }
 
 function fallbackLabel(level: string): string {
@@ -66,10 +72,51 @@ function labelStep(bucketCount: number, width: number): number {
 
 const AXIS_FONT = '11px Inter, ui-sans-serif, system-ui, sans-serif'
 
+function buildTooltipContent(bucketLabel: string, rows: { label: string; color: string; value: number }[]): DocumentFragment {
+  const frag = document.createDocumentFragment()
+
+  const heading = document.createElement('div')
+  heading.className = 'mb-2 font-medium'
+  heading.style.color = 'var(--text-secondary)'
+  heading.textContent = bucketLabel
+  frag.appendChild(heading)
+
+  const list = document.createElement('div')
+  list.className = 'flex flex-col gap-1'
+  for (const row of rows) {
+    const rowEl = document.createElement('div')
+    rowEl.className = 'flex items-center justify-between gap-4'
+
+    const left = document.createElement('div')
+    left.className = 'flex items-center gap-2'
+
+    const dot = document.createElement('span')
+    dot.className = 'inline-block h-2.5 w-2.5 rounded-sm'
+    dot.style.backgroundColor = row.color
+
+    const label = document.createElement('span')
+    label.textContent = row.label
+
+    left.appendChild(dot)
+    left.appendChild(label)
+
+    const value = document.createElement('span')
+    value.className = 'font-medium'
+    value.textContent = String(row.value)
+
+    rowEl.appendChild(left)
+    rowEl.appendChild(value)
+    list.appendChild(rowEl)
+  }
+  frag.appendChild(list)
+
+  return frag
+}
+
 export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
   const plotHostRef = useRef<HTMLDivElement>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
   const plotRef = useRef<uPlot | null>(null)
-  const [hover, setHover] = useState<HoverState | null>(null)
   const colors = useChartTheme()
 
   const orderedLevels = useMemo<HistogramLevel[]>(() => {
@@ -111,10 +158,15 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
 
   useEffect(() => {
     const host = plotHostRef.current
-    if (!host || !hasData) return
+    const tooltip = tooltipRef.current
+    if (!host || !tooltip || !hasData) return
 
     const bars = uPlot.paths!.bars!
     const xVals = data.buckets.map((_, index) => index)
+
+    const hideTooltip = () => {
+      tooltip.style.display = 'none'
+    }
 
     const drawPlot = () => {
       const width = host.clientWidth
@@ -122,6 +174,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
       if (width <= 0 || height <= 0) return
 
       plotRef.current?.destroy()
+      hideTooltip()
 
       const step = labelStep(data.buckets.length, width)
       const yMax = Math.max(1, totalsMax * 1.08)
@@ -137,6 +190,10 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
           lock: false,
           drag: { x: false, y: false },
           points: { show: false },
+          // Snap the cursor (and therefore the tooltip) to the center of the
+          // hovered bucket instead of tracking the raw mouse pixel. Without
+          // this, the tooltip content flips between adjacent buckets on
+          // sub-pixel mouse jitter near a bar edge.
           move: (u, mouseLeft, mouseTop) => [u.valToPos(u.posToIdx(mouseLeft), 'x'), mouseTop],
         },
         scales: {
@@ -196,18 +253,35 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
             (u) => {
               const left = u.cursor.left
               const idx = u.cursor.idx
-              if (left == null || left < 0 || left > u.bbox.width || idx == null) {
-                setHover((prev) => (prev === null ? prev : null))
+              const bucketLabel = idx != null ? data.buckets[idx] : undefined
+
+              if (left == null || left < 0 || idx == null || bucketLabel == null) {
+                hideTooltip()
                 return
               }
 
-              const bucketCenter = u.bbox.left + u.valToPos(idx, 'x')
-              const tooltipLeft = Math.min(Math.max(8, bucketCenter - 80), Math.max(8, width - 180))
+              const rows = orderedLevels
+                .map((series) => ({ label: series.label, color: series.color, value: series.counts[idx] ?? 0 }))
+                .filter((entry) => entry.value > 0)
 
-              setHover((prev) => {
-                if (prev && prev.index === idx && prev.left === tooltipLeft) return prev
-                return { index: idx, left: tooltipLeft }
-              })
+              if (rows.length === 0) {
+                hideTooltip()
+                return
+              }
+
+              tooltip.replaceChildren(buildTooltipContent(bucketLabel, rows))
+              tooltip.style.display = 'block'
+
+              const plotLeftOffsetCss = u.bbox.left / uPlot.pxRatio
+              const bucketCenter = plotLeftOffsetCss + left
+              const tooltipWidth = tooltip.offsetWidth || 176
+              const clampedLeft = Math.min(
+                Math.max(8, bucketCenter - tooltipWidth / 2),
+                Math.max(8, width - tooltipWidth - 8),
+              )
+
+              tooltip.style.left = `${clampedLeft}px`
+              tooltip.style.top = '10px'
             },
           ],
         },
@@ -223,11 +297,10 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
     })
     ro.observe(host)
 
-    const clearHover = () => setHover((prev) => (prev === null ? prev : null))
-    host.addEventListener('mouseleave', clearHover)
+    host.addEventListener('mouseleave', hideTooltip)
 
     return () => {
-      host.removeEventListener('mouseleave', clearHover)
+      host.removeEventListener('mouseleave', hideTooltip)
       ro.disconnect()
       plotRef.current?.destroy()
       plotRef.current = null
@@ -238,48 +311,23 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
     return <ChartEmptyState message="No logs in the selected time range." />
   }
 
-  const hoverBucket = hover ? data.buckets[hover.index] : null
-  const hoverValues = hover
-    ? orderedLevels
-        .map((series) => ({
-          label: series.label,
-          color: series.color,
-          value: series.counts[hover.index] ?? 0,
-        }))
-        .filter((entry) => entry.value > 0)
-    : []
-
   return (
-    <div className="relative flex h-full w-full min-h-0 flex-col overflow-hidden">
+    <div className="relative flex h-full w-full min-h-0 flex-col gap-[3px] overflow-hidden">
       <div className="relative min-h-0 flex-1">
         <div ref={plotHostRef} className="h-full w-full" />
-        {hover && hoverBucket && hoverValues.length > 0 && (
-          <div
-            className="pointer-events-none absolute z-10 min-w-44 rounded border px-3 py-2 text-xs shadow-lg"
-            style={{
-              left: hover.left,
-              top: 10,
-              backgroundColor: 'color-mix(in srgb, var(--bg-secondary) 92%, black)',
-              borderColor: 'var(--border-primary)',
-              color: 'var(--text-primary)',
-            }}
-          >
-            <div className="mb-2 font-medium" style={{ color: 'var(--text-secondary)' }}>{hoverBucket}</div>
-            <div className="flex flex-col gap-1">
-              {hoverValues.map((entry) => (
-                <div key={entry.label} className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: entry.color }} />
-                    <span>{entry.label}</span>
-                  </div>
-                  <span className="font-medium">{entry.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <div
+          ref={tooltipRef}
+          className="pointer-events-none absolute z-10 min-w-44 rounded border px-3 py-2 text-xs shadow-lg"
+          style={{
+            display: 'none',
+            top: 10,
+            backgroundColor: 'color-mix(in srgb, var(--bg-secondary) 92%, black)',
+            borderColor: 'var(--border-primary)',
+            color: 'var(--text-primary)',
+          }}
+        />
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 px-1.5 pt-0.5 pb-0 text-xs" style={{ color: 'var(--text-secondary)' }}>
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 px-1.5 pb-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
         {orderedLevels.map((series) => (
           <div key={series.level} className="flex items-center gap-1.5">
             <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: series.color }} />
