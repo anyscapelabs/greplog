@@ -207,10 +207,10 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
       const plotData = isAreaMode ? orderedLevels.map((_, k) => tops[k]) : orderedLevels.map((series) => series.counts)
 
       const seriesOpts: uPlot.Series[] = isAreaMode
-        ? orderedLevels.map((series) => ({
+        ? orderedLevels.map((series, k) => ({
             label: series.label,
             stroke: series.color,
-            fill: hexToRgba(series.color, AREA_FILL_ALPHA),
+            fill: k === 0 ? hexToRgba(series.color, AREA_FILL_ALPHA) : undefined,
             width: 1.5,
             points: { show: false },
             paths: linear(),
@@ -241,7 +241,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
       const opts: uPlot.Options = {
         width,
         height,
-        padding: [8, 6, 0, 0],
+        padding: [8, 20, 0, 20],
         legend: { show: false },
         cursor: {
           x: true,
@@ -289,7 +289,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
             grid: { stroke: colors.grid, width: 1 },
             ticks: { stroke: 'rgba(0,0,0,0)' },
             font: AXIS_FONT,
-            size: 40,
+            size: 55,
             gap: 4,
           },
         ],
@@ -377,7 +377,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
   }
 
   return (
-    <div className="relative flex h-full w-full min-h-0 flex-col gap-0.75 overflow-hidden">
+    <div className="relative flex h-full w-full min-h-0 flex-col gap-4 overflow-hidden">
       <div className="relative min-h-0 flex-1">
         <div ref={plotHostRef} className="h-full w-full" />
         <div
@@ -392,7 +392,7 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
           }}
         />
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 px-1.5 pb-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 px-1.5 pb-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
         {orderedLevels.map((series) => (
           <div key={series.level} className="flex items-center gap-1.5">
             <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: series.color }} />

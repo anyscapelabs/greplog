@@ -57,6 +57,73 @@ function formatBucketLabel(epochMs: number, granularity: LogsHistogramGranularit
   return `${hours}:${minutes}`
 }
 
+function formatBucketLabelWithRounding(epochMs: number, granularity: LogsHistogramGranularity): string {
+  const d = new Date(epochMs)
+  if (granularity === '12-hour') {
+    const hours = d.getUTCHours()
+    d.setUTCHours(hours < 12 ? 0 : 12, 0, 0, 0)
+  } else if (granularity === 'day') {
+    d.setUTCHours(0, 0, 0, 0)
+  }
+  return formatBucketLabel(d.getTime(), granularity)
+}
+
+function generateFullRangeBuckets(granularity: LogsHistogramGranularity, timeRange?: string): { buckets: string[]; labelToIdx: Map<string, number> } {
+  const buckets: string[] = []
+  const labelToIdx = new Map<string, number>()
+
+  if (!timeRange) return { buckets, labelToIdx }
+
+  const now = new Date()
+  let startMs = now.getTime()
+
+  if (timeRange === 'Last 30 days') {
+    startMs -= 30 * 24 * 60 * 60 * 1000
+  } else if (timeRange === 'Last 7 days') {
+    startMs -= 7 * 24 * 60 * 60 * 1000
+  } else if (timeRange === 'Last 24 hours') {
+    startMs -= 24 * 60 * 60 * 1000
+  } else if (timeRange === 'Last 6 hours') {
+    startMs -= 6 * 60 * 60 * 1000
+  } else if (timeRange === 'Last 1 hour') {
+    startMs -= 60 * 60 * 1000
+  } else {
+    startMs -= 15 * 60 * 1000
+  }
+
+  const startDate = new Date(startMs)
+  if (granularity === 'day') {
+    startDate.setUTCHours(0, 0, 0, 0)
+  } else if (granularity === '12-hour') {
+    const hours = startDate.getUTCHours()
+    startDate.setUTCHours(hours < 12 ? 0 : 12, 0, 0, 0)
+  } else if (granularity === 'hour') {
+    startDate.setUTCHours(startDate.getUTCHours(), 0, 0, 0)
+  } else {
+    startDate.setUTCMinutes(startDate.getUTCMinutes(), 0, 0)
+  }
+
+  const endMs = now.getTime()
+  const stepMs =
+    granularity === 'day'
+      ? 24 * 60 * 60 * 1000
+      : granularity === '12-hour'
+      ? 12 * 60 * 60 * 1000
+      : granularity === 'hour'
+      ? 60 * 60 * 1000
+      : 60 * 1000
+
+  for (let current = startDate.getTime(); current <= endMs; current += stepMs) {
+    const label = formatBucketLabelWithRounding(current, granularity)
+    if (!labelToIdx.has(label)) {
+      buckets.push(label)
+      labelToIdx.set(label, buckets.length - 1)
+    }
+  }
+
+  return { buckets, labelToIdx }
+}
+
 // For 12-hour granularity, we receive hourly data from the query and aggregate
 // pairs of hours (0-11 and 12-23) into two buckets per day.
 function aggregate12HourFromHourly(parsed: {
@@ -99,17 +166,11 @@ function aggregate12HourFromHourly(parsed: {
 
     // When we transition to a new period or day, save the aggregated bucket
     const isNewPeriod = currentDayKey !== dayKey || currentPeriod !== period
-    if (isNewPeriod && aggregatedBuckets.length > 0 && currentDayKey !== null) {
-      // We're moving to a new bucket, so finalize the previous one
-      aggregatedBuckets.push(bucketLabel)
-    }
 
     if (isNewPeriod) {
       currentDayKey = dayKey
       currentPeriod = period
-      if (aggregatedBuckets.length === 0) {
-        aggregatedBuckets.push(bucketLabel)
-      }
+      aggregatedBuckets.push(bucketLabel)
 
       // Reset counts for new aggregation
       for (const level of data.levels) {
@@ -117,7 +178,7 @@ function aggregate12HourFromHourly(parsed: {
           aggregatedCountsByLevel.set(level.level, [])
         }
         const counts = aggregatedCountsByLevel.get(level.level)!
-        if (counts.length < aggregatedBuckets.length) {
+        while (counts.length < aggregatedBuckets.length) {
           counts.push(0)
         }
       }
@@ -182,7 +243,7 @@ function fillFullDateRange(
   const filledOrder = new Map<string, number>()
 
   for (let current = new Date(firstDate); current <= lastDate; current = new Date(current.getTime() + stepMs)) {
-    const label = formatBucketLabel(current.getTime(), granularity)
+    const label = formatBucketLabelWithRounding(current.getTime(), granularity)
     if (!filledOrder.has(label)) {
       filledBuckets.push(label)
       filledOrder.set(label, filledBuckets.length - 1)
@@ -217,7 +278,12 @@ function fillFullDateRange(
   }
 }
 
-export function parseLogsHistogram(rows: unknown[][], columns: string[], granularity: LogsHistogramGranularity = 'minute'): LogsHistogramData {
+export function parseLogsHistogram(
+  rows: unknown[][],
+  columns: string[],
+  granularity: LogsHistogramGranularity = 'minute',
+  timeRange?: string,
+): LogsHistogramData {
   const bucketIdx = columns.indexOf('bucket')
   const levelIdx = columns.indexOf('level')
   const countIdx = columns.indexOf('cnt')
@@ -225,29 +291,83 @@ export function parseLogsHistogram(rows: unknown[][], columns: string[], granula
     return { buckets: [], levels: [], granularity }
   }
 
+  // Pre-generate buckets across the full range of timeRange if supplied
+  const { buckets: generatedBuckets, labelToIdx: generatedLabelToIdx } = generateFullRangeBuckets(granularity, timeRange)
+  const hasPreGenerated = generatedBuckets.length > 0
+
+  // Find all levels present in rows
+  const uniqueLevels = new Set<string>()
+  for (const row of rows) {
+    const level = String(row[levelIdx] ?? '').trim().toLowerCase()
+    if (level) uniqueLevels.add(level)
+  }
+
+  // Ensure standard levels are present if we have no logs
+  if (uniqueLevels.size === 0) {
+    const defaultLevels = ['info', 'warn', 'error', 'debug']
+    for (const dl of defaultLevels) {
+      uniqueLevels.add(dl)
+    }
+  }
+
   const order: number[] = []
   const bucketIndexOf = new Map<number, number>()
   const levelCells = new Map<string, Map<number, number>>()
 
+  if (hasPreGenerated) {
+    for (const level of uniqueLevels) {
+      levelCells.set(level, new Map())
+    }
+  }
+
   for (const row of rows) {
     const bucketMs = parseBucketEpochMs(row[bucketIdx])
-    const level = String(row[levelIdx] ?? '').trim()
+    const level = String(row[levelIdx] ?? '').trim().toLowerCase()
     const count = Number(row[countIdx] ?? 0)
     if (bucketMs === null || !level || !Number.isFinite(count) || count < 0) continue
 
-    let bucketIndex = bucketIndexOf.get(bucketMs)
-    if (bucketIndex === undefined) {
-      bucketIndex = order.length
-      bucketIndexOf.set(bucketMs, bucketIndex)
-      order.push(bucketMs)
-    }
+    if (hasPreGenerated) {
+      const label = formatBucketLabelWithRounding(bucketMs, granularity)
+      const bucketIdx = generatedLabelToIdx.get(label)
+      if (bucketIdx !== undefined) {
+        let cells = levelCells.get(level)
+        if (!cells) {
+          cells = new Map()
+          levelCells.set(level, cells)
+        }
+        cells.set(bucketIdx, (cells.get(bucketIdx) ?? 0) + count)
+      }
+    } else {
+      let bucketIndex = bucketIndexOf.get(bucketMs)
+      if (bucketIndex === undefined) {
+        bucketIndex = order.length
+        bucketIndexOf.set(bucketMs, bucketIndex)
+        order.push(bucketMs)
+      }
 
-    let cells = levelCells.get(level)
-    if (cells === undefined) {
-      cells = new Map()
-      levelCells.set(level, cells)
+      let cells = levelCells.get(level)
+      if (!cells) {
+        cells = new Map()
+        levelCells.set(level, cells)
+      }
+      cells.set(bucketIndex, (cells.get(bucketIndex) ?? 0) + count)
     }
-    cells.set(bucketIndex, (cells.get(bucketIndex) ?? 0) + count)
+  }
+
+  if (hasPreGenerated) {
+    const levels = Array.from(levelCells.entries()).map(([level, cells]) => {
+      const counts = new Array(generatedBuckets.length).fill(0)
+      for (const [bucketIndex, count] of cells) {
+        counts[bucketIndex] = count
+      }
+      return { level, counts }
+    })
+
+    return {
+      buckets: generatedBuckets,
+      levels,
+      granularity,
+    }
   }
 
   const levels = Array.from(levelCells.entries()).map(([level, cells]) => {
@@ -258,19 +378,15 @@ export function parseLogsHistogram(rows: unknown[][], columns: string[], granula
     return { level, counts }
   })
 
-  // Format buckets with the appropriate granularity label
-  // For 12-hour, we'll first format as hourly, then aggregate
   let parsed = {
     buckets: order.map((epochMs) => formatBucketLabel(epochMs, granularity === '12-hour' ? 'hour' : granularity)),
     levels,
   }
 
-  // For 12-hour granularity, aggregate hourly data into 12-hour chunks
   if (granularity === '12-hour') {
     parsed = aggregate12HourFromHourly(parsed)
   }
 
-  // Fill missing dates across the full range for multi-day granularities
   const filled = fillFullDateRange(parsed, granularity)
 
   return {

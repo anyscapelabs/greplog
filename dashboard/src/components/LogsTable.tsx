@@ -1,19 +1,7 @@
 import { useState, useMemo } from 'react'
-import { LuChevronDown, LuChevronUp, LuCircleCheck, LuDownload, LuChevronLeft, LuChevronRight } from 'react-icons/lu'
+import { LuCircleCheck, LuDownload, LuChevronLeft, LuChevronRight, LuArrowUpDown } from 'react-icons/lu'
 import Dropdown from './Dropdown.tsx'
 import type { LogEntry } from '../types/index.ts'
-
-const columns = [
-  { key: 'timestamp', label: 'timestamp', width: 'w-[180px]' },
-  { key: 'level', label: 'level', width: 'w-[100px]' },
-  { key: 'service', label: 'service_name', width: 'w-[150px]' },
-  { key: 'statusCode', label: 'status_code', width: 'w-[130px]' },
-  { key: 'message', label: 'message', width: 'w-[360px]' },
-  { key: 'response', label: 'response', width: 'w-[130px]' },
-  { key: 'logger', label: 'logger_name', width: 'w-[150px]' },
-  { key: 'correlationId', label: 'correlation_id', width: 'w-[150px]' },
-  { key: 'file', label: 'file', width: 'w-[180px]' },
-]
 
 interface LogsTableProps {
   data: LogEntry[]
@@ -24,14 +12,57 @@ interface LogsTableProps {
   onView?: (row: LogEntry) => void
 }
 
+function getLevelColors(level: string) {
+  const normalized = level.toLowerCase()
+  if (normalized === 'error' || normalized === 'critical' || normalized === 'fatal') {
+    return {
+      border: '#ef4444',
+      bg: 'rgba(239, 68, 68, 0.12)',
+      text: '#ef4444',
+    }
+  }
+  if (normalized === 'warn' || normalized === 'warning') {
+    return {
+      border: '#f59e0b',
+      bg: 'rgba(245, 158, 11, 0.12)',
+      text: '#fbbf24',
+    }
+  }
+  if (normalized === 'info') {
+    return {
+      border: '#10b981',
+      bg: 'rgba(16, 185, 129, 0.12)',
+      text: '#34d399',
+    }
+  }
+  if (normalized === 'debug') {
+    return {
+      border: '#3b82f6',
+      bg: 'rgba(59, 130, 246, 0.12)',
+      text: '#60a5fa',
+    }
+  }
+  return {
+    border: '#9ca3af',
+    bg: 'rgba(156, 163, 175, 0.12)',
+    text: '#9ca3af',
+  }
+}
+
+function getStatusColor(code: number): string {
+  if (code >= 500) return '#ef4444'
+  if (code >= 400) return '#f59e0b'
+  if (code >= 300) return '#3b82f6'
+  return '#10b981'
+}
+
 export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: totalLogsProp, querySeconds: secondsProp, filteredServices, onView }: LogsTableProps) {
   const totalRows = totalRowsProp ?? data.length
   const totalLogs = totalLogsProp ?? data.length
   const seconds = secondsProp ?? 0.3
   const limits = ['500', '1k', '5k', '10k']
   const [limit, setLimit] = useState('500')
-  const [sortColumn, setSortColumn] = useState<string | null>(null)
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [page, setPage] = useState(0)
 
   const filtered = filteredServices
@@ -39,75 +70,102 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
     : data
 
   const sortedData = useMemo(() => {
-    if (!sortColumn) return filtered
     return [...filtered].sort((a, b) => {
-      const aVal = a[sortColumn as keyof typeof a]
-      const bVal = b[sortColumn as keyof typeof b]
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal
-      }
-      const aStr = String(aVal)
-      const bStr = String(bVal)
-      if (aStr < bStr) return sortDirection === 'asc' ? -1 : 1
-      if (aStr > bStr) return sortDirection === 'asc' ? 1 : -1
+      const aVal = a.timestamp
+      const bVal = b.timestamp
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1
       return 0
     })
-  }, [filtered, sortColumn, sortDirection])
+  }, [filtered, sortDirection])
 
-  const parsedLimit = limit === 'All' ? sortedData.length : parseInt(limit.replace('k', '000'))
+  const parsedLimit = limit === 'All' ? sortedData.length : parseInt(limit.replace('k', '000'), 10)
   const displayData = useMemo(() => sortedData.slice(0, parsedLimit), [sortedData, parsedLimit])
 
-  const pageSize = limit === 'All' ? Math.max(displayData.length, 1) : parseInt(limit.replace('k', '000'))
+  const pageSize = limit === 'All' ? Math.max(displayData.length, 1) : parseInt(limit.replace('k', '000'), 10)
   const totalPages = Math.ceil(displayData.length / pageSize)
   const currentPage = Math.min(page, Math.max(totalPages - 1, 0))
   const pageData = useMemo(() => displayData.slice(currentPage * pageSize, (currentPage + 1) * pageSize), [displayData, currentPage, pageSize])
 
   const bodyRows = useMemo(() => pageData.map((row) => {
-    const levelColor = row.level === 'error' ? 'var(--error)' : row.level === 'warn' ? 'var(--warn)' : row.level === 'info' ? 'var(--info)' : 'var(--text-secondary)'
-    const statusColor = row.statusCode >= 500 ? 'var(--error)' : row.statusCode >= 400 ? 'var(--warn)' : row.statusCode >= 300 ? 'var(--info)' : 'var(--success)'
+    const levelColors = getLevelColors(row.level)
+    const statusColor = getStatusColor(row.statusCode)
     return (
       <div
         key={row.id}
-        className="flex items-center border-b text-sm hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono h-9"
+        className="group relative flex items-start gap-4 py-2 pl-4 pr-3 border-b text-xs hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono cursor-pointer"
         style={{ borderColor: 'var(--border-primary)' }}
+        onClick={() => onView?.(row)}
       >
-        <div className="w-[60px] shrink-0 h-full border-r border-l flex items-center justify-center" style={{ borderColor: 'var(--border-primary)' }}>
-            <button className="text-sm text-[var(--accent)] hover:text-[var(--accent)] transition-colors cursor-pointer" onClick={() => onView?.(row)}>View</button>
+        {/* Level Stripe Indicator */}
+        <div
+          className="absolute left-0 top-0 bottom-0 w-[4px]"
+          style={{ backgroundColor: levelColors.border }}
+        />
+
+        {/* View Action Indicator on Hover */}
+        <div className="flex items-center gap-3 shrink-0 select-none text-text-secondary">
+          <span className="text-[var(--accent)] hover:underline font-semibold cursor-pointer whitespace-nowrap">
+            View
+          </span>
+          {/* Timestamp */}
+          <span className="text-text-secondary select-all font-light whitespace-nowrap">
+            {row.timestamp}
+          </span>
         </div>
-        <div className="w-[180px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.timestamp}</div>
-        <div className="w-[100px] shrink-0 px-3 font-medium truncate border-r h-full flex items-center" style={{ color: levelColor, borderColor: 'var(--border-primary)' }}>{row.level}</div>
-        <div className="w-[150px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.service}</div>
-        <div className="w-[130px] shrink-0 px-3 font-medium border-r h-full flex items-center" style={{ color: statusColor, borderColor: 'var(--border-primary)' }}>{row.statusCode}</div>
-        <div className="w-[360px] shrink-0 px-3 text-text-primary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.message}</div>
-        <div className="w-[130px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.response}</div>
-        <div className="w-[150px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.logger}</div>
-        <div className="w-[150px] shrink-0 px-3 text-text-secondary truncate border-r h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.correlationId}</div>
-        <div className="w-[180px] shrink-0 px-3 text-text-secondary truncate h-full flex items-center" style={{ borderColor: 'var(--border-primary)' }}>{row.file}</div>
+
+        {/* Level Badge */}
+        <div
+          className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase shrink-0 text-center tracking-wider min-w-[54px]"
+          style={{
+            backgroundColor: levelColors.bg,
+            color: levelColors.text,
+          }}
+        >
+          {row.level}
+        </div>
+
+        {/* Service Pill */}
+        {row.service && (
+          <div
+            className="px-1.5 py-0.5 rounded text-[10px] bg-bg-primary border shrink-0 text-text-secondary font-medium"
+            style={{ borderColor: 'var(--border-primary)' }}
+          >
+            <span className="opacity-50 mr-1">service:</span>
+            {row.service}
+          </div>
+        )}
+
+        {/* Status Code Pill */}
+        {row.statusCode > 0 && (
+          <div
+            className="px-1.5 py-0.5 rounded text-[10px] border shrink-0 font-bold"
+            style={{
+              borderColor: statusColor,
+              color: statusColor,
+              backgroundColor: `${statusColor}14`, // Add ~8% transparency
+            }}
+          >
+            {row.statusCode}
+          </div>
+        )}
+
+        {/* Message */}
+        <div className="flex-1 min-w-0 text-text-primary break-all select-all font-normal whitespace-pre-wrap leading-relaxed">
+          {row.message}
+        </div>
       </div>
     )
   }), [pageData, onView])
 
-
-
-  function handleSort(column: string) {
-    if (sortColumn !== column) {
-      setSortColumn(column)
-      setSortDirection('asc')
-      setPage(0)
-    } else if (sortDirection === 'asc') {
-      setSortDirection('desc')
-      setPage(0)
-    } else {
-      setSortColumn(null)
-      setSortDirection('asc')
-      setPage(0)
-    }
-  }
-
   function exportToCSV() {
-    const headers = columns.map(c => c.label)
+    const columnsToExport = ['timestamp', 'level', 'service', 'statusCode', 'message']
+    const headers = ['timestamp', 'level', 'service_name', 'status_code', 'message']
     const rows = displayData.map(row =>
-      columns.map(c => String(row[c.key as keyof typeof row] ?? '')).join(',')
+      columnsToExport.map(key => {
+        const val = row[key as keyof typeof row] ?? ''
+        return `"${String(val).replace(/"/g, '""')}"`
+      }).join(',')
     )
     const csv = [headers.join(','), ...rows].join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
@@ -122,6 +180,7 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
   return (
     <div className="flex-1 min-h-0 min-w-0 overflow-hidden px-2 pt-1.5 pb-2">
       <div className="h-full w-full border flex flex-col min-w-0 overflow-hidden" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-primary)' }}>
+        {/* Toolbar */}
         <div className="flex items-center border-b shrink-0 z-10" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-secondary)' }}>
           <div className="flex items-center gap-2 px-3 py-1.5 flex-1">
             <LuCircleCheck className="size-4 text-success" />
@@ -129,7 +188,27 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
               {totalRows.toLocaleString()} of {totalLogs.toLocaleString()} Rows in {seconds}s
             </span>
           </div>
+
           <div className="h-4 w-px shrink-0" style={{ backgroundColor: 'var(--border-primary)' }} />
+
+          {/* Sort Button */}
+          <div className="px-3 py-1.5 shrink-0">
+            <button
+              onClick={() => setSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+              className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-secondary rounded hover:bg-[var(--hover-bg)] transition-colors border"
+              style={{ borderColor: 'var(--border-primary)' }}
+            >
+              <LuArrowUpDown className="size-3.5" />
+              <span>Time:</span>
+              <span className="font-semibold text-text-primary">
+                {sortDirection === 'desc' ? 'Newest' : 'Oldest'}
+              </span>
+            </button>
+          </div>
+
+          <div className="h-4 w-px shrink-0" style={{ backgroundColor: 'var(--border-primary)' }} />
+
+          {/* Limit selector */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 w-[130px] shrink-0">
             <span className="text-sm text-text-secondary">Limit:</span>
             <Dropdown
@@ -143,14 +222,20 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
               minWidth="min-w-20"
             />
           </div>
+
           <div className="h-4 w-px shrink-0" style={{ backgroundColor: 'var(--border-primary)' }} />
+
+          {/* Export Button */}
           <div className="px-3 py-1.5 shrink-0">
             <button onClick={exportToCSV} className="flex items-center gap-1.5 px-2 py-1 text-sm text-text-secondary rounded hover:bg-[var(--hover-bg)] transition-colors">
               <LuDownload className="size-3.5" />
               Export
             </button>
           </div>
+
           <div className="h-4 w-px shrink-0" style={{ backgroundColor: 'var(--border-primary)' }} />
+
+          {/* Pagination */}
           <div className="px-3 py-1.5 shrink-0 flex items-center gap-1.5">
             <button
               className="flex items-center justify-center size-7 rounded hover:bg-[var(--hover-bg)] transition-colors disabled:opacity-30"
@@ -171,34 +256,18 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
             </button>
           </div>
         </div>
+
+        {/* Log List View */}
         <div className="flex-1 overflow-auto min-h-0 relative">
-          <div className="min-w-fit flex flex-col">
-            <div className="flex items-center h-9 border-b text-sm font-medium shrink-0 sticky top-0 z-10" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'color-mix(in srgb, var(--bg-primary) 40%, var(--bg-secondary))' }}>
-            <div className="w-[60px] shrink-0 h-full border-r border-l" style={{ borderColor: 'var(--border-primary)' }}></div>
-            {columns.map((col, i) => {
-              const isLast = i === columns.length - 1
-              const isActive = sortColumn === col.key
-              return (
-                <button
-                  key={col.key}
-                  className={`flex items-center gap-2 ${col.width} shrink-0 px-4 h-full hover:bg-[var(--hover-bg)] transition-colors cursor-pointer ${!isLast ? 'border-r' : ''}`}
-                  style={{ borderColor: 'var(--border-primary)' }}
-                  onClick={() => handleSort(col.key)}
-                >
-                  <span className="text-text-primary">{col.label}</span>
-                    <span className="ml-1 flex items-center">
-                    {isActive && sortDirection === 'asc' ? (
-                      <LuChevronUp className="size-3" style={{ color: 'var(--text-secondary)' }} />
-                    ) : (
-                      <LuChevronDown className="size-3" style={{ color: isActive ? 'var(--text-secondary)' : 'var(--border-primary)' }} />
-                    )}
-                  </span>
-                </button>
-              )
-            })}
+          <div className="flex flex-col min-w-0">
+            {bodyRows.length > 0 ? (
+              bodyRows
+            ) : (
+              <div className="text-center text-text-secondary py-8 text-sm">
+                No logs matching current filters found.
+              </div>
+            )}
           </div>
-          {bodyRows}
-        </div>
         </div>
       </div>
     </div>

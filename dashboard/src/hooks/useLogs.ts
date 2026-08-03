@@ -129,7 +129,7 @@ export function useLogs(whereClause?: string, timeRange?: string): LogsPageProps
       // into one counts array per level aligned to bucket order. Fill missing
       // (bucket, level) combinations with zero counts.
       const parsed = histogramResult
-        ? parseLogsHistogram(histogramResult.rows, histogramResult.columns, granularity)
+        ? parseLogsHistogram(histogramResult.rows, histogramResult.columns, granularity, timeRange)
         : { buckets: [], levels: [], granularity }
       const logsHistogram = fillMissingHistogramBuckets(parsed)
 
