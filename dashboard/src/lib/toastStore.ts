@@ -48,7 +48,7 @@ export interface ToastStore {
   dismiss: (id: string) => void
 }
 
-type TimerId = number | ReturnType<typeof globalThis.setTimeout>
+type TimerId = number
 
 export interface ToastStoreDeps {
   now?: () => number
@@ -67,8 +67,8 @@ interface KeyState {
 
 export function createToastStore(deps: ToastStoreDeps = {}): ToastStore {
   const now = deps.now ?? Date.now
-  const schedule = deps.schedule ?? ((fn: () => void, ms: number) => globalThis.setTimeout(fn, ms))
-  const cancel = deps.cancel ?? ((timerId: number) => globalThis.clearTimeout(timerId))
+  const schedule = deps.schedule ?? ((fn: () => void, ms: number) => globalThis.setTimeout(fn, ms) as unknown as number)
+  const cancel = deps.cancel ?? ((timerId: number) => globalThis.clearTimeout(timerId as unknown as ReturnType<typeof globalThis.setTimeout>))
 
   let toasts: Toast[] = []
   let nextId = 0
