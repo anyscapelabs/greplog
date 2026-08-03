@@ -1,0 +1,168 @@
+[2m2026-08-03T11:16:55.060312Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m Avg serialized event size: 74 bytes, batch size: 738 bytes
+[2m2026-08-03T11:16:55.061107Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 16] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061124Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 7] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061124Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 13] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061131Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 10] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061146Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 17] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061159Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 8] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061145Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 2] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061169Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 11] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061173Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 9] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061163Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 18] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061183Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 15] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061185Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 14] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061196Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 12] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061235Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 27] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061242Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 28] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061253Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 30] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061259Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 26] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061269Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 31] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061272Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 29] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061199Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 25] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061285Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 23] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061287Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 22] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061317Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 19] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061332Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 24] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061203Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 0] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061351Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 1] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061298Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 20] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061359Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 5] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061368Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 3] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061375Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 6] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061375Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 21] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:16:55.061387Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 4] step 1/2: configured 5000/s (50000 ev/s)
+[2m2026-08-03T11:17:00.060990Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:05.061532Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:10.061889Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:15.063604Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:20.061531Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:25.064426Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:25.064477Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 5] step 1 done: accepted=81460, rejected=0, lost_batches=0, actual=2715 ev/s (271.5 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064494Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 5] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064518Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 20] step 1 done: accepted=81290, rejected=0, lost_batches=0, actual=2709 ev/s (270.9 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064526Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 20] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064544Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 0] step 1 done: accepted=81470, rejected=0, lost_batches=0, actual=2715 ev/s (271.5 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064552Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 0] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064570Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 30] step 1 done: accepted=81300, rejected=0, lost_batches=0, actual=2710 ev/s (271.0 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064579Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 30] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064597Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 8] step 1 done: accepted=81420, rejected=0, lost_batches=0, actual=2714 ev/s (271.4 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064606Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 8] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064626Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 24] step 1 done: accepted=81280, rejected=0, lost_batches=0, actual=2709 ev/s (270.9 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064634Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 24] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064652Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 11] step 1 done: accepted=80790, rejected=0, lost_batches=0, actual=2693 ev/s (269.3 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064660Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 11] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064688Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 23] step 1 done: accepted=80910, rejected=0, lost_batches=0, actual=2697 ev/s (269.7 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064702Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 23] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064724Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 14] step 1 done: accepted=81010, rejected=0, lost_batches=0, actual=2700 ev/s (270.0 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064732Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 14] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064748Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 28] step 1 done: accepted=80750, rejected=0, lost_batches=0, actual=2691 ev/s (269.1 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064756Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 28] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064772Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 26] step 1 done: accepted=81110, rejected=0, lost_batches=0, actual=2703 ev/s (270.3 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064780Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 26] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064798Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 27] step 1 done: accepted=80920, rejected=0, lost_batches=0, actual=2697 ev/s (269.7 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064806Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 27] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064825Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 13] step 1 done: accepted=81170, rejected=0, lost_batches=0, actual=2705 ev/s (270.5 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064832Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 13] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064855Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 19] step 1 done: accepted=81370, rejected=0, lost_batches=0, actual=2712 ev/s (271.2 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064863Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 19] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064879Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 10] step 1 done: accepted=80900, rejected=0, lost_batches=0, actual=2696 ev/s (269.6 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064888Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 10] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064904Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 25] step 1 done: accepted=80730, rejected=0, lost_batches=0, actual=2691 ev/s (269.1 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064912Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 25] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064928Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 2] step 1 done: accepted=80990, rejected=0, lost_batches=0, actual=2699 ev/s (269.9 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064939Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 2] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064961Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 31] step 1 done: accepted=81620, rejected=0, lost_batches=0, actual=2720 ev/s (272.0 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064970Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 31] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.064988Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 15] step 1 done: accepted=81070, rejected=0, lost_batches=0, actual=2702 ev/s (270.2 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.064996Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 15] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065012Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 17] step 1 done: accepted=80670, rejected=0, lost_batches=0, actual=2689 ev/s (268.9 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065021Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 17] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065036Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 12] step 1 done: accepted=81260, rejected=0, lost_batches=0, actual=2708 ev/s (270.8 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065046Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 12] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065066Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 18] step 1 done: accepted=81070, rejected=0, lost_batches=0, actual=2702 ev/s (270.2 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065074Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 18] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065091Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 1] step 1 done: accepted=81750, rejected=0, lost_batches=0, actual=2725 ev/s (272.5 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065099Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 1] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065117Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 21] step 1 done: accepted=81330, rejected=0, lost_batches=0, actual=2711 ev/s (271.1 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065125Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 21] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065153Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 29] step 1 done: accepted=81040, rejected=0, lost_batches=0, actual=2701 ev/s (270.1 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065166Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 29] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065186Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 3] step 1 done: accepted=80490, rejected=0, lost_batches=0, actual=2683 ev/s (268.3 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065195Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 3] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065212Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 22] step 1 done: accepted=80010, rejected=0, lost_batches=0, actual=2667 ev/s (266.7 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065220Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 22] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065256Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 7] step 1 done: accepted=81250, rejected=0, lost_batches=0, actual=2708 ev/s (270.8 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065268Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 7] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065291Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 16] step 1 done: accepted=81470, rejected=0, lost_batches=0, actual=2715 ev/s (271.5 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065297Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 16] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065298Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 9] step 1 done: accepted=79970, rejected=0, lost_batches=0, actual=2665 ev/s (266.5 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065309Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 6] step 1 done: accepted=81620, rejected=0, lost_batches=0, actual=2720 ev/s (272.0 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065318Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 6] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065318Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 9] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:25.065334Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 4] step 1 done: accepted=82210, rejected=0, lost_batches=0, actual=2740 ev/s (274.0 batches/s), target=50000/s, wall=30.00s
+[2m2026-08-03T11:17:25.065339Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 4] step 2/2: configured 10000/s (100000 ev/s)
+[2m2026-08-03T11:17:30.061185Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:35.063886Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:40.061428Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:45.061048Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:50.061068Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:55.061433Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:17:55.064890Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 23] step 2 done: accepted=81270, rejected=0, lost_batches=0, actual=2709 ev/s (270.9 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.065132Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 26] step 2 done: accepted=81090, rejected=0, lost_batches=0, actual=2703 ev/s (270.3 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.065176Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 2] step 2 done: accepted=81980, rejected=0, lost_batches=0, actual=2733 ev/s (273.3 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.065214Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 15] step 2 done: accepted=79930, rejected=0, lost_batches=0, actual=2664 ev/s (266.4 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.065271Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 28] step 2 done: accepted=80820, rejected=0, lost_batches=0, actual=2694 ev/s (269.4 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.065284Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 13] step 2 done: accepted=81290, rejected=0, lost_batches=0, actual=2710 ev/s (271.0 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.065308Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 14] step 2 done: accepted=81020, rejected=0, lost_batches=0, actual=2701 ev/s (270.1 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.065324Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 8] step 2 done: accepted=80960, rejected=0, lost_batches=0, actual=2699 ev/s (269.9 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.065342Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 3] step 2 done: accepted=81000, rejected=0, lost_batches=0, actual=2700 ev/s (270.0 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.065364Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 31] step 2 done: accepted=81870, rejected=0, lost_batches=0, actual=2729 ev/s (272.9 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.065690Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 21] step 2 done: accepted=81670, rejected=0, lost_batches=0, actual=2722 ev/s (272.2 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066272Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 5] step 2 done: accepted=80750, rejected=0, lost_batches=0, actual=2692 ev/s (269.2 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066275Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 11] step 2 done: accepted=80900, rejected=0, lost_batches=0, actual=2697 ev/s (269.7 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066405Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 20] step 2 done: accepted=81020, rejected=0, lost_batches=0, actual=2700 ev/s (270.0 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066246Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 27] step 2 done: accepted=80500, rejected=0, lost_batches=0, actual=2683 ev/s (268.3 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066653Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 25] step 2 done: accepted=80780, rejected=0, lost_batches=0, actual=2693 ev/s (269.3 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066700Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 17] step 2 done: accepted=81400, rejected=0, lost_batches=0, actual=2713 ev/s (271.3 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066733Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 0] step 2 done: accepted=81180, rejected=0, lost_batches=0, actual=2706 ev/s (270.6 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066786Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 22] step 2 done: accepted=81260, rejected=0, lost_batches=0, actual=2709 ev/s (270.9 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066822Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 10] step 2 done: accepted=81860, rejected=0, lost_batches=0, actual=2728 ev/s (272.8 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066860Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 18] step 2 done: accepted=80800, rejected=0, lost_batches=0, actual=2693 ev/s (269.3 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066895Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 4] step 2 done: accepted=80170, rejected=0, lost_batches=0, actual=2672 ev/s (267.2 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066938Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 16] step 2 done: accepted=81460, rejected=0, lost_batches=0, actual=2715 ev/s (271.5 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.066974Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 19] step 2 done: accepted=80730, rejected=0, lost_batches=0, actual=2691 ev/s (269.1 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.067003Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 6] step 2 done: accepted=81540, rejected=0, lost_batches=0, actual=2718 ev/s (271.8 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.067041Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 7] step 2 done: accepted=81140, rejected=0, lost_batches=0, actual=2705 ev/s (270.5 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.067076Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 29] step 2 done: accepted=80520, rejected=0, lost_batches=0, actual=2684 ev/s (268.4 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.067108Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 9] step 2 done: accepted=80640, rejected=0, lost_batches=0, actual=2688 ev/s (268.8 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.067140Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 12] step 2 done: accepted=80250, rejected=0, lost_batches=0, actual=2675 ev/s (267.5 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.067207Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 24] step 2 done: accepted=81460, rejected=0, lost_batches=0, actual=2715 ev/s (271.5 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.067382Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 1] step 2 done: accepted=81360, rejected=0, lost_batches=0, actual=2712 ev/s (271.2 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:17:55.067477Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m [producer 30] step 2 done: accepted=81260, rejected=0, lost_batches=0, actual=2708 ev/s (270.8 batches/s), target=100000/s, wall=30.00s
+[2m2026-08-03T11:18:00.061614Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:18:05.060925Z[0m [33m WARN[0m [2mbench_throughput[0m[2m:[0m status fetch err: error sending request for url (http://127.0.0.1:0/status)
+[2m2026-08-03T11:18:05.061008Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m 
+[2m2026-08-03T11:18:05.061021Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m ======================================================================
+[2m2026-08-03T11:18:05.061032Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m   CORRECTED THROUGHPUT (measured from IngestResponse acks over wall time)
+[2m2026-08-03T11:18:05.061042Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m ======================================================================
+[2m2026-08-03T11:18:05.061053Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m 
+[2m2026-08-03T11:18:05.061061Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m Configuration: 32 producer(s), 10 ev/batch, 2 steps x 30s each
+[2m2026-08-03T11:18:05.061072Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m Avg serialized event size: 74 bytes
+[2m2026-08-03T11:18:05.061086Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m 
+[2m2026-08-03T11:18:05.061096Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m   Step 1: target=50000/s, actual=86511 ev/s (wall 30.00s)
+[2m2026-08-03T11:18:05.061109Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m     accepted=2595700, rejected=0, batches_attempted=259570, lost_batches=0
+[2m2026-08-03T11:18:05.061122Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m     actual batch rate: 8651 batches/s total
+[2m2026-08-03T11:18:05.061132Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m     implied durable write rate: 6.1 MiB/s (6384537 bytes/s)
+[2m2026-08-03T11:18:05.061144Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m 
+[2m2026-08-03T11:18:05.061152Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m   Step 2: target=100000/s, actual=86454 ev/s (wall 30.00s)
+[2m2026-08-03T11:18:05.061193Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m     accepted=2593880, rejected=0, batches_attempted=259388, lost_batches=0
+[2m2026-08-03T11:18:05.061205Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m     actual batch rate: 8645 batches/s total
+[2m2026-08-03T11:18:05.061214Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m     implied durable write rate: 6.1 MiB/s (6380330 bytes/s)
+[2m2026-08-03T11:18:05.061245Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m 
+[2m2026-08-03T11:18:05.061256Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m --- CEILING ANALYSIS ---
+[2m2026-08-03T11:18:05.061264Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m   Last-step actual throughput: 86454 ev/s (accepted 2593880)
+[2m2026-08-03T11:18:05.061276Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m   No rejections and no lost batches at max tested rate — true ceiling not yet reached
+[2m2026-08-03T11:18:05.061289Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m 
+[2m2026-08-03T11:18:05.061296Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m NOTE: All throughput numbers above are computed from actual
+[2m2026-08-03T11:18:05.061307Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m IngestResponse round-trip acknowledgments divided by real
+[2m2026-08-03T11:18:05.061316Z[0m [32m INFO[0m [2mbench_throughput[0m[2m:[0m wall-clock elapsed time — NOT from the configured/requested send rate.
