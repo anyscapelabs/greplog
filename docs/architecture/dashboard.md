@@ -17,6 +17,11 @@ A prominent toggle to view all services or isolate a specific one, compiled into
 
 Filter state is synced to URL search params (`?q=`, `?c=`, `?s=`, `?t=`, `?l=`, `?ch=`) via `useFilterState()`, a React hook around `useSearchParams`. The `compileFilterToQuery()` function translates the current filter state into a SQL WHERE clause sent to the agent's `POST /query` endpoint.
 
+- **Live search:** the search box text is applied as the user types — debounced at 300 ms via `useDebouncedValue()`, then compiled through the same chip path (`compileFilterToQuery(filters, liveQuery)`) so the histogram and log table narrow without waiting for Enter. Text that is identical to a committed chip is applied once, not twice.
+- **Enter behavior:** pressing Enter commits the text as a removable chip (pinned in the URL as `?c=`) and leaves the typed text in the box. It no longer clears the input.
+- **Plain-text search matches level too:** a bare search term (no `prefix:`) compiles to `(message LIKE '%term%' OR level = 'term')`, so searching `error` finds both messages containing "error" and logs at the `error` level.
+- **Server-side pagination:** the Logs table is paginated on the server via `LIMIT`/`OFFSET` (per-page 500 / 1k / 5k / 10k); the page resets to 0 when the filter state changes, and `keepPreviousData` keeps the prior page visible while the next one loads.
+
 - **Logs page**: Search + sidebar filters + time range → `useLogs(whereClause)`
 - **Errors page**: Error-level base filter + user filters → `useErrors(whereClause)`
 - **Services page**: Sidebar service checkboxes + health status → client-side union with `useServices()`
