@@ -2,7 +2,10 @@ import { useState, useMemo } from 'react'
 import { LuSearch, LuChevronDown, LuChevronRight } from 'react-icons/lu'
 import type { FilterSectionItem, FilterSidebarProps } from '../types/index.ts'
 
-const STORAGE_KEY = 'greplog:filterSidebar:open'
+// Versioned so a change to the default open/closed state (e.g. switching back
+// to open-by-default) takes effect for everyone rather than reusing states
+// saved under an older default.
+const STORAGE_KEY = 'greplog:filterSidebar:open:v3'
 
 function loadOpenStates(): Record<string, boolean> {
   try {
@@ -69,7 +72,7 @@ function FilterSection({
   return (
     <>
       <button
-        className="flex items-center justify-between px-3 py-2 text-sm hover:bg-[var(--hover-bg-subtle)] transition-colors"
+        className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-[var(--hover-bg-subtle)] transition-colors"
         onClick={onToggle}
       >
         <span style={{ color: 'var(--text-primary)' }}>{title}</span>

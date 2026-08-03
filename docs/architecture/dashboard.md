@@ -65,7 +65,10 @@ even when a dimension has no rows.
 - **Multiple filters stack:** facet counts exclude every sidebar selection, so
   marking one filter leaves the others visible and selectable.
 - **Collapse state persists:** each section's open/closed state is saved to
-  `localStorage` under `greplog:filterSidebar:open` and restored on load.
+  `localStorage` under `greplog:filterSidebar:open:v3` and restored on load.
+  Sections default to **open**; the storage key is versioned so a change to
+  the default takes effect rather than reusing states saved under an older
+  default.
 - **Empty state:** a section with no rows keeps its header and shows a muted
   "No data" line under it when expanded.
 - **Loading skeletons:** while filter counts are loading (`isLoading`, the

@@ -206,6 +206,7 @@ export const placeholderLogFilterSections: FilterSectionConfig[] = [
   {
     id: 'service_name',
     title: 'service_name',
+    defaultOpen: true,
     items: [
       { id: 'web', label: 'web', count: 2341 },
       { id: 'api', label: 'api', count: 1567 },
@@ -306,6 +307,7 @@ export const placeholderErrorFilterSections: FilterSectionConfig[] = [
   {
     id: 'log_level',
     title: 'log_level',
+    defaultOpen: true,
     items: [
       { id: 'error', label: 'Error', count: 567, color: 'var(--error)' },
       { id: 'critical', label: 'Critical', count: 89, color: '#dc2626' },
@@ -422,6 +424,7 @@ export const placeholderServiceFilterSections: FilterSectionConfig[] = [
   {
     id: 'service_name',
     title: 'service_name',
+    defaultOpen: true,
     items: [
       { id: 'api', label: 'api', count: 2341 },
       { id: 'web', label: 'web', count: 1567 },
