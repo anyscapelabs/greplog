@@ -96,13 +96,13 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
     // Helper to safely format strings inside JSON output
     const escapeStr = (str: string) => str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
-    return (
-      <div
-        key={row.id}
-        className="group relative flex items-start gap-4 py-2.5 pl-4 pr-3 border-b text-xs hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono cursor-pointer"
-        style={{ borderColor: 'var(--border-primary)' }}
-        onClick={() => onView?.(row)}
-      >
+return (
+          <div
+            key={row.id}
+            className="group relative flex items-start gap-4 py-2.5 pl-4 pr-3 border-b text-xs hover:bg-[var(--hover-bg-subtle)] transition-colors font-mono font-medium cursor-pointer"
+            style={{ borderColor: 'var(--border-primary)' }}
+            onClick={() => onView?.(row)}
+          >
         {/* Level Stripe Indicator */}
         <div
           className="absolute left-0 top-0 bottom-0 w-[4px]"
@@ -117,7 +117,7 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
         </div>
 
         {/* Monospace JSON-like Structured Block */}
-        <div className="flex-1 min-w-0 select-all font-mono leading-relaxed text-text-primary whitespace-pre-wrap break-all">
+        <div className="flex-1 min-w-0 select-all font-mono font-medium leading-relaxed text-text-primary whitespace-pre-wrap break-all">
           <span className="text-text-secondary/70">{'{'}</span>{' '}
           
           <span className="text-[#a5d6ff]">"time"</span>
@@ -203,7 +203,7 @@ export default function LogsTable({ data, totalRows: totalRowsProp, totalLogs: t
         <div className="flex items-center border-b shrink-0 z-10" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-secondary)' }}>
           <div className="flex items-center gap-2 px-3 py-1.5 flex-1">
             <LuCircleCheck className="size-4 text-success" />
-            <span className="text-sm font-medium text-text-secondary">
+            <span className="text-sm font-medium text-text-secondary font-mono">
               {totalRows.toLocaleString()} of {totalLogs.toLocaleString()} Rows in {seconds}s
             </span>
           </div>
