@@ -369,14 +369,14 @@ export default function LogsHistogramChart({ data }: LogsHistogramChartProps) {
       plotRef.current?.destroy()
       plotRef.current = null
     }
-  }, [baselines, colors, data.buckets, hasData, orderedLevels, tops, totalsMax])
+  }, [baselines, colors, data.buckets, hasData, isAreaMode, orderedLevels, tops, totalsMax])
 
   if (!hasData) {
     return <ChartEmptyState message="No logs in the selected time range." />
   }
 
   return (
-    <div className="relative flex h-full w-full min-h-0 flex-col gap-[3px] overflow-hidden">
+    <div className="relative flex h-full w-full min-h-0 flex-col gap-0.75 overflow-hidden">
       <div className="relative min-h-0 flex-1">
         <div ref={plotHostRef} className="h-full w-full" />
         <div

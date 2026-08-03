@@ -97,7 +97,7 @@ export default function Logs() {
         extraActions={
           filters.chips.length > 0 ? (
             <button
-              className="text-xs px-2 py-1 rounded hover:bg-[var(--hover-bg)] transition-colors"
+              className="text-xs px-2 py-1 rounded hover:bg-(--hover-bg) transition-colors"
               style={{ color: 'var(--accent)' }}
               onClick={clearAll}
             >

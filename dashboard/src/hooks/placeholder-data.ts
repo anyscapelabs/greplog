@@ -223,6 +223,7 @@ export function placeholderLogCharts(): LogCharts {
     statusCodeDistribution: placeholderStatusCodeDistribution,
     logsHistogram: {
       buckets: timestamps.map((ts) => new Date(ts).toISOString().slice(11, 16)),
+      granularity: 'minute',
       levels: [
         { level: 'info', counts: Array.from({ length: 60 }, () => Math.round(Math.random() * 120)) },
         { level: 'warn', counts: Array.from({ length: 60 }, () => Math.round(Math.random() * 40)) },
