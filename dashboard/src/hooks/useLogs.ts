@@ -44,11 +44,17 @@ function rowsToLogs(rows: unknown[][], columns: string[]): LogEntry[] {
 
 const BASE_SQL = 'SELECT id, timestamp, level, service, message, logger_name, file, line, correlation_id, stack_trace FROM logs'
 
+function stableQueryKeyWhereClause(whereClause?: string): string | undefined {
+  if (!whereClause) return undefined
+  return whereClause.replace(/to_timestamp_micros\(\d+\)/g, 'to_timestamp_micros(<now>)')
+}
+
 export function useLogs(whereClause?: string): LogsPageProps {
   const { connected } = useAgent()
   const userInitiatedRef = useRef(false)
 
-  const queryKey = whereClause ? ['logs', whereClause] : ['logs']
+  const stableWhereClause = stableQueryKeyWhereClause(whereClause)
+  const queryKey = stableWhereClause ? ['logs', stableWhereClause] : ['logs']
 
   const query = useQuery({
     queryKey,
