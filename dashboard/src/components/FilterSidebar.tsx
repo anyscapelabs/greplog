@@ -130,22 +130,27 @@ export default function FilterSidebar({
   width = 280,
   searchPlaceholder = 'Search filters...',
 }: FilterSidebarProps) {
-  const [openStates, setOpenStates] = useState<Record<string, boolean>>(() => {
-    const saved = loadOpenStates()
-    const initial: Record<string, boolean> = {}
-    for (const s of sections) {
-      initial[s.id] = saved[s.id] ?? s.defaultOpen ?? false
-    }
-    return initial
-  })
+  const [savedOpen, setSavedOpen] = useState<Record<string, boolean>>(loadOpenStates)
+  const [manualOpen, setManualOpen] = useState<Record<string, boolean>>({})
   const [searchTerm, setSearchTerm] = useState('')
 
+  // Derived rather than snapshotted at mount: `sections` arrives only after
+  // the first query resolves (filterSections starts empty), so each render
+  // resolves a section's state as manual override > persisted > defaultOpen.
+  const openStates = useMemo(() => {
+    const result: Record<string, boolean> = {}
+    for (const s of sections) {
+      result[s.id] = manualOpen[s.id] ?? savedOpen[s.id] ?? s.defaultOpen ?? false
+    }
+    return result
+  }, [sections, manualOpen, savedOpen])
+
   function toggle(section: string) {
-    setOpenStates((prev) => {
-      const next = { ...prev, [section]: !prev[section] }
-      saveOpenStates(next)
-      return next
-    })
+    const nextState = !(openStates[section] ?? false)
+    setManualOpen((prev) => ({ ...prev, [section]: nextState }))
+    const nextSaved = { ...savedOpen, [section]: nextState }
+    setSavedOpen(nextSaved)
+    saveOpenStates(nextSaved)
   }
 
   const filteredSections = useMemo(() => {

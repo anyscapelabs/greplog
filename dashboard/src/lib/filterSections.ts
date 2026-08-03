@@ -102,7 +102,7 @@ export function buildStatusCodeSections(
       return { id: meta.id, label: meta.label, count: bucketCounts[key], color: meta.color }
     })
   return {
-    statusCode: { id: 'status_code', title: 'status_code', items: codeItems },
+    statusCode: { id: 'status_code', title: 'status_code', defaultOpen: true, items: codeItems },
     responseStatus: { id: 'response_status', title: 'response_status', defaultOpen: true, items: responseItems },
   }
 }
