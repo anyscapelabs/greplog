@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useErrors, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl } from '../hooks/index.ts'
+import { useErrors, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl, useFilterSidebarOpen } from '../hooks/index.ts'
 import PageHeader from '../components/PageHeader.tsx'
 import FilterSidebar from '../components/FilterSidebar.tsx'
 import ErrorCountChart from '../components/ErrorCountChart.tsx'
@@ -54,7 +54,7 @@ export default function Errors() {
     setAutoRefresh,
   } = useRefreshControl(refetch, { manualRefetch })
 
-  const [filterOpen, setFilterOpen] = useState(true)
+  const [filterOpen, setFilterOpen] = useFilterSidebarOpen()
   const [chart1Metric, setChart1Metric] = useState('count')
   const [chart1Group, setChart1Group] = useState('nothing')
   const [chart2Metric, setChart2Metric] = useState('count')

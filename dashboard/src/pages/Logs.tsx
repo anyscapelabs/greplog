@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useLogs, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl, useDebouncedValue } from '../hooks/index.ts'
+import { useLogs, useFilterState, compileFilterToQuery, parseQueryToChip, chipDisplay, useRefreshControl, useDebouncedValue, useFilterSidebarOpen } from '../hooks/index.ts'
 import PageHeader from '../components/PageHeader.tsx'
 import FilterSidebar from '../components/FilterSidebar.tsx'
 import { LogsHistogramChart } from '../components/LogsHistogramChart.tsx'
@@ -74,7 +74,7 @@ export default function Logs() {
     setAutoRefresh,
   } = useRefreshControl(refetch, { manualRefetch })
 
-  const [filterOpen, setFilterOpen] = useState(true)
+  const [filterOpen, setFilterOpen] = useFilterSidebarOpen()
   const [drawerLog, setDrawerLog] = useState<LogEntry | null>(null)
 
   function handleCheck(sectionId: string, id: string) {

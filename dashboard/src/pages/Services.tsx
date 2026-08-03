@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useServices, useFilterState, useRefreshControl } from '../hooks/index.ts'
+import { useServices, useFilterState, useRefreshControl, useFilterSidebarOpen } from '../hooks/index.ts'
 import ServicesDrawer from '../components/ServicesDrawer.tsx'
 import PageHeader from '../components/PageHeader.tsx'
 import ServiceCard from '../components/ServiceCard.tsx'
@@ -41,7 +41,7 @@ export default function Services() {
     setAutoRefresh,
   } = useRefreshControl(refetch, { manualRefetch })
 
-  const [filterOpen, setFilterOpen] = useState(true)
+  const [filterOpen, setFilterOpen] = useFilterSidebarOpen()
   const [drawerService, setDrawerService] = useState<ServiceEntry | null>(null)
   const [requestsMetric, setRequestsMetric] = useState('count')
   const [errorRateMetric, setErrorRateMetric] = useState('rate')
