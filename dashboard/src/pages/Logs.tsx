@@ -42,6 +42,7 @@ export default function Logs() {
     charts,
     isFetching,
     isLoading,
+    isError,
     refetch,
     manualRefetch,
   } = useLogs(predicate, filters.timeRange, {
@@ -97,6 +98,13 @@ export default function Logs() {
     }
     return merged
   }, [filters.checked, filters.services])
+
+  // Whether any search/filter is active, so the table's empty state can
+  // suggest clearing filters instead of telling the user to wait for data.
+  const hasActiveFilters = filters.chips.length > 0
+    || filters.services.length > 0
+    || filters.logLevels.length > 0
+    || Object.values(filters.checked).some((ids) => ids.length > 0)
 
   // Ensure consistent colors across all chart modes (bars and areas)
   // Colors are derived from log levels and should match both rendering styles
@@ -181,6 +189,11 @@ export default function Logs() {
             }}
             onView={setDrawerLog}
             isFetching={isFetching}
+            isLoading={isLoading}
+            isError={isError}
+            onRetry={manualRefetch}
+            hasActiveFilters={hasActiveFilters}
+            onClearFilters={clearAll}
           />
         </div>
       </div>

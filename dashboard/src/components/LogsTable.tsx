@@ -335,15 +335,18 @@ return (
 
         {/* Log List View */}
         <div className="flex-1 overflow-auto min-h-0 relative">
-          <div className="flex flex-col min-w-0">
-            {bodyRows.length > 0 ? (
-              bodyRows
-            ) : (
-              <div className="text-center text-text-secondary py-8 text-sm">
-                No logs matching current filters found.
-              </div>
-            )}
-          </div>
+          {bodyRows.length > 0 ? (
+            <div className="flex flex-col min-w-0">
+              {bodyRows}
+            </div>
+          ) : (
+            <TableStateScreen
+              mode={isError ? 'error' : isLoading || isFetching ? 'loading' : 'empty'}
+              hasActiveFilters={hasActiveFilters}
+              onRetry={onRetry}
+              onClearFilters={onClearFilters}
+            />
+          )}
         </div>
       </div>
     </div>
