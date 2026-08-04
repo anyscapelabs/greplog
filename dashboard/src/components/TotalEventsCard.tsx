@@ -3,18 +3,19 @@ import { LuClock } from 'react-icons/lu'
 import Dropdown from './Dropdown.tsx'
 
 const TIME_RANGES = [
-  { label: 'Last 24 hours', value: 'Last 24 hours' },
-  { label: '15 minutes', value: '15 minutes' },
-  { label: '6 hours', value: '6 hours' },
+  { label: 'Last 6 hours', value: 'Last 6 hours' },
+  { label: 'Last 15 minutes', value: 'Last 15 minutes' },
+  { label: 'Last 3 hours', value: 'Last 3 hours' },
   { label: 'Last 7 days', value: 'Last 7 days' },
+  { label: 'Last 30 days', value: 'Last 30 days' },
 ]
 
 export default function TotalEventsCard() {
-  const [timeRange, setTimeRange] = useState('Last 24 hours')
+  const [timeRange, setTimeRange] = useState('Last 6 hours')
 
   return (
     <div
-      className="min-h-32 flex flex-col"
+      className="min-h-40 flex flex-col"
       style={{
         backgroundColor: 'var(--bg-secondary)',
         border: '1px solid var(--border-primary)',
@@ -41,6 +42,7 @@ export default function TotalEventsCard() {
         />
       </div>
       <div className="border-b" style={{ borderColor: 'var(--border-primary)' }} />
+      <div className="flex-1" style={{ backgroundColor: 'var(--accent)' }} />
     </div>
   )
 }
