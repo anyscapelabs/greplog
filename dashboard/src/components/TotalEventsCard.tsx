@@ -12,8 +12,29 @@ const TIME_RANGES = [
   { label: 'Last 30 days', value: 'Last 30 days' },
 ]
 
+function formatCompact(value: number): string {
+  const abs = Math.abs(value)
+  let scaled: number
+  let suffix: string
+  if (abs >= 1e9) {
+    scaled = value / 1e9
+    suffix = 'B'
+  } else if (abs >= 1e6) {
+    scaled = value / 1e6
+    suffix = 'M'
+  } else if (abs >= 1e3) {
+    scaled = value / 1e3
+    suffix = 'K'
+  } else {
+    return String(value)
+  }
+  const trimmed = scaled.toFixed(2).replace(/\.?0+$/, '')
+  return `${trimmed}${suffix}`
+}
+
 export default function TotalEventsCard() {
   const [timeRange, setTimeRange] = useState('Last 6 hours')
+  const [totalEvents] = useState(12_845_670)
   const chartHostRef = useRef<HTMLDivElement>(null)
   const plotRef = useRef<uPlot | null>(null)
   const dataRef = useRef<number[]>([40, 58, 45, 72, 66, 89, 75, 94, 82, 110, 98, 120, 105, 132, 124, 140])
@@ -109,7 +130,7 @@ export default function TotalEventsCard() {
       </div>
       <div className="border-b" style={{ borderColor: 'var(--border-primary)' }} />
       <div
-        className="flex-1 relative"
+        className="flex-1 relative overflow-hidden"
         style={{
           backgroundColor: 'var(--accent)',
           borderBottomLeftRadius: '10px',
@@ -119,9 +140,14 @@ export default function TotalEventsCard() {
       >
         <div
           ref={chartHostRef}
-          className="absolute inset-x-0 top-1/2 -translate-y-1/2"
+          className="absolute inset-x-0 bottom-0"
           style={{ height: '50%' }}
         />
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="font-mono text-5xl font-bold tabular-nums" style={{ color: '#ffffff' }}>
+            {formatCompact(totalEvents)}
+          </span>
+        </div>
       </div>
     </div>
   )
