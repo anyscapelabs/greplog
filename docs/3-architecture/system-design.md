@@ -1,0 +1,98 @@
+# Greplog: Complete System Architecture Specification
+
+This document details the internal mechanics of Greplog. To achieve the conflicting goals of **high throughput (50k+ logs/sec)**, **zero data loss**, and **sub-second analytical queries**, Greplog strictly isolates network I/O, disk I/O, and CPU-bound analytical processing across different thread models.
+
+## 1. The Threading & Concurrency Model
+
+Greplog avoids `Mutex` locks in the ingestion hot-path entirely. The architecture relies on the "Actor Model" pattern, passing data via lock-free channels across three distinct execution domains:
+
+| Domain | Runtime / Thread Type | Responsibility |
+| --- | --- | --- |
+| **Network Layer** | Tokio Async Web Workers | Accepting HTTP requests on Port 5050 and 3000. Managing SSE streams. |
+| **State Layer** | 2 Dedicated OS Threads | The **WAL Worker** and **MemTable Worker**. They run infinite loops outside of Tokio to prevent async runtime blocking. |
+| **Heavy CPU/Disk** | Tokio `spawn_blocking` pool | Parquet compression, DataFusion query execution, and background file compaction. |
+
+## 2. The Network Layer (Dual-Port Routing)
+
+To provide maximum security and routing efficiency, the single `greplog dev` binary spins up two completely isolated Axum servers running concurrently via `tokio::join!`.
+
+- **Port 5050 (Ingest API):** Exposes only `POST /api/log`. Can be safely exposed to the open internet or internal VPC. Configured to accept larger JSON payload batches (e.g., 5MB limit).
+- **Port 3000 (Dashboard & Admin):** Exposes `POST /api/query`, `GET /api/tail` (SSE), and serves the static Vite frontend via `rust-embed`. Intended to be secured behind a firewall or accessed via localhost/SSH tunnel.
+
+## 3. The Zero-Loss Ingestion Pipeline (The Write Path)
+
+This is the exact lifecycle of a log from the moment the SDK sends it to the moment it is queryable.
+
+1. **SDK Client Batching:** The SDK accumulates logs in memory. Every 1 second (or 1,000 logs), it sends an HTTP POST array to `0.0.0.0:5050/api/log`.
+2. **The HTTP Receiver:** Axum parses the JSON batch. It creates a `tokio::sync::oneshot` channel. It bundles the batch and the `oneshot::Sender` together, pushes them into the **Ingest MPSC Channel** (`tokio::sync::mpsc`), and `.await`s the response.
+3. **The WAL Worker (OS Thread 1):**
+   - Pulls the batch from the MPSC channel.
+   - Serializes it to binary (using `bincode` for speed) and appends it to `current.wal` using a `BufWriter`.
+   - Executes `file.sync_all()` to force the OS to flush the disk cache to physical storage.
+   - Fires the `oneshot` channel with a success signal.
+4. **The Network Acknowledgment:** The Axum worker wakes up and instantly returns a `200 OK` to the SDK. Data is now 100% safe.
+5. **State Handoff:** The WAL Worker pushes the batch into a second, lock-free crossbeam channel connected to the MemTable Worker.
+6. **The MemTable Worker (OS Thread 2):**
+   - Reads the batch and appends it to the active Apache Arrow `RecordBatch` in RAM.
+   - Takes a clone of the batch and broadcasts it to the `tokio::sync::broadcast` channel to feed the Live Tailing SSE endpoint on Port 3000.
+
+## 4. The Dual-Tier Storage Engine
+
+Greplog uses a two-stage Write-Once-Read-Many (WORM) storage architecture to bridge the gap between real-time RAM limits and the Parquet "small files problem."
+
+### Tier 1: Real-Time Flush (The 10MB Threshold)
+
+The MemTable Worker continuously monitors the size of the Arrow `RecordBatch`.
+
+- Once it hits **10 MB**, a `tokio::task::spawn_blocking` thread is triggered.
+- It compresses the Arrow data using Zstd or Snappy.
+- It writes a file to the active partition: `data/logs/year=2026/month=08/day=09/chunk_{timestamp}.parquet`.
+- Once the file is on disk, it signals the WAL Worker to truncate `current.wal` to 0 bytes.
+
+### Tier 2: Background Compaction (The 512MB Target)
+
+If Greplog runs for weeks, Tier 1 creates thousands of 10MB files, which slows down query planning.
+
+- A background timer ticks daily at 2:00 AM (or whenever CPU is idle).
+- It scans partitioned directories for files smaller than 50MB.
+- It groups them until it has ~512MB of data.
+- It executes a background DataFusion job to rewrite those small files into a single, highly optimized `compacted_{uuid}.parquet` file with Page Indexes and Bloom Filters enabled.
+- It executes an atomic file system swap to replace the small files with the compacted file.
+
+## 5. The Query Engine (Apache DataFusion)
+
+The read path merges historical disk data and live memory data invisibly to the user.
+
+1. **Session Context Initialization:** On startup, Greplog mounts the `data/logs/` directory as a `ListingTable`.
+2. **Metadata Caching:** DataFusion is configured to cache Parquet footers. The planning phase for querying 10,000 files drops from 2 seconds to <10 milliseconds.
+3. **The Union All Execution:** When Port 3000 receives a SQL query (e.g., `SELECT count(*) WHERE level = 'ERROR'`), Greplog wraps the query:
+   - It scans the Parquet `ListingTable` (Partition pruned, Column pruned).
+   - It scans the active Arrow MemTable provider.
+   - It executes a `UNION ALL` across both streams and returns the aggregated JSON response to the Vite dashboard.
+
+## 6. Schema Definition
+
+To maximize columnar compression and query speed, the Arrow schema is rigidly typed. (Flexible JSON is stored in a dedicated metadata string column).
+
+| Column | Arrow Type | Description |
+| --- | --- | --- |
+| `timestamp` | `Timestamp(Microsecond)` | The primary time-series axis for partition pruning. |
+| `level` | `Dictionary(Int8, Utf8)` | Enum (INFO, WARN, ERROR). Dictionary encoding saves massive space. |
+| `service` | `Dictionary(Int16, Utf8)` | The source application (e.g., "auth-api", "frontend"). |
+| `message` | `Utf8` | The raw log string. |
+| `metadata` | `Utf8` | A stringified JSON object for custom key-value pairs. |
+
+## 7. Automated Maintenance
+
+### Crash Recovery
+
+If power is lost, Greplog recovers state autonomously:
+
+1. On boot, before Axum starts, Greplog checks `current.wal`.
+2. If the file size > 0, it deserializes the `bincode` logs.
+3. It instantly flushes them into a new Tier 1 `.parquet` chunk in the active day partition.
+4. It truncates the WAL and starts the servers.
+
+### Auto-Retention (TTL)
+
+Because data is strictly partitioned by time directories on disk, deleting old data requires zero CPU or SQL overhead. A background thread checks the CLI `--retention-days` flag and issues a standard `fs::remove_dir_all()` command to delete the entire directory for expired days (e.g., `rm -rf data/logs/year=2026/month=07`).
