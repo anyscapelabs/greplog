@@ -1,0 +1,18 @@
+[package]
+name = "greplog-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core logging engine for Greplog: error domain, log record model, and Arrow schema."
+repository.workspace = true
+
+[dependencies]
+arrow.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lib]
+name = "greplog_engine"
+path = "src/lib.rs"
