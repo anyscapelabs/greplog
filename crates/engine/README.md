@@ -9,7 +9,9 @@ The core logging engine crate for Greplog.
 - `schema.rs` — the canonical Arrow schema with dictionary-encoded `level`/`service`.
 - `ingest.rs` — the `IngestBatch` unit of work with durability responder.
 - `wal.rs` — the physical Write-Ahead Log writer (bincode + flush + `fsync`).
-- `worker.rs` — the dedicated OS thread draining the ingest channel.
+- `memtable.rs` — the Arrow columnar buffer (array builders + `RecordBatch`).
+- `worker.rs` — the dedicated WAL + MemTable OS threads, joined by a lock-free
+  `crossbeam` handoff so the MemTable only sees durable records.
 
 ## Development
 

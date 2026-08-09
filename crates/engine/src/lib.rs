@@ -8,13 +8,15 @@
 //! Write-path domains:
 //! - [`ingest`]: the [`IngestBatch`] unit of work.
 //! - [`wal`]: the physical [`WalWriter`] with `fsync` durability.
-//! - [`worker`]: the dedicated [`spawn_wal_worker`] OS thread.
+//! - [`memtable`]: the Arrow columnar [`MemTable`] buffer.
+//! - [`worker`]: the WAL + `MemTable` OS-thread workers.
 
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::missing_docs_in_private_items)]
 
 pub mod error;
 pub mod ingest;
+pub mod memtable;
 pub mod record;
 pub mod schema;
 pub mod wal;
@@ -22,7 +24,8 @@ pub mod worker;
 
 pub use error::EngineError;
 pub use ingest::IngestBatch;
+pub use memtable::MemTable;
 pub use record::LogRecord;
 pub use schema::greplog_schema;
 pub use wal::WalWriter;
-pub use worker::spawn_wal_worker;
+pub use worker::{spawn_memtable_worker, spawn_wal_worker};

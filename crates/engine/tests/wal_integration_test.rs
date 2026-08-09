@@ -45,7 +45,8 @@ async fn wal_worker_persists_batch_and_acknowledges() {
     let wal_path = dir.path().join("current.wal");
 
     let (sender, receiver) = mpsc::channel(8);
-    let handle = spawn_wal_worker(wal_path.clone(), receiver);
+    let (handoff_tx, _handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
+    let handle = spawn_wal_worker(wal_path.clone(), receiver, handoff_tx);
 
     let records = vec![sample("a", "INFO"), sample("b", "WARN"), sample("c", "ERROR")];
     let outcome = send_and_await(&sender, records).await.expect("channel must accept the batch");
@@ -64,7 +65,8 @@ async fn wal_worker_orders_batches_and_grows_file() {
     let wal_path = dir.path().join("current.wal");
 
     let (sender, receiver) = mpsc::channel(8);
-    let handle = spawn_wal_worker(wal_path.clone(), receiver);
+    let (handoff_tx, _handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
+    let handle = spawn_wal_worker(wal_path.clone(), receiver, handoff_tx);
 
     let outcome = send_and_await(&sender, vec![sample("first", "INFO")]).await.expect("first batch must be accepted");
     assert!(outcome.is_ok(), "first batch must append cleanly");
@@ -86,7 +88,8 @@ async fn wal_worker_reports_failure_when_wal_cannot_be_opened() {
     let wal_path = dir.path().join("missing-dir").join("current.wal");
 
     let (sender, receiver) = mpsc::channel(8);
-    let handle = spawn_wal_worker(wal_path, receiver);
+    let (handoff_tx, _handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
+    let handle = spawn_wal_worker(wal_path, receiver, handoff_tx);
 
     let outcome = send_and_await(&sender, vec![sample("a", "INFO")]).await.expect("channel must accept the batch");
     assert!(outcome.is_err(), "an unopenable wal must surface as an error");
