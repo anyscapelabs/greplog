@@ -92,7 +92,7 @@ cargo flamegraph --test throughput_benchmark -- --nocapture
 # Results: benchmarks/results/ (git-ignored)
 ```
 
-*Artifacts:* `benchmarks/throughput_benchmark.rs`, `benchmarks/flamegraph_report.md`, this file, and `benches/throughput.rs` mirror for `cargo bench`.
+*Artifacts:* `benchmarks/throughput_benchmark.rs`, `benchmarks/flamegraph_report.md`, and this file. The same harness is also runnable as `crates/engine/tests/throughput_benchmark.rs`.
 
 ---
 
