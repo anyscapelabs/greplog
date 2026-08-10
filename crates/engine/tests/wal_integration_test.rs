@@ -9,7 +9,7 @@ use tempfile::tempdir;
 use tokio::sync::{mpsc, oneshot};
 
 use greplog_engine::error::EngineError;
-use greplog_engine::ingest::IngestBatch;
+use greplog_engine::ingest::{IngestBatch, WalCommand};
 use greplog_engine::record::LogRecord;
 use greplog_engine::worker::spawn_wal_worker;
 
@@ -25,12 +25,12 @@ fn sample(trace: &str, level: &str) -> LogRecord {
 }
 
 async fn send_and_await(
-    sender: &mpsc::Sender<IngestBatch>,
+    sender: &mpsc::Sender<WalCommand>,
     records: Vec<LogRecord>,
 ) -> Result<Result<(), EngineError>, String> {
     let (responder, ack) = oneshot::channel();
     sender
-        .send(IngestBatch::new(records, responder))
+        .send(WalCommand::Append(IngestBatch::new(records, responder)))
         .await
         .map_err(|error| format!("failed to enqueue batch: {error}"))?;
     tokio::time::timeout(Duration::from_secs(10), ack)
@@ -44,9 +44,10 @@ async fn wal_worker_persists_batch_and_acknowledges() {
     let dir = tempdir().expect("create temp dir for wal");
     let wal_path = dir.path().join("current.wal");
 
-    let (sender, receiver) = mpsc::channel(8);
+    let (sender, receiver) = mpsc::channel::<WalCommand>(8);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(8);
     let (handoff_tx, _handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
-    let handle = spawn_wal_worker(wal_path.clone(), receiver, handoff_tx);
+    let handle = spawn_wal_worker(wal_path.clone(), receiver, truncate_rx, handoff_tx);
 
     let records = vec![sample("a", "INFO"), sample("b", "WARN"), sample("c", "ERROR")];
     let outcome = send_and_await(&sender, records).await.expect("channel must accept the batch");
@@ -56,6 +57,7 @@ async fn wal_worker_persists_batch_and_acknowledges() {
     assert!(metadata.len() > 0, "wal file must have a non-zero size");
 
     drop(sender);
+    drop(truncate_tx);
     handle.join().expect("wal worker thread must exit cleanly");
 }
 
@@ -64,9 +66,10 @@ async fn wal_worker_orders_batches_and_grows_file() {
     let dir = tempdir().expect("create temp dir for wal");
     let wal_path = dir.path().join("current.wal");
 
-    let (sender, receiver) = mpsc::channel(8);
+    let (sender, receiver) = mpsc::channel::<WalCommand>(8);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(8);
     let (handoff_tx, _handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
-    let handle = spawn_wal_worker(wal_path.clone(), receiver, handoff_tx);
+    let handle = spawn_wal_worker(wal_path.clone(), receiver, truncate_rx, handoff_tx);
 
     let outcome = send_and_await(&sender, vec![sample("first", "INFO")]).await.expect("first batch must be accepted");
     assert!(outcome.is_ok(), "first batch must append cleanly");
@@ -79,6 +82,7 @@ async fn wal_worker_orders_batches_and_grows_file() {
     assert!(size_after_second > size_after_first, "wal file must grow with each batch");
 
     drop(sender);
+    drop(truncate_tx);
     handle.join().expect("wal worker thread must exit cleanly");
 }
 
@@ -87,13 +91,15 @@ async fn wal_worker_reports_failure_when_wal_cannot_be_opened() {
     let dir = tempdir().expect("create temp dir for wal");
     let wal_path = dir.path().join("missing-dir").join("current.wal");
 
-    let (sender, receiver) = mpsc::channel(8);
+    let (sender, receiver) = mpsc::channel::<WalCommand>(8);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(8);
     let (handoff_tx, _handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
-    let handle = spawn_wal_worker(wal_path, receiver, handoff_tx);
+    let handle = spawn_wal_worker(wal_path, receiver, truncate_rx, handoff_tx);
 
     let outcome = send_and_await(&sender, vec![sample("a", "INFO")]).await.expect("channel must accept the batch");
     assert!(outcome.is_err(), "an unopenable wal must surface as an error");
 
     drop(sender);
+    drop(truncate_tx);
     handle.join().expect("wal worker thread must exit cleanly");
 }

@@ -6,7 +6,7 @@
 //! ingest acceptor is allowed to acknowledge receipt.
 
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use crate::error::EngineError;
@@ -55,6 +55,26 @@ impl WalWriter {
     #[must_use]
     pub fn bytes_written(&self) -> u64 {
         self.writer.buffer().len() as u64
+    }
+
+    /// Empties the WAL file back to zero bytes once the data is safely on disk
+    /// as Parquet.
+    ///
+    /// Any bytes still sitting in the [`BufWriter`] are flushed to the OS first;
+    /// the file is then truncated, its cursor reset to the start, and the
+    /// metadata `fsync`ed so the empty length survives a crash. The writer stays
+    /// usable for subsequent appends.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EngineError::IoError`] if the flush, truncation, seek, or
+    /// `fsync` fails.
+    pub fn truncate(&mut self) -> Result<(), EngineError> {
+        self.writer.flush()?;
+        self.writer.get_ref().set_len(0)?;
+        self.writer.get_ref().seek(SeekFrom::Start(0))?;
+        self.writer.get_ref().sync_all()?;
+        Ok(())
     }
 }
 
@@ -116,5 +136,24 @@ mod tests {
         let path = dir.path().join("brand-new.wal");
         WalWriter::open(&path).expect("open must create the file");
         assert!(path.exists());
+    }
+
+    #[test]
+    fn truncate_empties_file_and_stays_usable() {
+        let dir = tempdir().expect("create temp dir");
+        let path = dir.path().join("current.wal");
+        let mut wal = WalWriter::open(&path).expect("open wal");
+
+        wal.append_batch(&[record("a", "INFO"), record("b", "WARN")]).expect("append");
+        let pre_truncate = std::fs::metadata(&path).expect("stat wal").len();
+        assert!(pre_truncate > 0);
+
+        wal.truncate().expect("truncate wal");
+        let post_truncate = std::fs::metadata(&path).expect("stat wal").len();
+        assert_eq!(post_truncate, 0, "wal must be empty after truncate");
+
+        wal.append_batch(&[record("c", "ERROR")]).expect("append after truncate");
+        let after_reuse = std::fs::metadata(&path).expect("stat wal").len();
+        assert!(after_reuse > 0, "wal must accept appends after truncation");
     }
 }

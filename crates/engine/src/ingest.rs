@@ -2,7 +2,8 @@
 //!
 //! An [`IngestBatch`] bundles the records with a [`oneshot::Sender`] so the
 //! async network layer can await physical disk confirmation before returning
-//! `HTTP 200 OK`.
+//! `HTTP 200 OK`. The WAL worker listens on a single channel of actor-style
+//! [`WalCommand`]s so appends and truncations can never interleave.
 
 use tokio::sync::oneshot;
 
@@ -30,9 +31,22 @@ impl IngestBatch {
     }
 }
 
+/// A command directed at the WAL worker actor.
+///
+/// Both producers feed the same channel, so the WAL worker serializes them:
+/// the async server sends [`WalCommand::Append`], while the `MemTable` worker
+/// sends [`WalCommand::Truncate`] once a batch is safely on disk as Parquet.
+#[derive(Debug)]
+pub enum WalCommand {
+    /// Append a batch of log records to `current.wal`.
+    Append(IngestBatch),
+    /// Reclaim space by truncating `current.wal` to zero bytes.
+    Truncate,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::IngestBatch;
+    use super::{IngestBatch, WalCommand};
     use crate::record::LogRecord;
     use tokio::sync::oneshot;
 
@@ -50,5 +64,19 @@ mod tests {
             ack.try_recv(),
             Err(tokio::sync::oneshot::error::TryRecvError::Empty)
         ), "ack must stay pending until the worker fires it");
+    }
+
+    #[test]
+    fn append_command_preserves_its_batch() {
+        let (responder, _ack) = oneshot::channel();
+        let command = WalCommand::Append(IngestBatch::new(
+            vec![LogRecord::new("WARN", "auth-api", "slow")],
+            responder,
+        ));
+
+        match command {
+            WalCommand::Append(batch) => assert_eq!(batch.records.len(), 1),
+            WalCommand::Truncate => panic!("append must not become truncate"),
+        }
     }
 }

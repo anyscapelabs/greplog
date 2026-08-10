@@ -10,9 +10,10 @@ use std::time::Duration;
 use tempfile::tempdir;
 use tokio::sync::{mpsc, oneshot};
 
-use greplog_engine::ingest::IngestBatch;
+use greplog_engine::ingest::{IngestBatch, WalCommand};
 use greplog_engine::memtable::{FLUSH_THRESHOLD, MemTable};
 use greplog_engine::record::LogRecord;
+use greplog_engine::storage::ParquetFlusher;
 use greplog_engine::worker::{spawn_memtable_worker, spawn_wal_worker};
 
 fn sample(index: usize, level: &str) -> LogRecord {
@@ -78,9 +79,11 @@ fn pipeline_of_15000_logs_acks_all_and_triggers_flush() {
 
     let (ingest_tx, ingest_rx) = mpsc::channel(64);
     let (handoff_tx, handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
+    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(64);
 
-    let wal_handle = spawn_wal_worker(wal_path, ingest_rx, handoff_tx);
-    let memtable_handle = spawn_memtable_worker(handoff_rx);
+    let flusher = ParquetFlusher::new(dir.path().join("logs"));
+    let wal_handle = spawn_wal_worker(wal_path, ingest_rx, truncate_rx, handoff_tx);
+    let memtable_handle = spawn_memtable_worker(handoff_rx, truncate_tx, flusher);
 
     let runtime = tokio::runtime::Runtime::new().expect("build runtime");
     runtime.block_on(async {
@@ -89,8 +92,9 @@ fn pipeline_of_15000_logs_acks_all_and_triggers_flush() {
         for _ in 0..(total / per_batch) {
             let records: Vec<LogRecord> = (0..per_batch).map(|index| sample(index, "INFO")).collect();
             let (responder, ack) = oneshot::channel();
+            let command = WalCommand::Append(IngestBatch::new(records, responder));
             ingest_tx
-                .send(IngestBatch::new(records, responder))
+                .send(command)
                 .await
                 .expect("enqueue ingest batch");
 

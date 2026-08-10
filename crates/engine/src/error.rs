@@ -26,6 +26,11 @@ pub enum EngineError {
     /// the Write-Ahead Log.
     #[error("bincode error: {0}")]
     BincodeError(#[from] Box<bincode::ErrorKind>),
+
+    /// An upstream error from the Apache Parquet runtime while flushing or
+    /// reading columnar data.
+    #[error("parquet error: {0}")]
+    ParquetError(#[from] parquet::errors::ParquetError),
 }
 
 /// Convenience constructor for [`EngineError::ParseError`].

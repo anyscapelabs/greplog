@@ -6,9 +6,10 @@
 //! - [`schema`]: the canonical Arrow [`Schema`](arrow::datatypes::Schema).
 //!
 //! Write-path domains:
-//! - [`ingest`]: the [`IngestBatch`] unit of work.
-//! - [`wal`]: the physical [`WalWriter`] with `fsync` durability.
+//! - [`ingest`]: the [`IngestBatch`] unit of work + [`WalCommand`] actor commands.
+//! - [`wal`]: the physical [`WalWriter`] with `fsync` durability + truncation.
 //! - [`memtable`]: the Arrow columnar [`MemTable`] buffer.
+//! - [`storage`]: the Hive-partitioned Parquet [`ParquetFlusher`].
 //! - [`worker`]: the WAL + `MemTable` OS-thread workers.
 
 #![warn(clippy::all, clippy::pedantic)]
@@ -19,13 +20,15 @@ pub mod ingest;
 pub mod memtable;
 pub mod record;
 pub mod schema;
+pub mod storage;
 pub mod wal;
 pub mod worker;
 
 pub use error::EngineError;
-pub use ingest::IngestBatch;
+pub use ingest::{IngestBatch, WalCommand};
 pub use memtable::MemTable;
 pub use record::LogRecord;
 pub use schema::greplog_schema;
+pub use storage::ParquetFlusher;
 pub use wal::WalWriter;
 pub use worker::{spawn_memtable_worker, spawn_wal_worker};
