@@ -1,9 +1,10 @@
 //! Terminal wordmark banner.
 //!
-//! [`print_ascii_banner`] prints a pre-formatted ASCII block logo and centers
-//! it on the active terminal window width, falling back to 80 columns when the
-//! terminal size cannot be queried. No SVG rasterization is involved, so the
-//! logo renders identically in every terminal window.
+//! [`print_ascii_banner`] prints a pre-formatted ASCII block logo, centered on
+//! the active terminal window width (falling back to 80 columns when the size
+//! cannot be queried). The banner leads with a single blank line for separation
+//! from earlier output but ends flush, so a caller may follow it immediately
+//! with system information for a tight startup screen.
 
 /// Prints the Greplog ASCII block banner, centered on the terminal width.
 pub fn print_ascii_banner() {
@@ -24,5 +25,4 @@ pub fn print_ascii_banner() {
     for line in ART {
         println!("{:width$}{}", "", line, width = padding);
     }
-    println!();
 }

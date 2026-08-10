@@ -25,9 +25,6 @@ use cli::{Cli, Commands};
 
 #[tokio::main]
 async fn main() {
-    // The banner is printed first so no log lines precede the wordmark.
-    banner::print_ascii_banner();
-
     tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
@@ -123,6 +120,17 @@ async fn run_dev(port: Option<u16>) -> Result<(), Box<dyn std::error::Error>> {
         greplog_server::start_servers(server_config, server_wal_tx, server_engine, broadcast_rx);
 
     let wal_tx_for_shutdown = wal_tx;
+
+    // Startup splash, printed just before the servers take over the process.
+    banner::print_ascii_banner();
+    println!("  Greplog v{}", env!("CARGO_PKG_VERSION"));
+    println!();
+    println!("  🚀 Ingest Agent : http://127.0.0.1:{}", config.ingest_port);
+    println!("  📊 Dashboard UI : http://127.0.0.1:{}", config.dashboard_port);
+    println!("  📚 Documentation: https://docs.greplog.dev");
+    println!();
+    println!("  Ready to receive logs. Press Ctrl+C to gracefully shut down.");
+    println!();
 
     tokio::select! {
         res = server_future => {
