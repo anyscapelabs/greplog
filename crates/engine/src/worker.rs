@@ -5,7 +5,8 @@
 //! - [`spawn_wal_worker`] persists batches to the configured WAL path, `fsync`s
 //!   them, and truncates the file once the data is safely stored as Parquet.
 //! - [`spawn_memtable_worker`] converts durable records into Arrow batches,
-//!   flushes them to Parquet, and signals the WAL worker to truncate.
+//!   stages them in the shared [`LiveBuffer`], flushes them to Parquet at the
+//!   configured threshold, and signals the WAL worker to truncate.
 //!
 //! The two are joined by a lock-free `crossbeam` channel for record handoff and
 //! two `tokio` MPSC channels back to the WAL worker: one for append actor
@@ -17,20 +18,23 @@
 //! its ingest channel close and exit without deadlocking.
 //!
 //! The `MemTable` only ever sees records that are already safe on disk and the
-//! WAL is only truncated after those records are in Parquet. Cell and channel
-//! sizes all come from the shared [`EngineConfig`].
+//! WAL is only truncated after those records are in Parquet. A Parquet flush
+//! never holds the [`LiveBuffer`] write lock, so queries are never stalled on
+//! disk I/O. Cell and channel sizes all come from the shared [`EngineConfig`].
 
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
+use arrow::record_batch::RecordBatch;
 use crossbeam::channel::{Receiver as HandoffRx, Sender as HandoffTx};
 use tokio::sync::mpsc::{Receiver as WalRx, Sender as WalTx};
 
-use crate::config::EngineConfig;
+use crate::config::{EngineConfig, LiveBuffer};
 use crate::error::EngineError;
 use crate::ingest::{IngestBatch, WalCommand};
 use crate::memtable::MemTable;
 use crate::record::LogRecord;
+use crate::schema::greplog_schema;
 use crate::storage::ParquetFlusher;
 use crate::wal::WalWriter;
 
@@ -61,18 +65,24 @@ pub fn spawn_wal_worker(
 
 /// Spawns the `MemTable` worker on a dedicated OS thread and returns its handle.
 ///
-/// Records are appended into an in-memory Arrow [`MemTable`]; once
-/// `config.flush_row_limit` rows accumulate the batch is written to Parquet via
-/// `flusher` and a truncation signal is sent to the WAL worker over
-/// `truncate_tx`.
+/// Every received record group is appended to a fresh [`MemTable`] and finished
+/// into a [`RecordBatch`] immediately, resetting the builders. The batch is
+/// pushed into the shared `live_buffer`, where the [`QueryEngine`](crate::query::QueryEngine)
+/// can read it.
+/// Once `config.flush_row_limit` rows accumulate across the buffer, the batches
+/// are concatenated and written to Parquet via `flusher` (then a truncation
+/// signal is sent to the WAL worker), and any remainder is flushed on shutdown.
 #[must_use]
 pub fn spawn_memtable_worker(
     receiver: HandoffRx<Vec<LogRecord>>,
     truncate_tx: WalTx<()>,
     flusher: ParquetFlusher,
+    live_buffer: LiveBuffer,
     config: Arc<EngineConfig>,
 ) -> JoinHandle<()> {
-    thread::spawn(move || run_memtable_loop(&receiver, &truncate_tx, &flusher, &config))
+    thread::spawn(move || {
+        run_memtable_loop(&receiver, &truncate_tx, &flusher, &live_buffer, &config);
+    })
 }
 
 /// Runs the WAL worker body: multiplex the two command channels.
@@ -165,8 +175,8 @@ fn handle_truncate(wal: &mut Result<WalWriter, EngineError>) {
     }
 }
 
-/// Drains durable record streams into columnar batches, flushing on the
-/// configured threshold.
+/// Drains durable record streams into columnar batches, staging them in the
+/// shared live buffer and flushing once the configured threshold is reached.
 ///
 /// A flush only truncates the WAL after the Parquet write has fully succeeded,
 /// so a crash between the two never loses acknowledged records.
@@ -174,42 +184,77 @@ fn run_memtable_loop(
     receiver: &HandoffRx<Vec<LogRecord>>,
     truncate_tx: &WalTx<()>,
     flusher: &ParquetFlusher,
+    live_buffer: &LiveBuffer,
     config: &EngineConfig,
 ) {
     let limit = config.flush_row_limit;
     let mut table = MemTable::new(limit);
-    let mut rows = 0usize;
     while let Ok(records) = receiver.recv() {
         for record in records {
             table.append_record(&record);
-            rows += 1;
         }
-        if rows >= limit {
-            flush(&mut table, rows, truncate_tx, flusher);
-            rows = 0;
+        match table.finish() {
+            Ok(batch) => push_to_live_buffer(live_buffer, batch),
+            Err(error) => tracing::error!(?error, "failed to finish memtable"),
+        }
+        if live_row_count(live_buffer) >= limit {
+            flush_live_buffer(live_buffer, truncate_tx, flusher);
         }
     }
-    if rows > 0 {
-        flush(&mut table, rows, truncate_tx, flusher);
+    if live_row_count(live_buffer) > 0 {
+        flush_live_buffer(live_buffer, truncate_tx, flusher);
     }
 }
 
-/// Finishes the current batch, persists it to Parquet, and triggers truncation.
-fn flush(
-    table: &mut MemTable,
-    rows: usize,
+/// Pushes a finished batch into the shared live buffer.
+///
+/// Zero-row batches (which `finish` can produce on an empty record group) are
+/// dropped; they would only waste a slot.
+fn push_to_live_buffer(live_buffer: &LiveBuffer, batch: RecordBatch) {
+    if batch.num_rows() == 0 {
+        return;
+    }
+    if let Ok(mut buffer) = live_buffer.write() {
+        buffer.push(batch);
+    } else {
+        tracing::error!("live buffer write lock poisoned; dropping batch");
+    }
+}
+
+/// Returns the total row count currently staged for querying.
+fn live_row_count(live_buffer: &LiveBuffer) -> usize {
+    if let Ok(buffer) = live_buffer.read() {
+        buffer.iter().map(RecordBatch::num_rows).sum()
+    } else {
+        tracing::error!("live buffer read lock poisoned; assuming empty");
+        0
+    }
+}
+
+/// Concatenates and persists the buffered batches, then signals truncation.
+///
+/// The write lock is released as soon as the batches are taken out, so Parquet
+/// I/O and `fsync` never block a query reading the buffer.
+fn flush_live_buffer(
+    live_buffer: &LiveBuffer,
     truncate_tx: &WalTx<()>,
     flusher: &ParquetFlusher,
 ) {
-    match table.finish() {
-        Ok(batch) => match flusher.flush(&batch) {
+    let batches = if let Ok(mut buffer) = live_buffer.write() {
+        std::mem::take(&mut *buffer)
+    } else {
+        tracing::error!("live buffer write lock poisoned; skipping flush");
+        return;
+    };
+    match arrow::compute::concat_batches(&greplog_schema(), &batches) {
+        Ok(concatenated) => match flusher.flush(&concatenated) {
             Ok(()) => {
-                tracing::info!("Flushed batch of {} rows", batch.num_rows());
+                tracing::info!("Flushed batch of {} rows", concatenated.num_rows());
                 let _ = truncate_tx.blocking_send(());
             }
-            Err(error) => tracing::error!(?error, "failed to write parquet for {rows} rows"),
+            Err(error) => tracing::error!(?error, "failed to write parquet"),
         },
-        Err(error) => tracing::error!(?error, "failed to finish memtable with {rows} rows"),
+        Err(error) => tracing::error!(?error, "failed to concatenate live batches"),
     }
 }
 
@@ -231,7 +276,7 @@ mod tests {
     use tokio::sync::{mpsc, oneshot};
 
     use super::{spawn_memtable_worker, spawn_wal_worker};
-    use crate::config::EngineConfig;
+    use crate::config::{EngineConfig, LiveBuffer};
     use crate::ingest::{IngestBatch, WalCommand};
     use crate::record::LogRecord;
     use crate::storage::ParquetFlusher;
@@ -310,7 +355,7 @@ mod tests {
         drop(truncate_rx);
         let flusher = ParquetFlusher::new(&config);
         let (sender, receiver) = crossbeam::channel::bounded(config.crossbeam_buffer_size);
-        let handle = spawn_memtable_worker(receiver, truncate_tx, flusher, config);
+        let handle = spawn_memtable_worker(receiver, truncate_tx, flusher, LiveBuffer::default(), config);
 
         for index in 0..64 {
             sender.send(vec![sample(index)]).expect("send record stream");
@@ -334,7 +379,7 @@ mod tests {
         drop(truncate_rx);
         let flusher = ParquetFlusher::new(&config);
         let (sender, receiver) = crossbeam::channel::bounded(config.crossbeam_buffer_size);
-        let handle = spawn_memtable_worker(receiver, truncate_tx, flusher, config);
+        let handle = spawn_memtable_worker(receiver, truncate_tx, flusher, LiveBuffer::default(), config);
 
         for index in 0..32 {
             sender.send(vec![sample(index)]).expect("send record stream");

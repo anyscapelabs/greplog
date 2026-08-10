@@ -1231,6 +1231,7 @@ version = "0.1.0"
 dependencies = [
  "arrow",
  "arrow-ord",
+ "async-trait",
  "bincode",
  "chrono",
  "crossbeam",

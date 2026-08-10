@@ -16,6 +16,15 @@
 //! ```
 
 use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
+
+/// The shared, queryable in-memory log tier.
+///
+/// The `MemTable` worker appends finished columnar [`RecordBatch`]es here under
+/// a write lock; the [`QueryEngine`](crate::query::QueryEngine) clones the batch
+/// vector under a read lock just-in-time. Cloning only bumps the Arrow array
+/// reference counts, so a query never copies row data.
+pub type LiveBuffer = Arc<RwLock<Vec<arrow::record_batch::RecordBatch>>>;
 
 /// Tuning knobs for the ingest, WAL, and storage pipeline.
 #[derive(Debug, Clone)]

@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 arrow.workspace = true
 arrow-ord.workspace = true
+async-trait.workspace = true
 bincode = "1"
 chrono.workspace = true
 crossbeam = "0.8"

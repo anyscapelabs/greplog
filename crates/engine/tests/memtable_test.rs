@@ -10,7 +10,7 @@ use std::time::Duration;
 use tempfile::tempdir;
 use tokio::sync::{mpsc, oneshot};
 
-use greplog_engine::config::EngineConfig;
+use greplog_engine::config::{EngineConfig, LiveBuffer};
 use greplog_engine::ingest::{IngestBatch, WalCommand};
 use greplog_engine::memtable::MemTable;
 use greplog_engine::record::LogRecord;
@@ -91,7 +91,8 @@ fn pipeline_of_15000_logs_acks_all_and_triggers_flush() {
 
     let flusher = ParquetFlusher::new(&config);
     let wal_handle = spawn_wal_worker(config.clone(), ingest_rx, truncate_rx, handoff_tx);
-    let memtable_handle = spawn_memtable_worker(handoff_rx, truncate_tx, flusher, config);
+    let memtable_handle =
+        spawn_memtable_worker(handoff_rx, truncate_tx, flusher, LiveBuffer::default(), config);
 
     let runtime = tokio::runtime::Runtime::new().expect("build runtime");
     runtime.block_on(async {

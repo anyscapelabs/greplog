@@ -17,6 +17,10 @@ pub enum EngineError {
     #[error("datafusion error: {0}")]
     DataFusion(#[from] datafusion::error::DataFusionError),
 
+    /// A poisoned `RwLock` guard on the shared [`LiveBuffer`](crate::config::LiveBuffer).
+    #[error("rwlock poisoned")]
+    LockError,
+
     /// A parse failure, e.g. malformed JSON, an invalid timestamp, or an
     /// unrecognized log level.
     #[error("parse error: {0}")]
@@ -67,6 +71,8 @@ mod tests {
 
         let bincode = EngineError::BincodeError(Box::new(ErrorKind::Custom("nope".to_string())));
         assert!(bincode.to_string().contains("bincode error"));
+
+        assert!(EngineError::LockError.to_string().contains("rwlock poisoned"));
     }
 
     #[test]
