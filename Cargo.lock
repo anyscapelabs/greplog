@@ -617,6 +617,7 @@ name = "greplog-engine"
 version = "0.1.0"
 dependencies = [
  "arrow",
+ "arrow-ord",
  "bincode",
  "chrono",
  "crossbeam",
