@@ -2,8 +2,8 @@
 //!
 //! [`QueryEngine`] exposes a unified `logs` view over two tiers:
 //! - `parquet_logs`, the Hive-partitioned Parquet tree on disk, and
-//! - `live_logs`, a [`TableProvider`] that snapshots the shared
-//!   [`LiveBuffer`](crate::config::LiveBuffer) on every scan.
+//! - `live_logs`, a [`TableProvider`] that snapshots the shared [`LiveBuffer`]
+//!   on every scan.
 //!
 //! A SQL view `UNION ALL`s the two, bridging the schema gap: the Parquet table
 //! carries injected `year`/`month`/`day`/`service` partition columns, which the

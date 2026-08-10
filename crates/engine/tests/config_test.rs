@@ -41,6 +41,8 @@ fn cloned_config_stays_an_independent_copy() {
         data_dir: PathBuf::from("/srv/greplog/chunks"),
         wal_path: PathBuf::from("/srv/greplog/prewrite.wal"),
         flush_row_limit: 512,
+        compaction_run_interval_secs: 60,
+        max_files_before_compaction: 3,
         mpsc_buffer_size: 64,
         crossbeam_buffer_size: 128,
     };
@@ -49,6 +51,14 @@ fn cloned_config_stays_an_independent_copy() {
     assert_eq!(clone.data_dir, original.data_dir);
     assert_eq!(clone.wal_path, original.wal_path);
     assert_eq!(clone.flush_row_limit, original.flush_row_limit);
+    assert_eq!(
+        clone.compaction_run_interval_secs,
+        original.compaction_run_interval_secs
+    );
+    assert_eq!(
+        clone.max_files_before_compaction,
+        original.max_files_before_compaction
+    );
     assert_eq!(clone.mpsc_buffer_size, original.mpsc_buffer_size);
     assert_eq!(clone.crossbeam_buffer_size, original.crossbeam_buffer_size);
 }

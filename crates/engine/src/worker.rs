@@ -374,6 +374,7 @@ mod tests {
             flush_row_limit: 16,
             mpsc_buffer_size: 4,
             crossbeam_buffer_size: 8,
+            ..EngineConfig::default()
         });
         let (truncate_tx, truncate_rx) = mpsc::channel(config.mpsc_buffer_size);
         drop(truncate_rx);
