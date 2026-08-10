@@ -26,11 +26,13 @@ use cli::{Cli, Commands};
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    // The banner renders before logging is initialized so SVG/render WARNs
+    // emitted during parsing never pollute the terminal art.
+    banner::print_ascii_banner(Path::new(
+        "assets/branding/logo/wordmark/wordmark-white.svg",
+    ));
 
-    // Centered wordmark at top – rasterizes assets/branding/logo/wordmark/wordmark-white.svg
-    // to centered ASCII. Falls back to text if SVG rasterization is unavailable.
-    banner::print_ascii_wordmark(Path::new("assets/branding/logo/wordmark/wordmark-white.svg"));
+    tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
 

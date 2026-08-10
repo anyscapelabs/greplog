@@ -17,6 +17,8 @@ crossterm.workspace = true
 greplog-engine = { path = "../engine" }
 greplog-server = { path = "../server" }
 image.workspace = true
+resvg.workspace = true
+tiny-skia.workspace = true
 tokio.workspace = true
 tracing = "0.1"
 tracing-subscriber.workspace = true
