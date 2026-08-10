@@ -12,6 +12,9 @@
 //! - [`memtable`]: the Arrow columnar [`MemTable`] buffer.
 //! - [`storage`]: the Hive-partitioned Parquet [`ParquetFlusher`].
 //! - [`worker`]: the WAL + `MemTable` OS-thread workers.
+//!
+//! Read-path domains:
+//! - [`query`]: the DataFusion-backed [`QueryEngine`] over partitioned Parquet.
 
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::missing_docs_in_private_items)]
@@ -20,6 +23,7 @@ pub mod config;
 pub mod error;
 pub mod ingest;
 pub mod memtable;
+pub mod query;
 pub mod record;
 pub mod schema;
 pub mod storage;
@@ -30,6 +34,7 @@ pub use config::EngineConfig;
 pub use error::EngineError;
 pub use ingest::{IngestBatch, WalCommand};
 pub use memtable::MemTable;
+pub use query::QueryEngine;
 pub use record::LogRecord;
 pub use schema::greplog_schema;
 pub use storage::ParquetFlusher;

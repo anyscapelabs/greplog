@@ -45,8 +45,10 @@ impl ParquetFlusher {
     ///
     /// The unique `service` values present in the batch are discovered with a
     /// comparison kernel; each is filtered out of the batch with
-    /// [`filter_record_batch`] and written to its own
-    /// `service=<name>` directory. The chunk filename is derived from the wall
+    /// [`filter_record_batch`] and written to its own `service=<name>`
+    /// directory. `service` lives only in the directory name, never in the
+    /// file, so `DataFusion` reads the partition folder as a column without
+    /// colliding with stored data. The chunk filename is derived from the wall
     /// clock at nanosecond resolution to avoid collisions between flushes.
     ///
     /// # Errors
@@ -73,6 +75,7 @@ impl ParquetFlusher {
             let directory = date_dir.join(format!("service={service}"));
             std::fs::create_dir_all(&directory)?;
             let split = filter_by_service(batch, service_column.as_ref(), &service)?;
+            let split = strip_service_column(&split)?;
             self.write_chunk(&directory, nanos, &split)?;
         }
         Ok(())
@@ -143,6 +146,19 @@ fn filter_by_service(
     filter_record_batch(batch, &mask).map_err(EngineError::from)
 }
 
+/// Drops the `service` column from `batch` once the split is chosen.
+///
+/// `service` is partition metadata encoded in the `service=<name>` folder, so
+/// storing it in the file duplicates the field once `DataFusion` joins the file
+/// schema with the partition columns. Projecting it out keeps the two disjoint.
+fn strip_service_column(batch: &RecordBatch) -> Result<RecordBatch, EngineError> {
+    let service_index = batch.schema().index_of("service")?;
+    let indices: Vec<usize> = (0..batch.num_columns())
+        .filter(|&index| index != service_index)
+        .collect();
+    batch.project(&indices).map_err(EngineError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -200,6 +216,17 @@ mod tests {
             .sum()
     }
 
+    fn stored_field_names(path: &Path) -> Vec<String> {
+        let file = fs::File::open(path).expect("open parquet");
+        let builder = ParquetRecordBatchReaderBuilder::try_new(file).expect("parse parquet");
+        builder
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect()
+    }
+
     #[test]
     fn flush_splits_batch_by_service() {
         let dir = tempdir().expect("create temp dir");
@@ -240,6 +267,12 @@ mod tests {
             1,
             "payment-worker rows must round-trip"
         );
+        for path in &chunk {
+            assert!(
+                !stored_field_names(path).iter().any(|name| name == "service"),
+                "service must live only in the folder name"
+            );
+        }
     }
 
     #[test]

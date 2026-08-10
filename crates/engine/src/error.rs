@@ -13,6 +13,10 @@ pub enum EngineError {
     #[error("arrow error: {0}")]
     ArrowError(#[from] arrow::error::ArrowError),
 
+    /// An upstream error from the Apache `DataFusion` query engine.
+    #[error("datafusion error: {0}")]
+    DataFusion(#[from] datafusion::error::DataFusionError),
+
     /// A parse failure, e.g. malformed JSON, an invalid timestamp, or an
     /// unrecognized log level.
     #[error("parse error: {0}")]
@@ -56,6 +60,10 @@ mod tests {
 
         let arrow = EngineError::ArrowError(arrow::error::ArrowError::SchemaError("nope".into()));
         assert!(arrow.to_string().contains("arrow error"));
+
+        let datafusion =
+            EngineError::DataFusion(datafusion::error::DataFusionError::Plan("nope".into()));
+        assert!(datafusion.to_string().contains("datafusion error"));
 
         let bincode = EngineError::BincodeError(Box::new(ErrorKind::Custom("nope".to_string())));
         assert!(bincode.to_string().contains("bincode error"));

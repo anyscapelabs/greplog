@@ -17,4 +17,5 @@ parquet = "=52.0.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "=0.4.34"
+datafusion = "=39.0.0"
 thiserror = "1"
