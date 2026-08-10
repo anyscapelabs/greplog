@@ -44,6 +44,10 @@ pub struct EngineConfig {
     pub mpsc_buffer_size: usize,
     /// Capacity of the crossbeam record-handoff channel.
     pub crossbeam_buffer_size: usize,
+    /// TCP port for the ingest API (`POST /api/log` on `0.0.0.0:5050`).
+    pub ingest_port: u16,
+    /// TCP port for the dashboard API (`POST /api/query`, `GET /api/tail` on `0.0.0.0:3000`).
+    pub dashboard_port: u16,
 }
 
 impl Default for EngineConfig {
@@ -60,6 +64,8 @@ impl Default for EngineConfig {
             max_files_before_compaction: 5,
             mpsc_buffer_size: 1_024,
             crossbeam_buffer_size: 1_024,
+            ingest_port: 5050,
+            dashboard_port: 3000,
         }
     }
 }
@@ -110,6 +116,8 @@ mod tests {
         );
         assert_eq!(clone.mpsc_buffer_size, original.mpsc_buffer_size);
         assert_eq!(clone.crossbeam_buffer_size, original.crossbeam_buffer_size);
+        assert_eq!(clone.ingest_port, original.ingest_port);
+        assert_eq!(clone.dashboard_port, original.dashboard_port);
     }
 
     #[test]

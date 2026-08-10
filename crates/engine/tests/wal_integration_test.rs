@@ -126,3 +126,36 @@ async fn wal_worker_reports_failure_when_wal_cannot_be_opened() {
     drop(truncate_tx);
     handle.join().expect("wal worker thread must exit cleanly");
 }
+
+#[test]
+fn wal_replay_recovers_after_writer_dropped() {
+    use greplog_engine::wal::WalWriter;
+
+    let dir = tempdir().expect("create temp dir for wal");
+    let wal_path = dir.path().join("current.wal");
+
+    {
+        let mut wal = WalWriter::open(&wal_path).expect("open wal");
+        wal.append_batch(&[sample("first", "INFO"), sample("second", "WARN")])
+            .expect("first append");
+        wal.append_batch(&[sample("third", "ERROR")])
+            .expect("second append");
+        // wal dropped here
+    }
+
+    let recovered = WalWriter::replay_wal(&wal_path).expect("replay wal");
+    assert_eq!(recovered.len(), 3, "all records must be recovered");
+    assert_eq!(recovered[0].trace_id.as_deref(), Some("first"));
+    assert_eq!(recovered[1].trace_id.as_deref(), Some("second"));
+    assert_eq!(recovered[2].trace_id.as_deref(), Some("third"));
+}
+
+#[test]
+fn wal_replay_returns_empty_when_file_missing() {
+    use greplog_engine::wal::WalWriter;
+
+    let dir = tempdir().expect("create temp dir for wal");
+    let wal_path = dir.path().join("nonexistent.wal");
+    let recovered = WalWriter::replay_wal(&wal_path).expect("replay missing wal");
+    assert!(recovered.is_empty(), "missing wal should return empty vec");
+}

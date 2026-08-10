@@ -38,10 +38,10 @@ CREATE VIEW logs AS \
 SELECT timestamp_us, trace_id, level, service, message, raw_body, year, month, day \
 FROM parquet_logs \
 UNION ALL \
-SELECT timestamp_us, trace_id, level, arrow_cast(service, 'Utf8'), message, raw_body, \
-       arrow_cast(EXTRACT(year FROM timestamp_us), 'UInt16') AS year, \
-       arrow_cast(EXTRACT(month FROM timestamp_us), 'UInt8') AS month, \
-       arrow_cast(EXTRACT(day FROM timestamp_us), 'UInt8') AS day \
+SELECT timestamp_us, trace_id, level, CAST(service AS VARCHAR), message, raw_body, \
+       CAST(EXTRACT(year FROM timestamp_us) AS INT) AS year, \
+       CAST(EXTRACT(month FROM timestamp_us) AS INT) AS month, \
+       CAST(EXTRACT(day FROM timestamp_us) AS INT) AS day \
 FROM live_logs";
 
 /// Executes SQL over the unified live + Parquet `logs` view.
@@ -88,16 +88,44 @@ impl QueryEngine {
 ///
 /// The `ParquetFormat` reads each chunk; the partition columns map the
 /// `key=value` folder names onto columns so directory pruning is possible.
+/// If the directory contains no Parquet files (fresh deployment), an empty
+/// `MemTable` with the expected 9-column schema is registered instead so the
+/// unified view can still be created.
 async fn register_parquet_table(
     ctx: &SessionContext,
     config: &EngineConfig,
 ) -> Result<(), EngineError> {
     let partition_cols = vec![
-        (String::from("year"), DataType::UInt16),
-        (String::from("month"), DataType::UInt8),
-        (String::from("day"), DataType::UInt8),
+        (String::from("year"), DataType::Int32),
+        (String::from("month"), DataType::Int32),
+        (String::from("day"), DataType::Int32),
         (String::from("service"), DataType::Utf8),
     ];
+
+    if !has_parquet_files(&config.data_dir) {
+        let empty_schema = Arc::new(arrow::datatypes::Schema::new(vec![
+            arrow::datatypes::Field::new(
+                "timestamp_us",
+                DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
+                false,
+            ),
+            arrow::datatypes::Field::new("trace_id", DataType::Utf8, true),
+            arrow::datatypes::Field::new(
+                "level",
+                DataType::Dictionary(Box::new(DataType::Int8), Box::new(DataType::Utf8)),
+                false,
+            ),
+            arrow::datatypes::Field::new("service", DataType::Utf8, false),
+            arrow::datatypes::Field::new("message", DataType::Utf8, false),
+            arrow::datatypes::Field::new("raw_body", DataType::Utf8, true),
+            arrow::datatypes::Field::new("year", DataType::Int32, false),
+            arrow::datatypes::Field::new("month", DataType::Int32, false),
+            arrow::datatypes::Field::new("day", DataType::Int32, false),
+        ]));
+        let empty_table = MemTable::try_new(empty_schema, vec![vec![]])?;
+        ctx.register_table("parquet_logs", Arc::new(empty_table))?;
+        return Ok(());
+    }
 
     let options = ListingOptions::new(Arc::new(ParquetFormat::default()))
         .with_table_partition_cols(partition_cols);
@@ -109,6 +137,24 @@ async fn register_parquet_table(
 
     ctx.register_listing_table("parquet_logs", path, options, None, None).await?;
     Ok(())
+}
+
+/// Returns `true` if `dir` contains any `*.parquet` file recursively.
+fn has_parquet_files(dir: &std::path::Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if has_parquet_files(&path) {
+                return true;
+            }
+        } else if path.extension().is_some_and(|ext| ext == "parquet") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Registers an always-live provider named `live_logs` over the shared buffer.

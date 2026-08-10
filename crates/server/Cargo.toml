@@ -1,0 +1,31 @@
+[package]
+name = "greplog-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "HTTP server for Greplog: dual-port Axum ingest and dashboard with SSE live tail."
+repository.workspace = true
+
+[dependencies]
+arrow = { workspace = true }
+arrow-json.workspace = true
+async-stream.workspace = true
+axum.workspace = true
+futures = "0.3"
+greplog-engine = { path = "../engine" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tracing = "0.1"
+
+[dev-dependencies]
+tower = { version = "0.4", features = ["util"] }
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lib]
+name = "greplog_server"
+path = "src/lib.rs"

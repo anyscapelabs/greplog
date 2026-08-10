@@ -45,6 +45,8 @@ fn cloned_config_stays_an_independent_copy() {
         max_files_before_compaction: 3,
         mpsc_buffer_size: 64,
         crossbeam_buffer_size: 128,
+        ingest_port: 5050,
+        dashboard_port: 3000,
     };
     let clone = original.clone();
 
@@ -61,6 +63,8 @@ fn cloned_config_stays_an_independent_copy() {
     );
     assert_eq!(clone.mpsc_buffer_size, original.mpsc_buffer_size);
     assert_eq!(clone.crossbeam_buffer_size, original.crossbeam_buffer_size);
+    assert_eq!(clone.ingest_port, original.ingest_port);
+    assert_eq!(clone.dashboard_port, original.dashboard_port);
 }
 
 #[test]

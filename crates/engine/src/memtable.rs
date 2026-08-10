@@ -11,7 +11,7 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    ArrayRef, StringDictionaryBuilder, StringBuilder, TimestampMicrosecondBuilder,
+    ArrayBuilder, ArrayRef, StringDictionaryBuilder, StringBuilder, TimestampMicrosecondBuilder,
 };
 use arrow::datatypes::{Int16Type, Int8Type};
 use arrow::record_batch::RecordBatch;
@@ -76,6 +76,18 @@ impl MemTable {
             std::mem::take(&mut self.messages),
             std::mem::take(&mut self.raw_bodies),
         )
+    }
+
+    /// Returns the number of rows currently staged in the builders.
+    #[must_use]
+    pub fn num_rows(&self) -> usize {
+        self.timestamps.len()
+    }
+
+    /// Returns true if no rows are staged.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.num_rows() == 0
     }
 }
 

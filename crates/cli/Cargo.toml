@@ -1,0 +1,25 @@
+[package]
+name = "greplog-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI for Greplog: dev and start commands wiring engine and server."
+repository.workspace = true
+
+[[bin]]
+name = "greplog"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+crossbeam.workspace = true
+crossterm.workspace = true
+greplog-engine = { path = "../engine" }
+greplog-server = { path = "../server" }
+image.workspace = true
+tokio.workspace = true
+tracing = "0.1"
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

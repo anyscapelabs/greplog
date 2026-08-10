@@ -24,9 +24,11 @@
 
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use arrow::record_batch::RecordBatch;
 use crossbeam::channel::{Receiver as HandoffRx, Sender as HandoffTx};
+use tokio::sync::broadcast;
 use tokio::sync::mpsc::{Receiver as WalRx, Sender as WalTx};
 
 use crate::config::{EngineConfig, LiveBuffer};
@@ -37,6 +39,9 @@ use crate::record::LogRecord;
 use crate::schema::greplog_schema;
 use crate::storage::ParquetFlusher;
 use crate::wal::WalWriter;
+
+/// Maximum number of batches to coalesce in a single group-commit.
+const MAX_GROUP_BATCH: usize = 50;
 
 /// Spawns the WAL worker on a dedicated OS thread and returns its handle.
 ///
@@ -65,13 +70,15 @@ pub fn spawn_wal_worker(
 
 /// Spawns the `MemTable` worker on a dedicated OS thread and returns its handle.
 ///
-/// Every received record group is appended to a fresh [`MemTable`] and finished
-/// into a [`RecordBatch`] immediately, resetting the builders. The batch is
+/// Records are accumulated in a [`MemTable`] until `config.flush_row_limit`
+/// rows are staged, then the table is finished into a [`RecordBatch`] and
 /// pushed into the shared `live_buffer`, where the [`QueryEngine`](crate::query::QueryEngine)
 /// can read it.
 /// Once `config.flush_row_limit` rows accumulate across the buffer, the batches
 /// are concatenated and written to Parquet via `flusher` (then a truncation
 /// signal is sent to the WAL worker), and any remainder is flushed on shutdown.
+/// If a `broadcast_tx` is provided, each incoming batch is also fanned out to
+/// SSE subscribers.
 #[must_use]
 pub fn spawn_memtable_worker(
     receiver: HandoffRx<Vec<LogRecord>>,
@@ -80,8 +87,25 @@ pub fn spawn_memtable_worker(
     live_buffer: LiveBuffer,
     config: Arc<EngineConfig>,
 ) -> JoinHandle<()> {
+    spawn_memtable_worker_with_broadcast(receiver, truncate_tx, flusher, live_buffer, config, None)
+}
+
+/// Spawns the `MemTable` worker with an optional broadcast sender for live tail.
+///
+/// See [`spawn_memtable_worker`] for the core behavior. When `broadcast_tx` is
+/// `Some`, every `Vec<LogRecord>` received on `receiver` is cloned and sent
+/// over the broadcast channel before being appended to the columnar table.
+#[must_use]
+pub fn spawn_memtable_worker_with_broadcast(
+    receiver: HandoffRx<Vec<LogRecord>>,
+    truncate_tx: WalTx<()>,
+    flusher: ParquetFlusher,
+    live_buffer: LiveBuffer,
+    config: Arc<EngineConfig>,
+    broadcast_tx: Option<broadcast::Sender<Vec<LogRecord>>>,
+) -> JoinHandle<()> {
     thread::spawn(move || {
-        run_memtable_loop(&receiver, &truncate_tx, &flusher, &live_buffer, &config);
+        run_memtable_loop(&receiver, &truncate_tx, &flusher, &live_buffer, &config, broadcast_tx);
     })
 }
 
@@ -104,7 +128,7 @@ fn run_wal_loop(
     }
 }
 
-/// Selects over the append and truncation channels, persisting in order.
+/// Selects over the append and truncation channels, persisting in order with group commit.
 async fn select_commands(
     wal: &mut Result<WalWriter, EngineError>,
     receiver: &mut WalRx<WalCommand>,
@@ -115,7 +139,9 @@ async fn select_commands(
     loop {
         tokio::select! {
             command = receiver.recv() => match command {
-                Some(WalCommand::Append(batch)) => handle_append(wal, batch, memtable_tx),
+                Some(WalCommand::Append(batch)) => {
+                    handle_append_group(wal, batch, receiver, memtable_tx);
+                },
                 Some(WalCommand::Truncate) => handle_truncate(wal),
                 None => break,
             },
@@ -143,14 +169,96 @@ fn drain_channel(
 ) {
     while let Some(command) = receiver.blocking_recv() {
         match command {
-            WalCommand::Append(batch) => handle_append(wal, batch, memtable_tx),
+            WalCommand::Append(batch) => {
+                // Fallback path does not coalesce; it uses single-batch logic but with proper error handling
+                handle_append_single(wal, batch, memtable_tx);
+            },
             WalCommand::Truncate => handle_truncate(wal),
         }
     }
 }
 
-/// Appends a batch to the WAL and forwards durable records to the `MemTable`.
-fn handle_append(
+/// Group-commit: coalesces up to `MAX_GROUP_BATCH` appends into a single fsync.
+fn handle_append_group(
+    wal: &mut Result<WalWriter, EngineError>,
+    first: IngestBatch,
+    receiver: &mut WalRx<WalCommand>,
+    memtable_tx: &HandoffTx<Vec<LogRecord>>,
+) {
+    let mut batches: Vec<IngestBatch> = Vec::new();
+    batches.push(first);
+    let mut need_truncate = false;
+
+    // Drain any immediately available messages without waiting.
+    for _ in 1..MAX_GROUP_BATCH {
+        match receiver.try_recv() {
+            Ok(WalCommand::Append(batch)) => batches.push(batch),
+            Ok(WalCommand::Truncate) => {
+                need_truncate = true;
+                break;
+            }
+            Err(
+                tokio::sync::mpsc::error::TryRecvError::Empty
+                | tokio::sync::mpsc::error::TryRecvError::Disconnected,
+            ) => break,
+        }
+    }
+
+    // Persist all batches with a single sync.
+    let outcome: Result<(), EngineError> = match wal {
+        Ok(writer) => {
+            let mut result: Result<(), EngineError> = Ok(());
+            for batch in &batches {
+                if let Err(e) = writer.append_batch_no_sync(&batch.records) {
+                    result = Err(e);
+                    break;
+                }
+            }
+            if result.is_ok() {
+                if let Err(e) = writer.sync_data() {
+                    result = Err(e);
+                }
+            }
+            result
+        }
+        Err(original) => Err(fallback_error(original)),
+    };
+
+    let is_ok = outcome.is_ok();
+    let error_string = if is_ok {
+        String::new()
+    } else {
+        // Capture error display for per-responder cloning
+        match &outcome {
+            Err(e) => e.to_string(),
+            Ok(()) => String::new(),
+        }
+    };
+
+    // Acknowledge all waiters and forward durable records.
+    for batch in batches {
+        let responder = batch.responder;
+        let records = batch.records;
+        if is_ok {
+            // Send success; ignore if receiver dropped (client gone)
+            let _ = responder.send(Ok(()));
+            if let Err(e) = memtable_tx.send(records) {
+                tracing::error!(?e, "handoff channel dropped or full; losing durable records - triggering shutdown may be required");
+            }
+        } else {
+            let err = EngineError::IoError(std::io::Error::other(error_string.clone()));
+            let _ = responder.send(Err(err));
+        }
+    }
+
+    if need_truncate {
+        // Ensure any buffered appends are already synced above, then truncate.
+        handle_truncate(wal);
+    }
+}
+
+/// Single-batch fallback used when no async runtime is available.
+fn handle_append_single(
     wal: &mut Result<WalWriter, EngineError>,
     batch: IngestBatch,
     memtable_tx: &HandoffTx<Vec<LogRecord>>,
@@ -162,7 +270,9 @@ fn handle_append(
     let durable = outcome.is_ok();
     let _ = batch.responder.send(outcome);
     if durable {
-        let _ = memtable_tx.send(batch.records);
+        if let Err(e) = memtable_tx.send(batch.records) {
+            tracing::error!(?e, "handoff channel dropped or full; losing durable records");
+        }
     }
 }
 
@@ -178,27 +288,66 @@ fn handle_truncate(wal: &mut Result<WalWriter, EngineError>) {
 /// Drains durable record streams into columnar batches, staging them in the
 /// shared live buffer and flushing once the configured threshold is reached.
 ///
-/// A flush only truncates the WAL after the Parquet write has fully succeeded,
-/// so a crash between the two never loses acknowledged records.
+/// Records are accumulated in the `MemTable` builder and only finished when
+/// `config.flush_row_limit` rows are staged, or when the channel closes (and
+/// on timeout if no new records arrive). A flush only truncates the WAL after
+/// the Parquet write has fully succeeded, so a crash between the two never
+/// loses acknowledged records.
+#[allow(clippy::needless_pass_by_value)]
 fn run_memtable_loop(
     receiver: &HandoffRx<Vec<LogRecord>>,
     truncate_tx: &WalTx<()>,
     flusher: &ParquetFlusher,
     live_buffer: &LiveBuffer,
     config: &EngineConfig,
+    broadcast_tx: Option<broadcast::Sender<Vec<LogRecord>>>,
 ) {
     let limit = config.flush_row_limit;
     let mut table = MemTable::new(limit);
-    while let Ok(records) = receiver.recv() {
-        for record in records {
-            table.append_record(&record);
+    loop {
+        // Use timeout to periodically flush partial batches even before limit is hit.
+        match receiver.recv_timeout(Duration::from_millis(200)) {
+            Ok(records) => {
+                // Fan out to SSE subscribers before moving records into the table.
+                if let Some(tx) = &broadcast_tx {
+                    let _ = tx.send(records.clone());
+                }
+                for record in records {
+                    table.append_record(&record);
+                }
+                if table.num_rows() >= limit {
+                    match table.finish() {
+                        Ok(batch) => push_to_live_buffer(live_buffer, batch),
+                        Err(error) => tracing::error!(?error, "failed to finish memtable"),
+                    }
+                    // Table is now empty and ready for reuse (finish used mem::take)
+                    if live_row_count(live_buffer) >= limit {
+                        flush_live_buffer(live_buffer, truncate_tx, flusher);
+                    }
+                }
+            }
+            Err(crossbeam::channel::RecvTimeoutError::Timeout) => {
+                if !table.is_empty() {
+                    match table.finish() {
+                        Ok(batch) => push_to_live_buffer(live_buffer, batch),
+                        Err(error) => tracing::error!(?error, "failed to finish memtable on timeout"),
+                    }
+                    if live_row_count(live_buffer) >= limit {
+                        flush_live_buffer(live_buffer, truncate_tx, flusher);
+                    } else if live_row_count(live_buffer) > 0 && table.is_empty() {
+                        // Keep partial batch visible even if not flushing to parquet yet;
+                        // it is already in live_buffer via push_to_live_buffer.
+                    }
+                }
+            }
+            Err(crossbeam::channel::RecvTimeoutError::Disconnected) => break,
         }
+    }
+    // Channel closed: flush any remaining rows in builder
+    if !table.is_empty() {
         match table.finish() {
             Ok(batch) => push_to_live_buffer(live_buffer, batch),
-            Err(error) => tracing::error!(?error, "failed to finish memtable"),
-        }
-        if live_row_count(live_buffer) >= limit {
-            flush_live_buffer(live_buffer, truncate_tx, flusher);
+            Err(error) => tracing::error!(?error, "failed to finish memtable remainder"),
         }
     }
     if live_row_count(live_buffer) > 0 {
