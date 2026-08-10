@@ -6,7 +6,6 @@
 mod banner;
 mod cli;
 
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -26,11 +25,8 @@ use cli::{Cli, Commands};
 
 #[tokio::main]
 async fn main() {
-    // The banner renders before logging is initialized so SVG/render WARNs
-    // emitted during parsing never pollute the terminal art.
-    banner::print_ascii_banner(Path::new(
-        "assets/branding/logo/wordmark/wordmark-white.svg",
-    ));
+    // The banner is printed first so no log lines precede the wordmark.
+    banner::print_ascii_banner();
 
     tracing_subscriber::fmt::init();
 
