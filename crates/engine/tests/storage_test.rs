@@ -6,14 +6,16 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use tempfile::tempdir;
 use tokio::sync::{mpsc, oneshot};
 
+use greplog_engine::config::EngineConfig;
 use greplog_engine::ingest::{IngestBatch, WalCommand};
-use greplog_engine::memtable::{FLUSH_THRESHOLD, MemTable};
+use greplog_engine::memtable::MemTable;
 use greplog_engine::record::LogRecord;
 use greplog_engine::storage::ParquetFlusher;
 use greplog_engine::worker::{spawn_memtable_worker, spawn_wal_worker};
@@ -55,9 +57,13 @@ fn row_count(path: &Path) -> usize {
 fn flusher_writes_valid_partitioned_parquet() {
     let dir = tempdir().expect("create temp dir");
     let root = dir.path().join("logs");
-    let flusher = ParquetFlusher::new(&root);
+    let config = EngineConfig {
+        data_dir: root.clone(),
+        ..EngineConfig::default()
+    };
+    let flusher = ParquetFlusher::new(&config);
 
-    let mut table = MemTable::new();
+    let mut table = MemTable::new(8);
     for index in 0..5 {
         table.append_record(&sample(index));
     }
@@ -74,19 +80,28 @@ fn pipeline_persists_parquet_and_truncates_wal() {
     let dir = tempdir().expect("create temp dir");
     let logs_root = dir.path().join("logs");
     let wal_path = dir.path().join("current.wal");
+    let config = Arc::new(EngineConfig {
+        data_dir: logs_root.clone(),
+        wal_path: wal_path.clone(),
+        mpsc_buffer_size: 128,
+        crossbeam_buffer_size: 128,
+        ..EngineConfig::default()
+    });
 
-    let (wal_tx, wal_rx) = mpsc::channel::<WalCommand>(128);
-    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(16);
-    let (handoff_tx, handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
+    let (wal_tx, wal_rx) = mpsc::channel::<WalCommand>(config.mpsc_buffer_size);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(config.mpsc_buffer_size);
+    let (handoff_tx, handoff_rx) =
+        crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
 
-    let flusher = ParquetFlusher::new(&logs_root);
-    let wal_handle = spawn_wal_worker(wal_path.clone(), wal_rx, truncate_rx, handoff_tx);
-    let memtable_handle = spawn_memtable_worker(handoff_rx, truncate_tx, flusher);
+    let flusher = ParquetFlusher::new(&config);
+    let wal_handle = spawn_wal_worker(config.clone(), wal_rx, truncate_rx, handoff_tx);
+    let memtable_handle = spawn_memtable_worker(handoff_rx, truncate_tx, flusher, config);
 
     let runtime = tokio::runtime::Runtime::new().expect("build runtime");
     runtime.block_on(async {
         let per_batch = 1_000;
-        for _ in 0..(FLUSH_THRESHOLD / per_batch) {
+        let limit = EngineConfig::default().flush_row_limit;
+        for _ in 0..(limit / per_batch) {
             let records: Vec<LogRecord> = (0..per_batch).map(sample).collect();
             let (responder, ack) = oneshot::channel();
             wal_tx
@@ -121,9 +136,10 @@ fn pipeline_persists_parquet_and_truncates_wal() {
     memtable_handle.join().expect("memtable worker must exit cleanly");
 
     let chunk = first_parquet(&logs_root).expect("parquet chunk must exist");
+    let limit = EngineConfig::default().flush_row_limit;
     assert_eq!(
         row_count(&chunk),
-        FLUSH_THRESHOLD,
+        limit,
         "all appended records must land in Parquet"
     );
     let wal_len = fs::metadata(&wal_path).expect("wal file must exist").len();

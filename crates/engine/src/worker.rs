@@ -2,8 +2,8 @@
 //!
 //! Disk I/O and columnar conversion never run on the Tokio async runtime that
 //! serves the API:
-//! - [`spawn_wal_worker`] persists batches to `current.wal`, `fsync`s, and
-//!   truncates it once data is safely stored as Parquet.
+//! - [`spawn_wal_worker`] persists batches to the configured WAL path, `fsync`s
+//!   them, and truncates the file once the data is safely stored as Parquet.
 //! - [`spawn_memtable_worker`] converts durable records into Arrow batches,
 //!   flushes them to Parquet, and signals the WAL worker to truncate.
 //!
@@ -17,17 +17,19 @@
 //! its ingest channel close and exit without deadlocking.
 //!
 //! The `MemTable` only ever sees records that are already safe on disk and the
-//! WAL is only truncated after those records are in Parquet.
+//! WAL is only truncated after those records are in Parquet. Cell and channel
+//! sizes all come from the shared [`EngineConfig`].
 
-use std::path::PathBuf;
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use crossbeam::channel::{Receiver as HandoffRx, Sender as HandoffTx};
 use tokio::sync::mpsc::{Receiver as WalRx, Sender as WalTx};
 
+use crate::config::EngineConfig;
 use crate::error::EngineError;
 use crate::ingest::{IngestBatch, WalCommand};
-use crate::memtable::{MemTable, FLUSH_THRESHOLD};
+use crate::memtable::MemTable;
 use crate::record::LogRecord;
 use crate::storage::ParquetFlusher;
 use crate::wal::WalWriter;
@@ -39,24 +41,28 @@ use crate::wal::WalWriter;
 ///   appends a batch and forwards durable records to the `MemTable` worker over
 ///   `memtable_tx` only after a successful `fsync`.
 /// - `truncate_rx` carries `()` signals from the `MemTable` worker, each
-///   emptying `current.wal` after the matching Parquet flush.
+///   emptying the WAL file after the matching Parquet flush.
 ///
-/// The loop ends when the append channel closes (all its senders dropped);
-/// call [`JoinHandle::join`] to wait for outstanding `fsync`s to finish.
+/// The WAL file lives at `config.wal_path`. The loop ends when the append
+/// channel closes (all its senders dropped); call [`JoinHandle::join`] to wait
+/// for outstanding `fsync`s to finish.
 #[must_use]
 pub fn spawn_wal_worker(
-    wal_path: PathBuf,
+    config: Arc<EngineConfig>,
     receiver: WalRx<WalCommand>,
     truncate_rx: WalRx<()>,
     memtable_tx: HandoffTx<Vec<LogRecord>>,
 ) -> JoinHandle<()> {
-    thread::spawn(move || run_wal_loop(&wal_path, receiver, truncate_rx, &memtable_tx))
+    thread::spawn(move || {
+        let wal_path = config.wal_path.clone();
+        run_wal_loop(&wal_path, receiver, truncate_rx, &memtable_tx);
+    })
 }
 
 /// Spawns the `MemTable` worker on a dedicated OS thread and returns its handle.
 ///
 /// Records are appended into an in-memory Arrow [`MemTable`]; once
-/// [`FLUSH_THRESHOLD`] rows accumulate the batch is written to Parquet via
+/// `config.flush_row_limit` rows accumulate the batch is written to Parquet via
 /// `flusher` and a truncation signal is sent to the WAL worker over
 /// `truncate_tx`.
 #[must_use]
@@ -64,8 +70,9 @@ pub fn spawn_memtable_worker(
     receiver: HandoffRx<Vec<LogRecord>>,
     truncate_tx: WalTx<()>,
     flusher: ParquetFlusher,
+    config: Arc<EngineConfig>,
 ) -> JoinHandle<()> {
-    thread::spawn(move || run_memtable_loop(&receiver, &truncate_tx, &flusher))
+    thread::spawn(move || run_memtable_loop(&receiver, &truncate_tx, &flusher, &config))
 }
 
 /// Runs the WAL worker body: multiplex the two command channels.
@@ -149,7 +156,7 @@ fn handle_append(
     }
 }
 
-/// Truncates `current.wal`, logging (never propagating) any failure.
+/// Truncates the WAL file, logging (never propagating) any failure.
 fn handle_truncate(wal: &mut Result<WalWriter, EngineError>) {
     if let Ok(writer) = wal.as_mut() {
         if let Err(error) = writer.truncate() {
@@ -158,7 +165,8 @@ fn handle_truncate(wal: &mut Result<WalWriter, EngineError>) {
     }
 }
 
-/// Drains durable record streams into columnar batches, flushing on threshold.
+/// Drains durable record streams into columnar batches, flushing on the
+/// configured threshold.
 ///
 /// A flush only truncates the WAL after the Parquet write has fully succeeded,
 /// so a crash between the two never loses acknowledged records.
@@ -166,15 +174,17 @@ fn run_memtable_loop(
     receiver: &HandoffRx<Vec<LogRecord>>,
     truncate_tx: &WalTx<()>,
     flusher: &ParquetFlusher,
+    config: &EngineConfig,
 ) {
-    let mut table = MemTable::new();
+    let limit = config.flush_row_limit;
+    let mut table = MemTable::new(limit);
     let mut rows = 0usize;
     while let Ok(records) = receiver.recv() {
         for record in records {
             table.append_record(&record);
             rows += 1;
         }
-        if rows >= FLUSH_THRESHOLD {
+        if rows >= limit {
             flush(&mut table, rows, truncate_tx, flusher);
             rows = 0;
         }
@@ -214,10 +224,14 @@ fn fallback_error(original: &EngineError) -> EngineError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
     use tempfile::tempdir;
     use tokio::sync::{mpsc, oneshot};
 
     use super::{spawn_memtable_worker, spawn_wal_worker};
+    use crate::config::EngineConfig;
     use crate::ingest::{IngestBatch, WalCommand};
     use crate::record::LogRecord;
     use crate::storage::ParquetFlusher;
@@ -226,16 +240,27 @@ mod tests {
         LogRecord::new("INFO", "auth-api", format!("boot {index}"))
     }
 
+    fn test_config(dir: &tempfile::TempDir) -> Arc<EngineConfig> {
+        Arc::new(EngineConfig {
+            data_dir: dir.path().join("logs"),
+            wal_path: dir.path().join("current.wal"),
+            mpsc_buffer_size: 4,
+            crossbeam_buffer_size: 4,
+            ..EngineConfig::default()
+        })
+    }
+
     #[test]
     fn wal_worker_persists_and_confirms_batch() {
         let runtime = tokio::runtime::Runtime::new().expect("build runtime");
         runtime.block_on(async {
             let dir = tempdir().expect("create temp dir");
-            let path = dir.path().join("current.wal");
-            let (wal_tx, wal_rx) = mpsc::channel(4);
-            let (truncate_tx, truncate_rx) = mpsc::channel(4);
-            let (handoff_tx, _handoff_rx) = crossbeam::channel::unbounded();
-            let handle = spawn_wal_worker(path, wal_rx, truncate_rx, handoff_tx);
+            let config = test_config(&dir);
+            let (wal_tx, wal_rx) = mpsc::channel(config.mpsc_buffer_size);
+            let (truncate_tx, truncate_rx) = mpsc::channel(config.mpsc_buffer_size);
+            let (handoff_tx, _handoff_rx) =
+                crossbeam::channel::bounded(config.crossbeam_buffer_size);
+            let handle = spawn_wal_worker(config, wal_rx, truncate_rx, handoff_tx);
 
             let (responder, ack) = oneshot::channel();
             let batch = IngestBatch::new(vec![sample(1)], responder);
@@ -255,11 +280,15 @@ mod tests {
         let runtime = tokio::runtime::Runtime::new().expect("build runtime");
         runtime.block_on(async {
             let dir = tempdir().expect("create temp dir");
-            let path = dir.path().join("current.wal");
-            let (wal_tx, wal_rx) = mpsc::channel(4);
-            let (truncate_tx, truncate_rx) = mpsc::channel(4);
-            let (handoff_tx, _handoff_rx) = crossbeam::channel::unbounded();
-            let handle = spawn_wal_worker(path, wal_rx, truncate_rx, handoff_tx);
+            let config = Arc::new(EngineConfig {
+                wal_path: dir.path().join("missing-dir").join("current.wal"),
+                ..EngineConfig::default()
+            });
+            let (wal_tx, wal_rx) = mpsc::channel(config.mpsc_buffer_size);
+            let (truncate_tx, truncate_rx) = mpsc::channel(config.mpsc_buffer_size);
+            let (handoff_tx, _handoff_rx) =
+                crossbeam::channel::bounded(config.crossbeam_buffer_size);
+            let handle = spawn_wal_worker(config, wal_rx, truncate_rx, handoff_tx);
 
             let batch = IngestBatch {
                 records: Vec::new(),
@@ -276,16 +305,52 @@ mod tests {
     #[test]
     fn memtable_worker_drains_record_stream() {
         let dir = tempdir().expect("create temp dir");
-        let (truncate_tx, truncate_rx) = mpsc::channel(4);
+        let config = test_config(&dir);
+        let (truncate_tx, truncate_rx) = mpsc::channel(config.mpsc_buffer_size);
         drop(truncate_rx);
-        let flusher = ParquetFlusher::new(dir.path().join("logs"));
-        let (sender, receiver) = crossbeam::channel::unbounded();
-        let handle = spawn_memtable_worker(receiver, truncate_tx, flusher);
+        let flusher = ParquetFlusher::new(&config);
+        let (sender, receiver) = crossbeam::channel::bounded(config.crossbeam_buffer_size);
+        let handle = spawn_memtable_worker(receiver, truncate_tx, flusher, config);
 
         for index in 0..64 {
             sender.send(vec![sample(index)]).expect("send record stream");
         }
         drop(sender);
+
+        handle.join().expect("memtable worker must exit cleanly");
+    }
+
+    #[test]
+    fn memtable_worker_flushes_at_the_configured_limit() {
+        let dir = tempdir().expect("create temp dir");
+        let config = Arc::new(EngineConfig {
+            data_dir: dir.path().join("logs"),
+            wal_path: dir.path().join("current.wal"),
+            flush_row_limit: 16,
+            mpsc_buffer_size: 4,
+            crossbeam_buffer_size: 8,
+        });
+        let (truncate_tx, truncate_rx) = mpsc::channel(config.mpsc_buffer_size);
+        drop(truncate_rx);
+        let flusher = ParquetFlusher::new(&config);
+        let (sender, receiver) = crossbeam::channel::bounded(config.crossbeam_buffer_size);
+        let handle = spawn_memtable_worker(receiver, truncate_tx, flusher, config);
+
+        for index in 0..32 {
+            sender.send(vec![sample(index)]).expect("send record stream");
+        }
+        drop(sender);
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let has_partition = std::fs::read_dir(dir.path().join("logs"))
+                .is_ok_and(|entries| entries.count() > 0);
+            if has_partition {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "parquet must be written");
+            std::thread::sleep(Duration::from_millis(10));
+        }
 
         handle.join().expect("memtable worker must exit cleanly");
     }

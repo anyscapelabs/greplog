@@ -12,7 +12,7 @@ use std::path::Path;
 use crate::error::EngineError;
 use crate::record::LogRecord;
 
-/// Owns the on-disk `current.wal` file and appends batches of records to it.
+/// Owns the on-disk WAL file and appends batches of records to it.
 pub struct WalWriter {
     writer: BufWriter<File>,
 }

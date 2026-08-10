@@ -38,9 +38,9 @@ impl IngestBatch {
 /// sends [`WalCommand::Truncate`] once a batch is safely on disk as Parquet.
 #[derive(Debug)]
 pub enum WalCommand {
-    /// Append a batch of log records to `current.wal`.
+    /// Append a batch of log records to the WAL file.
     Append(IngestBatch),
-    /// Reclaim space by truncating `current.wal` to zero bytes.
+    /// Reclaim space by truncating the WAL file to zero bytes.
     Truncate,
 }
 

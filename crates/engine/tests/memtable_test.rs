@@ -10,8 +10,9 @@ use std::time::Duration;
 use tempfile::tempdir;
 use tokio::sync::{mpsc, oneshot};
 
+use greplog_engine::config::EngineConfig;
 use greplog_engine::ingest::{IngestBatch, WalCommand};
-use greplog_engine::memtable::{FLUSH_THRESHOLD, MemTable};
+use greplog_engine::memtable::MemTable;
 use greplog_engine::record::LogRecord;
 use greplog_engine::storage::ParquetFlusher;
 use greplog_engine::worker::{spawn_memtable_worker, spawn_wal_worker};
@@ -49,7 +50,7 @@ impl Write for Capture {
 
 #[test]
 fn memtable_produces_expected_batch_shape() {
-    let mut table = MemTable::new();
+    let mut table = MemTable::new(8);
     for index in 0..5 {
         table.append_record(&sample(index, "INFO"));
     }
@@ -75,19 +76,27 @@ fn pipeline_of_15000_logs_acks_all_and_triggers_flush() {
     tracing::subscriber::set_global_default(subscriber).expect("install global tracing subscriber");
 
     let dir = tempdir().expect("create temp dir");
-    let wal_path = dir.path().join("current.wal");
+    let config = Arc::new(EngineConfig {
+        data_dir: dir.path().join("logs"),
+        wal_path: dir.path().join("current.wal"),
+        mpsc_buffer_size: 64,
+        crossbeam_buffer_size: 64,
+        ..EngineConfig::default()
+    });
 
-    let (ingest_tx, ingest_rx) = mpsc::channel(64);
-    let (handoff_tx, handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
-    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(64);
+    let (ingest_tx, ingest_rx) = mpsc::channel(config.mpsc_buffer_size);
+    let (handoff_tx, handoff_rx) =
+        crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(config.mpsc_buffer_size);
 
-    let flusher = ParquetFlusher::new(dir.path().join("logs"));
-    let wal_handle = spawn_wal_worker(wal_path, ingest_rx, truncate_rx, handoff_tx);
-    let memtable_handle = spawn_memtable_worker(handoff_rx, truncate_tx, flusher);
+    let flusher = ParquetFlusher::new(&config);
+    let wal_handle = spawn_wal_worker(config.clone(), ingest_rx, truncate_rx, handoff_tx);
+    let memtable_handle = spawn_memtable_worker(handoff_rx, truncate_tx, flusher, config);
 
     let runtime = tokio::runtime::Runtime::new().expect("build runtime");
     runtime.block_on(async {
-        let total = FLUSH_THRESHOLD + 5_000;
+        let limit = EngineConfig::default().flush_row_limit;
+        let total = limit + 5_000;
         let per_batch = 1_000;
         for _ in 0..(total / per_batch) {
             let records: Vec<LogRecord> = (0..per_batch).map(|index| sample(index, "INFO")).collect();

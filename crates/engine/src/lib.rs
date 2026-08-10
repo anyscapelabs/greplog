@@ -6,6 +6,7 @@
 //! - [`schema`]: the canonical Arrow [`Schema`](arrow::datatypes::Schema).
 //!
 //! Write-path domains:
+//! - [`config`]: the runtime [`EngineConfig`] tuning knobs.
 //! - [`ingest`]: the [`IngestBatch`] unit of work + [`WalCommand`] actor commands.
 //! - [`wal`]: the physical [`WalWriter`] with `fsync` durability + truncation.
 //! - [`memtable`]: the Arrow columnar [`MemTable`] buffer.
@@ -15,6 +16,7 @@
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::missing_docs_in_private_items)]
 
+pub mod config;
 pub mod error;
 pub mod ingest;
 pub mod memtable;
@@ -24,6 +26,7 @@ pub mod storage;
 pub mod wal;
 pub mod worker;
 
+pub use config::EngineConfig;
 pub use error::EngineError;
 pub use ingest::{IngestBatch, WalCommand};
 pub use memtable::MemTable;

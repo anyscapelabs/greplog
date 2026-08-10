@@ -20,14 +20,7 @@ use crate::error::EngineError;
 use crate::record::LogRecord;
 use crate::schema::greplog_schema;
 
-/// Default per-builder capacity hint, in rows.
-pub const DEFAULT_CAPACITY: usize = 10_000;
-
-/// Row count at which the worker triggers a flush.
-pub const FLUSH_THRESHOLD: usize = 10_000;
-
 /// An append-only columnar buffer for [`LogRecord`]s.
-#[derive(Default)]
 pub struct MemTable {
     timestamps: TimestampMicrosecondBuilder,
     trace_ids: StringBuilder,
@@ -38,15 +31,12 @@ pub struct MemTable {
 }
 
 impl MemTable {
-    /// Creates an empty table with the default capacity hint.
+    /// Creates an empty table with the given per-builder capacity hint.
+    ///
+    /// The hint is a pre-allocation, not a bound: the builders grow as needed,
+    /// so it should track the row count the caller flushes at.
     #[must_use]
-    pub fn new() -> Self {
-        Self::with_capacity(DEFAULT_CAPACITY)
-    }
-
-    /// Creates an empty table with a custom per-builder capacity hint.
-    #[must_use]
-    pub fn with_capacity(capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         let varchar_capacity = capacity.saturating_mul(8);
         Self {
             timestamps: TimestampMicrosecondBuilder::with_capacity(capacity),
@@ -78,25 +68,35 @@ impl MemTable {
     /// Returns [`EngineError::ArrowError`] if the finished arrays do not match
     /// the canonical schema.
     pub fn finish(&mut self) -> Result<RecordBatch, EngineError> {
-        let completed = std::mem::take(self);
-        completed.build_batch()
+        build_batch(
+            std::mem::take(&mut self.timestamps),
+            std::mem::take(&mut self.trace_ids),
+            std::mem::take(&mut self.levels),
+            std::mem::take(&mut self.services),
+            std::mem::take(&mut self.messages),
+            std::mem::take(&mut self.raw_bodies),
+        )
     }
+}
 
-    /// Consumes the builders and assembles the finished [`RecordBatch`].
-    ///
-    /// `mem::take(self)` in [`MemTable::finish`] moves the populated builders
-    /// here so they can be consumed by `Builder::finish`.
-    fn build_batch(mut self) -> Result<RecordBatch, EngineError> {
-        let columns: Vec<ArrayRef> = vec![
-            Arc::new(self.timestamps.finish()),
-            Arc::new(self.trace_ids.finish()),
-            Arc::new(self.levels.finish()),
-            Arc::new(self.services.finish()),
-            Arc::new(self.messages.finish()),
-            Arc::new(self.raw_bodies.finish()),
-        ];
-        RecordBatch::try_new(greplog_schema(), columns).map_err(EngineError::from)
-    }
+/// Consumes the builders and assembles the finished [`RecordBatch`].
+fn build_batch(
+    mut timestamps: TimestampMicrosecondBuilder,
+    mut trace_ids: StringBuilder,
+    mut levels: StringDictionaryBuilder<Int8Type>,
+    mut services: StringDictionaryBuilder<Int16Type>,
+    mut messages: StringBuilder,
+    mut raw_bodies: StringBuilder,
+) -> Result<RecordBatch, EngineError> {
+    let columns: Vec<ArrayRef> = vec![
+        Arc::new(timestamps.finish()),
+        Arc::new(trace_ids.finish()),
+        Arc::new(levels.finish()),
+        Arc::new(services.finish()),
+        Arc::new(messages.finish()),
+        Arc::new(raw_bodies.finish()),
+    ];
+    RecordBatch::try_new(greplog_schema(), columns).map_err(EngineError::from)
 }
 
 /// Appends an optional string, preserving `None` as a null slot.
@@ -109,7 +109,7 @@ fn append_optional(builder: &mut StringBuilder, value: Option<&str>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_CAPACITY, FLUSH_THRESHOLD, MemTable};
+    use super::MemTable;
     use crate::record::LogRecord;
 
     fn sample(index: usize, level: &str) -> LogRecord {
@@ -125,7 +125,7 @@ mod tests {
 
     #[test]
     fn finish_produces_expected_rows_and_columns() {
-        let mut table = MemTable::new();
+        let mut table = MemTable::new(8);
         for index in 0..5 {
             table.append_record(&sample(index, "INFO"));
         }
@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn option_fields_become_null_when_absent() {
-        let mut table = MemTable::new();
+        let mut table = MemTable::new(8);
         let mut record = sample(1, "WARN");
         record.trace_id = None;
         record.raw_body = None;
@@ -150,7 +150,7 @@ mod tests {
 
     #[test]
     fn populated_optional_fields_have_no_nulls() {
-        let mut table = MemTable::new();
+        let mut table = MemTable::new(8);
         table.append_record(&sample(1, "INFO"));
 
         let batch = table.finish().expect("finish");
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn finish_resets_table_for_reuse() {
-        let mut table = MemTable::new();
+        let mut table = MemTable::new(8);
         for index in 0..3 {
             table.append_record(&sample(index, "INFO"));
         }
@@ -176,14 +176,18 @@ mod tests {
 
     #[test]
     fn empty_table_finishes_to_zero_rows() {
-        let mut table = MemTable::new();
+        let mut table = MemTable::new(8);
         let batch = table.finish().expect("finish");
         assert_eq!(batch.num_rows(), 0);
     }
 
     #[test]
-    fn defaults_are_sane() {
-        assert_eq!(DEFAULT_CAPACITY, 10_000);
-        assert_eq!(FLUSH_THRESHOLD, 10_000);
+    fn tables_grow_beyond_their_capacity_hint() {
+        let mut table = MemTable::new(4);
+        for index in 0..16 {
+            table.append_record(&sample(index, "INFO"));
+        }
+        let batch = table.finish().expect("finish");
+        assert_eq!(batch.num_rows(), 16, "capacity is a hint, not a bound");
     }
 }

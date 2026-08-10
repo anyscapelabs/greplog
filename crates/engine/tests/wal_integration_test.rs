@@ -3,11 +3,13 @@
 //! Verifies the end-to-end contract: a batch sent through the ingest channel is
 //! acknowledged only after the WAL file has bytes on disk.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use tempfile::tempdir;
 use tokio::sync::{mpsc, oneshot};
 
+use greplog_engine::config::EngineConfig;
 use greplog_engine::error::EngineError;
 use greplog_engine::ingest::{IngestBatch, WalCommand};
 use greplog_engine::record::LogRecord;
@@ -43,11 +45,18 @@ async fn send_and_await(
 async fn wal_worker_persists_batch_and_acknowledges() {
     let dir = tempdir().expect("create temp dir for wal");
     let wal_path = dir.path().join("current.wal");
+    let config = Arc::new(EngineConfig {
+        wal_path: wal_path.clone(),
+        mpsc_buffer_size: 8,
+        crossbeam_buffer_size: 8,
+        ..EngineConfig::default()
+    });
 
-    let (sender, receiver) = mpsc::channel::<WalCommand>(8);
-    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(8);
-    let (handoff_tx, _handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
-    let handle = spawn_wal_worker(wal_path.clone(), receiver, truncate_rx, handoff_tx);
+    let (sender, receiver) = mpsc::channel::<WalCommand>(config.mpsc_buffer_size);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(config.mpsc_buffer_size);
+    let (handoff_tx, _handoff_rx) =
+        crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
+    let handle = spawn_wal_worker(config, receiver, truncate_rx, handoff_tx);
 
     let records = vec![sample("a", "INFO"), sample("b", "WARN"), sample("c", "ERROR")];
     let outcome = send_and_await(&sender, records).await.expect("channel must accept the batch");
@@ -65,11 +74,18 @@ async fn wal_worker_persists_batch_and_acknowledges() {
 async fn wal_worker_orders_batches_and_grows_file() {
     let dir = tempdir().expect("create temp dir for wal");
     let wal_path = dir.path().join("current.wal");
+    let config = Arc::new(EngineConfig {
+        wal_path: wal_path.clone(),
+        mpsc_buffer_size: 8,
+        crossbeam_buffer_size: 8,
+        ..EngineConfig::default()
+    });
 
-    let (sender, receiver) = mpsc::channel::<WalCommand>(8);
-    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(8);
-    let (handoff_tx, _handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
-    let handle = spawn_wal_worker(wal_path.clone(), receiver, truncate_rx, handoff_tx);
+    let (sender, receiver) = mpsc::channel::<WalCommand>(config.mpsc_buffer_size);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(config.mpsc_buffer_size);
+    let (handoff_tx, _handoff_rx) =
+        crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
+    let handle = spawn_wal_worker(config, receiver, truncate_rx, handoff_tx);
 
     let outcome = send_and_await(&sender, vec![sample("first", "INFO")]).await.expect("first batch must be accepted");
     assert!(outcome.is_ok(), "first batch must append cleanly");
@@ -90,11 +106,18 @@ async fn wal_worker_orders_batches_and_grows_file() {
 async fn wal_worker_reports_failure_when_wal_cannot_be_opened() {
     let dir = tempdir().expect("create temp dir for wal");
     let wal_path = dir.path().join("missing-dir").join("current.wal");
+    let config = Arc::new(EngineConfig {
+        wal_path,
+        mpsc_buffer_size: 8,
+        crossbeam_buffer_size: 8,
+        ..EngineConfig::default()
+    });
 
-    let (sender, receiver) = mpsc::channel::<WalCommand>(8);
-    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(8);
-    let (handoff_tx, _handoff_rx) = crossbeam::channel::unbounded::<Vec<LogRecord>>();
-    let handle = spawn_wal_worker(wal_path, receiver, truncate_rx, handoff_tx);
+    let (sender, receiver) = mpsc::channel::<WalCommand>(config.mpsc_buffer_size);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(config.mpsc_buffer_size);
+    let (handoff_tx, _handoff_rx) =
+        crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
+    let handle = spawn_wal_worker(config, receiver, truncate_rx, handoff_tx);
 
     let outcome = send_and_await(&sender, vec![sample("a", "INFO")]).await.expect("channel must accept the batch");
     assert!(outcome.is_err(), "an unopenable wal must surface as an error");

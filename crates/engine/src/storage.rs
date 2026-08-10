@@ -1,8 +1,9 @@
 //! The Parquet storage layer: Hive-partitioned columnar files.
 //!
 //! [`ParquetFlusher`] writes finished [`RecordBatch`]es into
-//! `root/year=YYYY/month=MM/day=DD/chunk_*.parquet` chunks using
-//! [`ArrowWriter`] with Snappy compression.
+//! `data_dir/year=YYYY/month=MM/day=DD/chunk_*.parquet` chunks using
+//! [`ArrowWriter`] with Snappy compression. The base directory comes from the
+//! engine configuration; no path is assumed.
 
 use std::fs::File;
 use std::path::PathBuf;
@@ -13,20 +14,22 @@ use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
 
+use crate::config::EngineConfig;
 use crate::error::EngineError;
 
-/// Writes Arrow batches to Hive-partitioned Parquet chunks under a root dir.
+/// Writes Arrow batches to Hive-partitioned Parquet chunks under the
+/// configured `data_dir`.
 pub struct ParquetFlusher {
     root_dir: PathBuf,
     properties: WriterProperties,
 }
 
 impl ParquetFlusher {
-    /// Creates a flusher that writes into `root_dir` (e.g. `data/logs/`).
+    /// Creates a flusher rooted at the configured `data_dir`.
     #[must_use]
-    pub fn new(root_dir: impl Into<PathBuf>) -> Self {
+    pub fn new(config: &EngineConfig) -> Self {
         Self {
-            root_dir: root_dir.into(),
+            root_dir: config.data_dir.clone(),
             properties: WriterProperties::builder()
                 .set_compression(Compression::SNAPPY)
                 .build(),
@@ -81,6 +84,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::ParquetFlusher;
+    use crate::config::EngineConfig;
     use crate::memtable::MemTable;
     use crate::record::LogRecord;
 
@@ -96,7 +100,7 @@ mod tests {
     }
 
     fn build_batch(count: usize) -> arrow::record_batch::RecordBatch {
-        let mut table = MemTable::new();
+        let mut table = MemTable::new(count.max(1));
         for index in 0..count {
             table.append_record(&sample(index));
         }
@@ -129,7 +133,11 @@ mod tests {
     fn flush_writes_valid_hive_partitioned_parquet() {
         let dir = tempdir().expect("create temp dir");
         let root = dir.path().join("logs");
-        let flusher = ParquetFlusher::new(&root);
+        let config = EngineConfig {
+            data_dir: root.clone(),
+            ..EngineConfig::default()
+        };
+        let flusher = ParquetFlusher::new(&config);
 
         let batch = build_batch(3);
         flusher.flush(&batch).expect("flush parquet");
@@ -149,7 +157,11 @@ mod tests {
 
     #[test]
     fn partition_path_matches_hive_layout() {
-        let flusher = ParquetFlusher::new("data/logs");
+        let config = EngineConfig {
+            data_dir: PathBuf::from("data/logs"),
+            ..EngineConfig::default()
+        };
+        let flusher = ParquetFlusher::new(&config);
         let time: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-08-09T12:00:00Z")
             .expect("parse rfc3339")
             .with_timezone(&Utc);
