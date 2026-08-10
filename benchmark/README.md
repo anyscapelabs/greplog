@@ -4,7 +4,10 @@ This directory contains stress-test benchmarks for the Greplog storage engine. T
 
 ## Benchmark Execution Config
 
-* **Total Logs Ingested:** 100,000 structured log items
+* **Total Logs Ingested:** 100,000 structured log items (single-point run)
+* **Producer Ceiling Sweep:** ladder of concurrent producers from 1 to 128
+  (1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128), each ACK'd per
+  250-log batch, to find the throughput ceiling — see `report.md` §7.
 * **Concurrent Producers:** 4 asynchronous worker tasks simulating microservices
 * **Payload Structure (Per Log):** timestamp, service metadata, unique `job_id` trace identifiers, nested `raw_body` JSON strings with stack traces and mock request parameters
 
@@ -39,8 +42,8 @@ Apache Arrow builders (`MemTable`) successfully pre-allocate buffer capacity, pr
 ## Running
 
 ```bash
-cargo test --test throughput_benchmark -- --nocapture
-cargo bench --bench throughput
+cargo test -p greplog-engine --test throughput_benchmark --release -- --nocapture
+cargo bench --bench throughput (benches/throughput.rs)
 cargo flamegraph --test throughput_benchmark
 ```
 
