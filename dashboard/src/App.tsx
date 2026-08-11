@@ -1,10 +1,10 @@
+import wordmark from './assets/wordmark-white.svg'
+
 function App() {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100">
       <header className="border-b border-zinc-800 px-6 py-4">
-        <h1 className="text-xl font-semibold tracking-tight">
-          Greplog <span className="font-normal text-zinc-500">Dashboard</span>
-        </h1>
+        <img src={wordmark} alt="Greplog" className="h-8 w-auto" />
       </header>
       <main className="mx-auto grid max-w-6xl gap-6 px-6 py-8 md:grid-cols-2">
         <section className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-5">

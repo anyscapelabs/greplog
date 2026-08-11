@@ -3,6 +3,10 @@
 The Greplog web dashboard — a Vite + React + TypeScript frontend styled with
 Tailwind CSS v4, served by `greplog dev` on port 3000.
 
+Brand assets (wordmarks in black/white/blue and the favicon) are copied from
+`../assets/branding/logo/` into `src/assets/` and `public/`. The white wordmark
+heads the page; `public/favicon.svg` is the brand favicon.
+
 ## Development
 
 ```bash

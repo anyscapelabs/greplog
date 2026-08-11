@@ -2,14 +2,14 @@
 <!-- Created with Inkscape (http://www.inkscape.org/) -->
 
 <svg
-   width="16mm"
-   height="16mm"
-   viewBox="0 0 16 16"
+   width="305.34726mm"
+   height="64.784264mm"
+   viewBox="0 0 305.34726 64.784264"
    version="1.1"
    id="svg5"
    inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
    sodipodi:docname="drawing.svg"
-   inkscape:export-filename="Desktop/greplog-assets/app-icon-blue.svg"
+   inkscape:export-filename="Desktop/greplog-assets/banner.png"
    inkscape:export-xdpi="96"
    inkscape:export-ydpi="96"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
@@ -42,54 +42,56 @@
      inkscape:label="Layer 1"
      inkscape:groupmode="layer"
      id="layer1"
-     transform="translate(-42.55399,134.04396)">
-    <rect
-       style="opacity:1;fill:#0000ff;fill-opacity:1;stroke-width:0.132022"
-       id="rect9178"
-       width="16"
-       x="42.553993"
-       y="-134.04396"
-       height="16"
-       ry="8" />
+     transform="translate(82.722704,135.28257)">
     <g
-       id="g9049"
-       style="fill:#ffffff"
-       transform="matrix(0.12055255,0,0,0.13266286,42.287289,-111.00361)">
+       id="g8830"
+       transform="translate(-1.588211,-49.587238)">
       <rect
          style="fill:#ffffff;fill-opacity:1;stroke-width:0.228413"
          id="rect788"
          width="20"
          height="36.067436"
-         x="36.993706"
-         y="-124.5013" />
+         x="-81.134491"
+         y="-66.515221" />
       <rect
          style="fill:#ffffff;fill-opacity:1;stroke-width:0.264583"
          id="rect2402"
          width="34"
          height="19.694677"
-         x="56.359734"
-         y="-143.68143" />
+         x="-61.768463"
+         y="-85.695335" />
       <rect
          style="fill:#ffffff;fill-opacity:1;stroke-width:0.239741"
          id="rect2406"
          width="17.035049"
          height="19.946659"
-         x="73.279083"
-         y="-124.35046" />
+         x="-44.849106"
+         y="-66.364372" />
       <rect
          style="fill:#ffffff;fill-opacity:1;stroke-width:0.255963"
          id="rect2408"
          width="17.038023"
          height="16.309063"
-         x="56.320927"
-         y="-104.71289" />
+         x="-61.80727"
+         y="-46.726807" />
       <rect
          style="fill:#ffffff;fill-opacity:1;stroke-width:0.264583"
          id="rect2408-3"
          width="17.776491"
          height="16.702162"
-         x="89.428108"
-         y="-104.85234" />
+         x="-28.700083"
+         y="-46.866257" />
     </g>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:59.9722px;font-family:OpenSymbol;-inkscape-font-specification:OpenSymbol;fill:#ffffff;fill-opacity:1;stroke-width:0.264583"
+       x="-1.1915412"
+       y="-85.071548"
+       id="text3277"><tspan
+         sodipodi:role="line"
+         id="tspan3275"
+         style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:59.9722px;font-family:Satoshi;-inkscape-font-specification:'Satoshi Bold';fill:#ffffff;fill-opacity:1;stroke-width:0.264583"
+         x="-1.1915412"
+         y="-85.071548">Greplog</tspan></text>
   </g>
 </svg>
