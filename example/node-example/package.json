@@ -1,0 +1,13 @@
+{
+  "name": "greplog-node-example",
+  "version": "1.0.0",
+  "description": "An example Express API demonstrating Greplog auto-instrumentation",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "greplog": "file:../../sdk/node"
+  }
+}

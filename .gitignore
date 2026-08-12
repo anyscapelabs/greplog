@@ -1,3 +1,7 @@
 /target
 /auto-push.log
 /auto-push.sh
+/data/
+/sdk/node/node_modules/
+/sdk/node/dist/
+/example/node-example/node_modules/
