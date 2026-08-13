@@ -32,6 +32,15 @@ export interface LogRecord {
 const DEFAULT_ENDPOINT = process.env.GREPLOG_URL ?? 'http://127.0.0.1:5050'
 const DEFAULT_SERVICE = process.env.GREPLOG_SERVICE_NAME ?? 'node-app'
 
+/**
+ * Returns true for HTTP statuses worth retrying: 5xx (server-side failure)
+ * and 429 (rate limited). Any other 4xx means the request itself was
+ * rejected and resending the same bytes would just fail again.
+ */
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500
+}
+
 function safeStringify(value: unknown): string | null {
   if (value == null) return null
   const seen = new WeakSet<object>()
@@ -129,7 +138,22 @@ export class GreplogClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(batch),
     })
-      .then(() => undefined)
+      .then((response) => {
+        if (response.ok) return
+
+        if (isRetryableStatus(response.status)) {
+          // Transient server-side failure (5xx) or the server is asking us to
+          // back off (429): the batch was never durably accepted, so it goes
+          // back on the queue exactly like a network failure would.
+          this.requeue(batch)
+          return
+        }
+
+        // A 4xx means the server rejected this exact payload (bad JSON,
+        // over the size limit, ...); retrying identical bytes will only fail
+        // the same way forever, so the batch is dropped rather than looped.
+        this.dropped += batch.length
+      })
       .catch(() => {
         // Backend unreachable: re-queue silently, capping the buffer so the
         // caller's process memory never grows without bound.

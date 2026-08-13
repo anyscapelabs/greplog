@@ -126,6 +126,56 @@ describe('GreplogClient', () => {
     expect(client.getDroppedCount()).toBe(0)
   })
 
+  it('re-queues and retries when the server returns a 500', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 500 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = new GreplogClient({ service: 'svc', batchSize: 1 })
+    client.track('ERROR', 'wal write failed upstream')
+    await client.flush()
+    await client.flush()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(jsonBody(fetchMock.mock.calls[1])).toHaveLength(1)
+    expect(client.getDroppedCount()).toBe(0)
+  })
+
+  it('re-queues and retries when the server returns a 429', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 429 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = new GreplogClient({ service: 'svc', batchSize: 1 })
+    client.track('INFO', 'rate limited')
+    await client.flush()
+    await client.flush()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(client.getDroppedCount()).toBe(0)
+  })
+
+  it('drops the batch instead of retrying forever on a 4xx rejection', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 422 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const client = new GreplogClient({ service: 'svc', batchSize: 1 })
+    client.track('INFO', 'malformed somehow')
+    await client.flush()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(client.getDroppedCount()).toBe(1)
+
+    // The rejected batch must not still be sitting in the queue waiting to
+    // be resent on the next flush.
+    await client.flush()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('stringifies non-string messages and never rejects', async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error('down'))
     vi.stubGlobal('fetch', fetchMock)

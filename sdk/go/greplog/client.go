@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,6 +21,10 @@ type Config struct {
 	// FlushInterval is the maximum time a batch may age before a flush.
 	FlushInterval   time.Duration `json:"flush_interval,omitempty"`
 	ChannelCapacity int           `json:"channel_capacity,omitempty"`
+	// MaxQueueSize caps the records held for retry after a failed flush;
+	// the oldest are dropped beyond this so a downed server can never grow
+	// process memory without bound.
+	MaxQueueSize int `json:"max_queue_size,omitempty"`
 }
 
 // LogEntry is the JSON wire record accepted by the Greplog ingest agent
@@ -44,6 +49,7 @@ type Client struct {
 	wg         sync.WaitGroup
 	done       chan struct{}
 	closeOnce  sync.Once
+	dropped    atomic.Int64
 }
 
 func envDefault(value, key, fallback string) string {
@@ -72,6 +78,9 @@ func NewClient(cfg Config) *Client {
 	}
 	if cfg.ChannelCapacity <= 0 {
 		cfg.ChannelCapacity = 10000
+	}
+	if cfg.MaxQueueSize <= 0 {
+		cfg.MaxQueueSize = 10000
 	}
 
 	c := &Client{
@@ -104,73 +113,128 @@ func (c *Client) FlushInterval() time.Duration { return c.config.FlushInterval }
 // ChannelCapacity returns the effectively configured channel capacity.
 func (c *Client) ChannelCapacity() int { return c.config.ChannelCapacity }
 
+// DroppedCount returns the number of records dropped because the retry
+// backlog exceeded MaxQueueSize, or because the server permanently rejected
+// them (a non-retryable 4xx). It never counts records still awaiting retry.
+func (c *Client) DroppedCount() int64 { return c.dropped.Load() }
+
+// isRetryableStatus reports whether a non-2xx HTTP status is worth retrying:
+// 5xx (server-side failure) and 429 (rate limited). Any other 4xx means the
+// server rejected this exact request body, and resending identical bytes
+// would only fail the same way forever.
+func isRetryableStatus(status int) bool {
+	return status == http.StatusTooManyRequests || status >= 500
+}
+
 func (c *Client) workerLoop() {
 	defer c.wg.Done()
 
 	ticker := time.NewTicker(c.config.FlushInterval)
 	defer ticker.Stop()
 
-	var batch []LogEntry
+	// pending holds records not yet durably accepted by the server. A
+	// successful (or permanently rejected) flush empties it; a retryable
+	// failure (network error, 5xx, 429) leaves it in place so the next
+	// trigger resends it, merged with whatever arrived in the meantime.
+	var pending []LogEntry
+	// retrying is set once a flush fails retryably. While true, new entries
+	// still accumulate into pending, but only the ticker re-attempts the
+	// send — otherwise every single incoming entry would re-trigger an
+	// immediate retry against a server that is already failing, turning an
+	// outage into a hammering loop instead of a backoff.
+	retrying := false
 
-	reset := func() {
-		batch = make([]LogEntry, 0, c.config.BatchSize)
+	attempt := func() {
+		if len(pending) == 0 {
+			return
+		}
+		if c.flush(pending) {
+			pending = pending[:0]
+			retrying = false
+		} else {
+			retrying = true
+		}
+		pending = c.capPending(pending)
 	}
-	reset()
 
 	for {
 		select {
 		case entry, ok := <-c.logChan:
 			if !ok {
-				// Channel closed: flush anything remaining and exit.
-				if len(batch) > 0 {
-					c.flush(batch)
-				}
+				// Channel closed: make one last attempt and exit.
+				attempt()
 				return
 			}
-			batch = append(batch, entry)
-			if len(batch) >= c.config.BatchSize {
-				c.flush(batch)
-				reset()
+			pending = append(pending, entry)
+			if !retrying && len(pending) >= c.config.BatchSize {
+				attempt()
 			}
 
 		case <-ticker.C:
-			if len(batch) > 0 {
-				c.flush(batch)
-				reset()
-			}
+			attempt()
 
 		case <-c.done:
 			// Drain the channel, flushing full batches as we go.
 			for entry := range c.logChan {
-				batch = append(batch, entry)
-				if len(batch) >= c.config.BatchSize {
-					c.flush(batch)
-					reset()
+				pending = append(pending, entry)
+				if !retrying && len(pending) >= c.config.BatchSize {
+					attempt()
 				}
 			}
-			if len(batch) > 0 {
-				c.flush(batch)
-			}
+			attempt()
 			return
 		}
 	}
 }
 
-func (c *Client) flush(batch []LogEntry) {
+// capPending bounds the retry backlog at MaxQueueSize, dropping the oldest
+// records first so a sustained outage can never grow process memory without
+// bound.
+func (c *Client) capPending(pending []LogEntry) []LogEntry {
+	if len(pending) <= c.config.MaxQueueSize {
+		return pending
+	}
+	overflow := len(pending) - c.config.MaxQueueSize
+	c.dropped.Add(int64(overflow))
+	return pending[overflow:]
+}
+
+// flush POSTs batch to the ingest endpoint and reports whether it is safe to
+// discard: true means the server durably accepted it (2xx) or permanently
+// rejected it (a non-retryable 4xx, counted as dropped); false means the
+// caller should keep batch and retry — the record was never accepted.
+func (c *Client) flush(batch []LogEntry) bool {
 	data, err := json.Marshal(batch)
 	if err != nil {
-		return
+		// Will never marshal successfully no matter how many times we try.
+		c.dropped.Add(int64(len(batch)))
+		return true
 	}
 
 	req, err := http.NewRequest(http.MethodPost, c.config.Endpoint, bytes.NewReader(data))
 	if err != nil {
-		return
+		c.dropped.Add(int64(len(batch)))
+		return true
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
-	if err == nil {
-		_ = resp.Body.Close()
+	if err != nil {
+		// Network-level failure (server down, DNS, timeout): transient, retry.
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch {
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		return true
+	case isRetryableStatus(resp.StatusCode):
+		return false
+	default:
+		// A non-retryable 4xx: the server rejected this exact payload, so
+		// retrying identical bytes would only fail the same way forever.
+		c.dropped.Add(int64(len(batch)))
+		return true
 	}
 }
 

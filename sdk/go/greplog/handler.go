@@ -23,6 +23,10 @@ func NewHandler(cfg Config) *Handler {
 	return &Handler{client: client}
 }
 
+// Client returns the underlying batching client, for introspection (e.g.
+// DroppedCount) or advanced use such as a manual Flush.
+func (h *Handler) Client() *Client { return h.client }
+
 // Enabled always reports true: every level is forwarded.
 func (h *Handler) Enabled(_ context.Context, _ slog.Level) bool {
 	return true
