@@ -24,7 +24,7 @@ greplog dev
 
 This spins up:
 
-- **Ingest Server** at `http://localhost:3000/api/log`
+- **Ingest Server** at `http://localhost:5050/api/log`
 - **Embedded Vite Dashboard** at `http://localhost:3000`
 - **DataFusion Query Engine** over local Parquet storage
 
@@ -45,5 +45,5 @@ greplog start --port 8080 --retention-days 14
 Remove the binary and its data directory:
 
 ```bash
-rm -f "$(command -v greplog)" && rm -rf ~/.greplog
+rm -f "$(command -v greplog)" && rm -rf data/logs data/wal
 ```

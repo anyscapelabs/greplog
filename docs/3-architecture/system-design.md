@@ -10,7 +10,7 @@ Greplog avoids `Mutex` locks in the ingestion hot-path entirely. The architectur
 | --- | --- | --- |
 | **Network Layer** | Tokio Async Web Workers | Accepting HTTP requests on Port 5050 and 3000. Managing SSE streams. |
 | **State Layer** | 2 Dedicated OS Threads | The **WAL Worker** and **MemTable Worker**. They run infinite loops outside of Tokio to prevent async runtime blocking. |
-| **Heavy CPU/Disk** | Tokio `spawn_blocking` pool | Parquet compression, DataFusion query execution, and background file compaction. |
+| **Heavy CPU/Disk** | Tokio `spawn_blocking` pool + dedicated query runtime | Parquet compression, background file compaction, and result JSON serialization run on `spawn_blocking`; each query executes on a small dedicated multi-thread Tokio runtime (`worker_threads(2)`) that can be torn down on timeout. |
 
 ## 2. The Network Layer (Dual-Port Routing)
 
@@ -23,7 +23,7 @@ To provide maximum security and routing efficiency, the single `greplog dev` bin
 
 This is the exact lifecycle of a log from the moment the SDK sends it to the moment it is queryable.
 
-1. **SDK Client Batching:** The SDK accumulates logs in memory. Every 1 second (or 1,000 logs), it sends an HTTP POST array to `0.0.0.0:5050/api/log`.
+1. **SDK Client Batching:** The SDK accumulates logs in memory. Every 500 ms (or once 100 logs are queued, whichever comes first), it sends an HTTP POST array to `0.0.0.0:5050/api/log`.
 2. **The HTTP Receiver:** Axum parses the JSON batch. It creates a `tokio::sync::oneshot` channel. It bundles the batch and the `oneshot::Sender` together, pushes them into the **Ingest MPSC Channel** (`tokio::sync::mpsc`), and `.await`s the response.
 3. **The WAL Worker (OS Thread 1):**
    - Pulls the batch from the MPSC channel.
@@ -48,7 +48,7 @@ The MemTable Worker drains durable records into Arrow batches staged in the shar
 - For low-traffic deployments that never reach the row threshold, a flush also fires **10 seconds** (`flush_interval_secs`) after the last flush while any rows are pending.
 
 - It compresses the Arrow data using Snappy.
-- It writes a file to the active partition: `data/logs/year=2026/month=08/day=09/chunk_{timestamp}.parquet`.
+- It writes a file to the active partition: `data/logs/year=2026/month=08/day=09/service=auth-api/chunk_{nanos}.parquet`.
 - Once the file is on disk, it signals the WAL Worker to confirm the written rows, sealing and reclaiming the corresponding WAL segments.
 
 ### Tier 2: Background Compaction (Interval × File-Count Trigger)
@@ -64,24 +64,25 @@ If Greplog runs for weeks, Tier 1 creates thousands of small files, which slows 
 
 The read path merges historical disk data and live memory data invisibly to the user.
 
-1. **Session Context Initialization:** On startup, Greplog mounts the `data/logs/` directory as a `ListingTable`.
-2. **Metadata Caching:** DataFusion is configured to cache Parquet footers. The planning phase for querying 10,000 files drops from 2 seconds to <10 milliseconds.
-3. **The Union All Execution:** When Port 3000 receives a SQL query (e.g., `SELECT count(*) WHERE level = 'ERROR'`), Greplog wraps the query:
+1. **Session Context Initialization:** On startup, Greplog registers the `data/logs/` tree as a `ListingTable` (`parquet_logs`) and the shared live buffer as a live table provider (`live_logs`).
+2. **The Unified View:** A SQL view `logs` is created once at boot that `UNION ALL`s the two tiers — the Parquet `ListingTable` and the live buffer provider — bridging the schema gap by deriving the `year`/`month`/`day` partition columns from `timestamp_us` on the live side.
+3. **Execution:** When Port 3000 receives a SQL query (e.g., `SELECT count(*) FROM logs WHERE level = 'ERROR'`), it runs against the `logs` view:
    - It scans the Parquet `ListingTable` (Partition pruned, Column pruned).
-   - It scans the active Arrow MemTable provider.
-   - It executes a `UNION ALL` across both streams and returns the aggregated JSON response to the Vite dashboard.
+   - It scans the live buffer provider, which snapshots the shared `LiveBuffer` under a brief read lock on every scan.
+   - DataFusion plans and executes the query, applying any timeout and row cap; the result is serialized to JSON on a blocking thread and returned to the caller.
 
 ## 6. Schema Definition
 
-To maximize columnar compression and query speed, the Arrow schema is rigidly typed. (Flexible JSON is stored in a dedicated metadata string column).
+To maximize columnar compression and query speed, the Arrow schema is rigidly typed. (Flexible JSON payloads are stored in a dedicated nullable `raw_body` column).
 
 | Column | Arrow Type | Description |
 | --- | --- | --- |
-| `timestamp` | `Timestamp(Microsecond)` | The primary time-series axis for partition pruning. |
-| `level` | `Dictionary(Int8, Utf8)` | Enum (INFO, WARN, ERROR). Dictionary encoding saves massive space. |
-| `service` | `Dictionary(Int16, Utf8)` | The source application (e.g., "auth-api", "frontend"). |
+| `timestamp_us` | `Timestamp(Microsecond)` | The primary time-series axis for partition pruning. |
+| `trace_id` | `Utf8` (nullable) | Correlation id grouping logs from one job or HTTP request. |
+| `level` | `Dictionary(Int16, Utf8)` | Severity level (INFO, WARN, ERROR). Dictionary encoding saves space. |
+| `service` | `Dictionary(Int16, Utf8)` | The source application (e.g., "auth-api", "frontend"). Stored only in the `service=<name>` partition folder, never in the file. |
 | `message` | `Utf8` | The raw log string. |
-| `metadata` | `Utf8` | A stringified JSON object for custom key-value pairs. |
+| `raw_body` | `Utf8` (nullable) | Stringified JSON payload (request body, stack trace, worker data). |
 
 ## 7. Automated Maintenance
 
@@ -96,4 +97,4 @@ If power is lost, Greplog recovers state autonomously:
 
 ### Auto-Retention (TTL)
 
-Because data is strictly partitioned by time directories on disk, deleting old data requires zero CPU or SQL overhead. A background thread checks the CLI `--retention-days` flag and issues a standard `fs::remove_dir_all()` command to delete the entire directory for expired days (e.g., `rm -rf data/logs/year=2026/month=07`).
+Because data is strictly partitioned by time directories on disk, deleting old data requires zero CPU or SQL overhead. A background thread walks the tree for `day=` partitions older than the CLI `--retention-days` flag and issues a standard `fs::remove_dir_all()` command to delete each expired day directory (e.g., `rm -rf data/logs/year=2026/month=07/day=01`).

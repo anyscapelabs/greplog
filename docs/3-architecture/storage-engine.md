@@ -40,10 +40,17 @@ Auto-retention purges Parquet directories older than `--retention-days` (default
 ## Directory layout
 
 ```
-~/.greplog/
-├── current.wal
-├── memtable/       # in-memory state, checkpointed on shutdown
-└── parquet/
-    ├── 2026-08-09/ # per-day directories, purged by TTL
-    └── ...
+data/
+├── wal/
+│   └── current.wal          # active WAL segment (fsync before ack)
+│       └── sealed-<n>-*.wal       # rotated segments, replayed on boot, reclaimed later
+└── logs/                    # data_dir, Hive-partitioned Parquet tree
+    └── year=2026/month=08/day=09/
+        └── service=auth-api/
+            └── chunk_*.parquet       # row-threshold / interval flushes
+            └── compacted_<uuid>.parquet  # merged by the background compactor
 ```
+
+The MemTable is purely in-memory — there is no checkpoint directory on disk. The
+`day=` directories are the retention granularity: an expired day is deleted
+wholesale with `remove_dir_all`.

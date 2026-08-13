@@ -6,19 +6,18 @@ Greplog is configured through CLI flags and environment variables.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--port` | `3000` | HTTP port for the ingest server and dashboard |
+| `--port` | `3000` | Dashboard API port (`/api/query`, `/api/tail`). The ingest API is fixed on `5050`. |
 | `--retention-days` | `30` | How long Parquet data is kept before automatic purge |
-| `--data-dir` | `~/.greplog` | Where WAL and Parquet files are stored |
 
 ### Port overrides
 
-To run Greplog behind another process or on a privileged port:
+The `--port` flag moves the dashboard API; the ingest API always stays on `5050`:
 
 ```bash
-greplog start --port 5050
+greplog start --port 8080
 ```
 
-SDKs must then point at the new URL:
+SDKs must then point at the ingest URL (still `5050` unless proxied):
 
 ```bash
 export GREPLOG_URL=http://localhost:5050
@@ -38,14 +37,14 @@ These are read by the SDKs (`greplog.init()` with no arguments) and by the serve
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `GREPLOG_URL` | Greplog backend server URL | `http://localhost:3000` |
+| `GREPLOG_URL` | Greplog ingest server URL (default `http://127.0.0.1:5050`) | `http://localhost:5050` |
 | `GREPLOG_SERVICE_NAME` | Name of your microservice/app | `api-gateway` |
 | `GREPLOG_ENV` | Deployment environment | `production` |
 
 ### SDK example
 
 ```bash
-export GREPLOG_URL=http://localhost:3000
+export GREPLOG_URL=http://localhost:5050
 export GREPLOG_SERVICE_NAME=api-gateway
 export GREPLOG_ENV=production
 

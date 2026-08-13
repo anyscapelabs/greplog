@@ -28,7 +28,7 @@ greplog dev
 
 This spins up:
 
-- 🟢 **Ingest Server** at http://localhost:3000/api/log
+- 🟢 **Ingest Server** at http://localhost:5050/api/log
 - 📊 **Embedded Vite Dashboard** at http://localhost:3000
 - ⚡ **DataFusion Query Engine** over local Parquet storage
 
@@ -124,7 +124,7 @@ If you prefer not to hardcode parameters inside `greplog.init()`, set these in y
 
 | Environment Variable | Description | Example |
 |----------------------|-------------|---------|
-| `GREPLOG_URL` | Greplog backend server URL | `http://localhost:3000` |
+| `GREPLOG_URL` | Greplog backend server URL | `http://localhost:5050` |
 | `GREPLOG_SERVICE_NAME` | Name of your microservice/app | `api-gateway` |
 | `GREPLOG_ENV` | Deployment environment | `production` / `dev` |
 
