@@ -12,6 +12,8 @@ The core logging engine crate for Greplog.
 - `memtable.rs` — the Arrow columnar buffer (array builders + `RecordBatch`).
 - `worker.rs` — the dedicated WAL + MemTable OS threads, joined by a lock-free
   `crossbeam` handoff so the MemTable only sees durable records.
+- `compactor.rs` — the background compactor merging crowded Parquet partitions.
+- `retention.rs` — the background TTL purger removing expired day partitions.
 
 ## Development
 

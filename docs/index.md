@@ -11,6 +11,7 @@ Fast, lightweight, zero-data-loss logging engine and dashboard — built with Ru
 ## For the application developer
 
 - [Node.js / TypeScript SDK](2-sdks/nodejs.md)
+- [Go SDK](2-sdks/go.md)
 - [Python SDK](2-sdks/python.md)
 - [Rust SDK](2-sdks/rust.md)
 

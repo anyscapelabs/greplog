@@ -87,7 +87,7 @@ fn pipeline_of_15000_logs_acks_all_and_triggers_flush() {
     let (ingest_tx, ingest_rx) = mpsc::channel(config.mpsc_buffer_size);
     let (handoff_tx, handoff_rx) =
         crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
-    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(config.mpsc_buffer_size);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<usize>(config.mpsc_buffer_size);
 
     let flusher = ParquetFlusher::new(&config);
     let wal_handle = spawn_wal_worker(config.clone(), ingest_rx, truncate_rx, handoff_tx);

@@ -53,7 +53,7 @@ async fn wal_worker_persists_batch_and_acknowledges() {
     });
 
     let (sender, receiver) = mpsc::channel::<WalCommand>(config.mpsc_buffer_size);
-    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(config.mpsc_buffer_size);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<usize>(config.mpsc_buffer_size);
     let (handoff_tx, _handoff_rx) =
         crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
     let handle = spawn_wal_worker(config, receiver, truncate_rx, handoff_tx);
@@ -82,7 +82,7 @@ async fn wal_worker_orders_batches_and_grows_file() {
     });
 
     let (sender, receiver) = mpsc::channel::<WalCommand>(config.mpsc_buffer_size);
-    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(config.mpsc_buffer_size);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<usize>(config.mpsc_buffer_size);
     let (handoff_tx, _handoff_rx) =
         crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
     let handle = spawn_wal_worker(config, receiver, truncate_rx, handoff_tx);
@@ -114,7 +114,7 @@ async fn wal_worker_reports_failure_when_wal_cannot_be_opened() {
     });
 
     let (sender, receiver) = mpsc::channel::<WalCommand>(config.mpsc_buffer_size);
-    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(config.mpsc_buffer_size);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<usize>(config.mpsc_buffer_size);
     let (handoff_tx, _handoff_rx) =
         crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
     let handle = spawn_wal_worker(config, receiver, truncate_rx, handoff_tx);

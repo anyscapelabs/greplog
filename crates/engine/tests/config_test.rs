@@ -41,8 +41,13 @@ fn cloned_config_stays_an_independent_copy() {
         data_dir: PathBuf::from("/srv/greplog/chunks"),
         wal_path: PathBuf::from("/srv/greplog/prewrite.wal"),
         flush_row_limit: 512,
+        flush_interval_secs: 30,
         compaction_run_interval_secs: 60,
         max_files_before_compaction: 3,
+        retention_days: Some(14),
+        retention_run_interval_secs: 120,
+        query_timeout_secs: 15,
+        max_query_rows: 5_000,
         mpsc_buffer_size: 64,
         crossbeam_buffer_size: 128,
         ingest_port: 5050,
@@ -53,6 +58,7 @@ fn cloned_config_stays_an_independent_copy() {
     assert_eq!(clone.data_dir, original.data_dir);
     assert_eq!(clone.wal_path, original.wal_path);
     assert_eq!(clone.flush_row_limit, original.flush_row_limit);
+    assert_eq!(clone.flush_interval_secs, original.flush_interval_secs);
     assert_eq!(
         clone.compaction_run_interval_secs,
         original.compaction_run_interval_secs
@@ -61,6 +67,13 @@ fn cloned_config_stays_an_independent_copy() {
         clone.max_files_before_compaction,
         original.max_files_before_compaction
     );
+    assert_eq!(clone.retention_days, original.retention_days);
+    assert_eq!(
+        clone.retention_run_interval_secs,
+        original.retention_run_interval_secs
+    );
+    assert_eq!(clone.query_timeout_secs, original.query_timeout_secs);
+    assert_eq!(clone.max_query_rows, original.max_query_rows);
     assert_eq!(clone.mpsc_buffer_size, original.mpsc_buffer_size);
     assert_eq!(clone.crossbeam_buffer_size, original.crossbeam_buffer_size);
     assert_eq!(clone.ingest_port, original.ingest_port);

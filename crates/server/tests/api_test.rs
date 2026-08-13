@@ -15,9 +15,8 @@ async fn ingest_endpoint_returns_200_ok() {
 
     tokio::spawn(async move {
         while let Some(cmd) = wal_rx.recv().await {
-            if let WalCommand::Append(batch) = cmd {
-                let _ = batch.responder.send(Ok(()));
-            }
+            let WalCommand::Append(batch) = cmd;
+            let _ = batch.responder.send(Ok(()));
         }
     });
 

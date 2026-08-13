@@ -1,10 +1,10 @@
 # Storage Engine
 
-Greplog stores logs as Apache Arrow `RecordBatch`s in memory and Apache Parquet files on disk, with a two-tier compaction strategy.
+Greplog stores logs as Apache Arrow `RecordBatch`s in memory and Apache Parquet files on disk, with a two-tier storage strategy.
 
 ```
-Arrow MemTable ──(Real-time Flusher)──▶ 10 MB Parquet chunks
-                ──(Background Compactor)▶ 512 MB Parquet chunks
+Arrow MemTable ──(Real-time Flusher)──▶ Parquet chunks (row threshold or 10s interval)
+                ──(Background Compactor)▶ single merged chunk per crowded partition
 ```
 
 ## Tier 1: Arrow MemTable
@@ -18,11 +18,16 @@ The MemTable is bounded; once it reaches a threshold it is handed to the flusher
 
 ## Tier 2: Real-time flusher
 
-The flusher writes memory to **10 MB Parquet chunks every 10 seconds**. Small files land fast, so freshly ingested data is on disk (and durable beyond the WAL) within seconds.
+The flusher writes memory to Hive-partitioned Parquet chunks. A flush fires on either of two triggers, whichever comes first:
+
+- **Row threshold** — once `flush_row_limit` rows (default 10,000) are staged across the buffer.
+- **Periodic interval** — once `flush_interval_secs` (default 10) have elapsed since the last flush while rows are pending.
+
+Small files land fast, so freshly ingested data is on disk (and durable beyond the WAL) within seconds — even for low-traffic deployments that never hit the row threshold. Once a chunk is on disk, the WAL worker is signalled to confirm the covered records and seal/reclaim the corresponding WAL segments.
 
 ## Tier 3: Background compactor
 
-Once a day, a background compactor merges many small 10 MB files into highly optimized **512 MB Parquet chunks** with full page indexing. Larger files mean:
+Every `compaction_run_interval_secs` (default 3600 — hourly) a background sweep walks the partition tree and merges any leaf partition holding more than `max_files_before_compaction` chunks (default 5) into a single highly compressed `compacted_<uuid>.parquet` file. Larger files mean:
 
 - fewer files per query scan,
 - better predicate pushdown (page-level min/max skipping for timestamps and levels),

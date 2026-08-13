@@ -6,18 +6,22 @@
 mod banner;
 mod cli;
 
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
+use greplog_engine::compactor::Compactor;
 use greplog_engine::config::{EngineConfig, LiveBuffer};
 use greplog_engine::ingest::WalCommand;
 use greplog_engine::memtable::MemTable;
 use greplog_engine::query::QueryEngine;
+use greplog_engine::retention::Retention;
 use greplog_engine::storage::ParquetFlusher;
-use greplog_engine::wal::WalWriter;
+use greplog_engine::wal::replay_all;
 use greplog_engine::worker::{
-    spawn_memtable_worker, spawn_memtable_worker_with_broadcast, spawn_wal_worker,
+    spawn_memtable_worker_with_broadcast, spawn_wal_worker,
 };
 use tokio::sync::{broadcast, mpsc};
 
@@ -36,23 +40,115 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        Commands::Start { port, retention_days } => {
+            if let Err(error) = run_start(port, retention_days).await {
+                tracing::error!(?error, "server failed");
+                std::process::exit(1);
+            }
+        }
+        Commands::Status => {
+            if let Err(error) = run_status() {
+                eprintln!("status failed: {error}");
+                std::process::exit(1);
+            }
+        }
     }
 }
 
-/// Runs the `dev` command.
+/// Runs the `dev` command: a server with engine defaults.
 async fn run_dev(port: Option<u16>) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = EngineConfig::default();
     if let Some(p) = port {
         config.dashboard_port = p;
     }
+    run_server(config).await
+}
 
+/// Runs the `start` command: a server with retention configurable.
+async fn run_start(
+    port: Option<u16>,
+    retention_days: Option<u32>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = EngineConfig::default();
+    if let Some(p) = port {
+        config.dashboard_port = p;
+    }
+    if let Some(days) = retention_days {
+        config.retention_days = Some(days);
+    }
+    run_server(config).await
+}
+
+/// Reports WAL and storage status directly from the filesystem, so it works
+/// without a running server.
+fn run_status() -> Result<(), Box<dyn std::error::Error>> {
+    let config = EngineConfig::default();
+
+    let wal_bytes = fs::metadata(&config.wal_path).map(|meta| meta.len()).unwrap_or(0);
+    let (partitions, chunks, bytes) = storage_usage(&config.data_dir);
+
+    println!("Greplog status");
+    println!("  data dir   : {}", config.data_dir.display());
+    println!("  wal        : {} ({} bytes)", config.wal_path.display(), wal_bytes);
+    match config.retention_days {
+        Some(days) => println!("  retention  : {days} days"),
+        None => println!("  retention  : disabled"),
+    }
+    println!("  partitions : {partitions}");
+    println!("  parquet files : {chunks}");
+    println!("  disk usage : {} bytes", bytes);
+    Ok(())
+}
+
+/// Counts day partitions, parquet chunks, and total disk bytes under `data_dir`.
+fn storage_usage(data_dir: &Path) -> (usize, usize, u64) {
+    let mut partitions = 0usize;
+    let mut chunks = 0usize;
+    let mut bytes = 0u64;
+    walk_usage(data_dir, &mut partitions, &mut chunks, &mut bytes);
+    (partitions, chunks, bytes)
+}
+
+/// Recursively accumulates storage statistics, tolerating a missing root.
+fn walk_usage(
+    dir: &Path,
+    partitions: &mut usize,
+    chunks: &mut usize,
+    bytes: &mut u64,
+) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if path.file_name().is_some_and(|name| name == "day=" || name.to_string_lossy().starts_with("day=")) {
+                *partitions += 1;
+            }
+            walk_usage(&path, partitions, chunks, bytes);
+        } else if path.extension().is_some_and(|ext| ext == "parquet") {
+            *chunks += 1;
+            if let Ok(meta) = fs::metadata(&path) {
+                *bytes += meta.len();
+            }
+        }
+    }
+}
+
+/// Runs the shared server body: WAL replay, workers, compactor, retention, and
+/// the dual-port servers.
+async fn run_server(config: EngineConfig) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&config.data_dir)?;
     if let Some(parent) = config.wal_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    let recovered = WalWriter::replay_wal(&config.wal_path)?;
-    tracing::info!("recovered {} records from WAL", recovered.len());
+    let recovered = replay_all(&config.wal_path)?;
+    tracing::info!(
+        "recovered {} records from WAL (sealed segments + active)",
+        recovered.len()
+    );
 
     let live_buffer: LiveBuffer = LiveBuffer::default();
     if !recovered.is_empty() {
@@ -77,7 +173,7 @@ async fn run_dev(port: Option<u16>) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let (wal_tx, wal_rx) = mpsc::channel::<WalCommand>(config.mpsc_buffer_size);
-    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(config.mpsc_buffer_size);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<usize>(config.mpsc_buffer_size);
     let (handoff_tx, handoff_rx) =
         crossbeam::channel::bounded::<Vec<greplog_engine::record::LogRecord>>(
             config.crossbeam_buffer_size,
@@ -89,7 +185,6 @@ async fn run_dev(port: Option<u16>) -> Result<(), Box<dyn std::error::Error>> {
 
     let wal_handle = spawn_wal_worker(Arc::clone(&config_arc), wal_rx, truncate_rx, handoff_tx);
     let flusher = ParquetFlusher::new(&config);
-    // Audit string: spawn_memtable_worker(
     let memtable_handle = spawn_memtable_worker_with_broadcast(
         handoff_rx,
         truncate_tx,
@@ -98,19 +193,23 @@ async fn run_dev(port: Option<u16>) -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&config_arc),
         Some(broadcast_tx.clone()),
     );
-    // Ensure the expected symbol `spawn_memtable_worker(` is present for audit (dead code).
-    #[allow(clippy::no_effect)]
-    if false {
-        let _ = spawn_memtable_worker(
-            crossbeam::channel::bounded(1).1,
-            mpsc::channel(1).0,
-            ParquetFlusher::new(&EngineConfig::default()),
-            LiveBuffer::default(),
-            Arc::new(EngineConfig::default()),
-        );
-    }
 
     let query_engine = Arc::new(QueryEngine::new(&config, Arc::clone(&live_buffer)).await?);
+
+    // Background compactor: sweeps the partition tree every
+    // `compaction_run_interval_secs`, merging crowded partitions into single
+    // highly compressed chunks.
+    let compactor_config = config.clone();
+    let _compactor_handle = tokio::spawn(async move {
+        Compactor::start_background_loop(compactor_config).await;
+    });
+
+    // Background retention: every `retention_run_interval_secs`, purges day
+    // partitions older than `retention_days`.
+    let retention_config = config.clone();
+    let _retention_handle = tokio::spawn(async move {
+        Retention::start_background_loop(retention_config).await;
+    });
 
     let server_wal_tx = wal_tx.clone();
     let server_config = config.clone();

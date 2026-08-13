@@ -15,6 +15,10 @@ use greplog_engine::config::EngineConfig;
 use greplog_engine::ingest::WalCommand;
 use greplog_engine::query::QueryEngine;
 use tokio::sync::{broadcast, mpsc};
+use tower_http::limit::RequestBodyLimitLayer;
+
+/// Documented ceiling for a single ingest batch, in bytes.
+const MAX_INGEST_BODY_BYTES: usize = 5 * 1024 * 1024;
 
 /// Shared state for the dashboard router.
 ///
@@ -71,6 +75,7 @@ pub async fn start_servers(
 
     let ingest_router = Router::new()
         .route("/api/log", post(ingest::handle_ingest))
+        .layer(RequestBodyLimitLayer::new(MAX_INGEST_BODY_BYTES))
         .with_state(wal_tx);
 
     let dashboard_state = DashboardState {

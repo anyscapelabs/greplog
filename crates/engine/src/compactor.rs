@@ -66,9 +66,10 @@ impl Compactor {
     ///
     /// All `.parquet` files are opened one at a time and streamed batch by batch
     /// into an [`ArrowWriter`] using Zstandard compression. The merged file is
-    /// flushed to disk and closed before any original chunk is deleted, so the
-    /// partition never exists in a partially merged state. Already-compact
-    /// partitions (at or under the merge threshold) are left untouched.
+    /// written to a temp name, then atomically renamed, and only then are the
+    /// original chunks deleted — so the partition never exists in a partially
+    /// merged state and concurrent readers never see a partial file. Already-
+    /// compact partitions (at or under the merge threshold) are left untouched.
     ///
     /// # Errors
     ///
@@ -81,8 +82,9 @@ impl Compactor {
             return Ok(());
         }
 
-        let output_path = partition_dir.join(format!("compacted_{}.parquet", Uuid::new_v4()));
-        let output = File::create(&output_path)?;
+        let final_path = partition_dir.join(format!("compacted_{}.parquet", Uuid::new_v4()));
+        let temp_path = partition_dir.join(format!(".tmp-compacted_{}.parquet", Uuid::new_v4()));
+        let output = File::create(&temp_path)?;
         let properties = WriterProperties::builder()
             .set_compression(Compression::ZSTD(ZstdLevel::default()))
             .build();
@@ -104,8 +106,11 @@ impl Compactor {
             }
         }
         writer.close()?;
+        // Atomic rename: the compacted file is only visible at its final name
+        // after the writer is fully closed and synced.
+        std::fs::rename(&temp_path, &final_path)?;
 
-        File::open(&output_path)?.sync_all()?;
+        File::open(&final_path)?.sync_all()?;
         for path in &files {
             fs::remove_file(path)?;
         }

@@ -145,7 +145,7 @@ fn pipeline_persists_parquet_and_truncates_wal() {
     });
 
     let (wal_tx, wal_rx) = mpsc::channel::<WalCommand>(config.mpsc_buffer_size);
-    let (truncate_tx, truncate_rx) = mpsc::channel::<()>(config.mpsc_buffer_size);
+    let (truncate_tx, truncate_rx) = mpsc::channel::<usize>(config.mpsc_buffer_size);
     let (handoff_tx, handoff_rx) =
         crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
 

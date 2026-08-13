@@ -100,9 +100,9 @@ Greplog is designed around a **Group Commit Pipeline** and **Dual-Tier Compactio
 
 - **Zero-Loss Write Ahead Log (WAL):** Incoming logs are buffered by the SDK and flushed to Greplog. The engine performs an fsync to `current.wal` before acknowledging HTTP 200 OK back to the SDK.
 - **Arrow MemTable:** Committed logs immediately enter an in-memory Apache Arrow `RecordBatch` for instant querying and live-tailing over Server-Sent Events (SSE).
-- **Dual-Tier Parquet Compaction:**
-  - **Real-time Flusher:** Flushes memory to 10 MB Parquet chunks every 10 seconds.
-  - **Background Compactor:** Merges small files daily into highly optimized 512 MB Parquet chunks with full page indexing.
+- **Dual-Tier Parquet Storage:**
+  - **Real-time Flusher:** Flushes memory to Parquet chunks on a row-count threshold (10,000 rows) or a periodic interval (10 seconds), whichever comes first.
+  - **Background Compactor:** Merges crowded partitions into a single highly compressed chunk every hour.
 - **Auto Retention (TTL):** Automatically purges Parquet directories older than your specified `--retention-days` (default: 30 days) without heavy SQL DELETE queries.
 
 ## CLI Commands

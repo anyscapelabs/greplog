@@ -61,13 +61,12 @@ fn make_record(job_id: usize, idx: usize) -> LogRecord {
 /// sweep reveals the concurrency at which that drain point saturates.
 async fn mock_wal_worker(mut wal_rx: mpsc::Receiver<WalCommand>) {
     while let Some(command) = wal_rx.recv().await {
-        if let WalCommand::Append(batch) = command {
-            let mut buf = Vec::new();
-            for record in &batch.records {
-                let _ = bincode::serialize_into(&mut buf, record);
-            }
-            let _ = batch.responder.send(Ok(()));
+        let WalCommand::Append(batch) = command;
+        let mut buf = Vec::new();
+        for record in &batch.records {
+            let _ = bincode::serialize_into(&mut buf, record);
         }
+        let _ = batch.responder.send(Ok(()));
     }
 }
 

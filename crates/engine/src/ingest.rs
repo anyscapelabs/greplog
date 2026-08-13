@@ -3,7 +3,9 @@
 //! An [`IngestBatch`] bundles the records with a [`oneshot::Sender`] so the
 //! async network layer can await physical disk confirmation before returning
 //! `HTTP 200 OK`. The WAL worker listens on a single channel of actor-style
-//! [`WalCommand`]s so appends and truncations can never interleave.
+//! [`WalCommand`]s carrying append batches; space reclamation is handled by a
+//! separate, dedicated signal channel owned by the `MemTable` worker so the
+//! two write-phases can never deadlock on the same channel.
 
 use tokio::sync::oneshot;
 
@@ -33,15 +35,14 @@ impl IngestBatch {
 
 /// A command directed at the WAL worker actor.
 ///
-/// Both producers feed the same channel, so the WAL worker serializes them:
-/// the async server sends [`WalCommand::Append`], while the `MemTable` worker
-/// sends [`WalCommand::Truncate`] once a batch is safely on disk as Parquet.
+/// The server sends [`WalCommand::Append`] batches for durable persistence.
+/// Sealed-segment reclamation is *not* a command here: the `MemTable` worker
+/// owns a separate signal channel so the two write phases share no channel
+/// and can never deadlock.
 #[derive(Debug)]
 pub enum WalCommand {
-    /// Append a batch of log records to the WAL file.
+    /// Append a batch of log records to the active WAL segment.
     Append(IngestBatch),
-    /// Reclaim space by truncating the WAL file to zero bytes.
-    Truncate,
 }
 
 #[cfg(test)]
@@ -76,7 +77,6 @@ mod tests {
 
         match command {
             WalCommand::Append(batch) => assert_eq!(batch.records.len(), 1),
-            WalCommand::Truncate => panic!("append must not become truncate"),
         }
     }
 }

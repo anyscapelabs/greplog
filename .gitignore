@@ -5,3 +5,4 @@
 /sdk/node/node_modules/
 /sdk/node/dist/
 /example/node-example/node_modules/
+/example/go-example/greplog-go-example

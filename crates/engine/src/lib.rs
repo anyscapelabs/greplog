@@ -13,6 +13,7 @@
 //! - [`storage`]: the Hive-partitioned Parquet [`ParquetFlusher`].
 //! - [`worker`]: the WAL + `MemTable` OS-thread workers.
 //! - [`compactor`]: the background [`Compactor`] merging small Parquet chunks.
+//! - [`retention`]: the background [`Retention`] purging expired day partitions.
 //!
 //! Read-path domains:/
 //! - [`query`]: the DataFusion-backed [`QueryEngine`] over partitioned Parquet.
@@ -27,6 +28,7 @@ pub mod ingest;
 pub mod memtable;
 pub mod query;
 pub mod record;
+pub mod retention;
 pub mod schema;
 pub mod storage;
 pub mod wal;
@@ -39,6 +41,7 @@ pub use ingest::{IngestBatch, WalCommand};
 pub use memtable::MemTable;
 pub use query::QueryEngine;
 pub use record::LogRecord;
+pub use retention::Retention;
 pub use schema::greplog_schema;
 pub use storage::ParquetFlusher;
 pub use wal::WalWriter;

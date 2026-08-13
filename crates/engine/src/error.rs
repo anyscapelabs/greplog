@@ -21,6 +21,14 @@ pub enum EngineError {
     #[error("rwlock poisoned")]
     LockError,
 
+    /// The query exceeded the configured execution timeout and was cancelled.
+    #[error("query timed out")]
+    QueryTimeout,
+
+    /// The statement was rejected because it is not a read-only query.
+    #[error("query rejected: {0}")]
+    QueryRejected(String),
+
     /// A parse failure, e.g. malformed JSON, an invalid timestamp, or an
     /// unrecognized log level.
     #[error("parse error: {0}")]

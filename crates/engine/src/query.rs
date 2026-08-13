@@ -11,18 +11,23 @@
 
 use std::any::Any;
 use std::sync::Arc;
+use std::time::Duration;
 
 use arrow::array::RecordBatch;
 use arrow::datatypes::{DataType, SchemaRef};
 use async_trait::async_trait;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::datasource::listing::ListingOptions;
+use datafusion::datasource::listing::{ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl};
 use datafusion::datasource::{MemTable, TableProvider};
 use datafusion::error::DataFusionError;
 use datafusion::execution::session_state::SessionState;
 use datafusion::logical_expr::{Expr, TableType};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionContext;
+use datafusion::sql::sqlparser::ast::Statement;
+use datafusion::sql::sqlparser::dialect::GenericDialect;
+use datafusion::sql::sqlparser::parser::Parser as SqlParser;
+use tokio::runtime::Runtime;
 
 use crate::config::{EngineConfig, LiveBuffer};
 use crate::error::EngineError;
@@ -47,6 +52,18 @@ FROM live_logs";
 /// Executes SQL over the unified live + Parquet `logs` view.
 pub struct QueryEngine {
     ctx: SessionContext,
+    /// Maximum seconds a query may run before it is cancelled.
+    query_timeout_secs: u64,
+    /// Maximum number of rows a query may return.
+    max_query_rows: usize,
+    /// Dedicated runtime for query execution, reused across calls.
+    ///
+    /// DataFusion 39 offers no per-query cancellation token: aborting the
+    /// `collect()` future leaves its internally-spawned execution tasks running
+    /// (and burning CPU). Running each query on its own runtime — torn down via
+    /// `shutdown_timeout(0)` when the deadline hits — is the only way to stop a
+    /// runaway query. A fresh runtime is rebuilt lazily after a timeout.
+    query_rt: tokio::sync::Mutex<Option<Runtime>>,
 }
 
 impl QueryEngine {
@@ -64,10 +81,24 @@ impl QueryEngine {
         register_parquet_table(&ctx, config).await?;
         register_live_table(&ctx, live_buffer, greplog_schema())?;
         ctx.sql(UNIFIED_VIEW_SQL).await?;
-        Ok(Self { ctx })
+        Ok(Self {
+            ctx,
+            query_timeout_secs: config.query_timeout_secs,
+            max_query_rows: config.max_query_rows,
+            query_rt: tokio::sync::Mutex::new(None),
+        })
     }
 
     /// Runs `sql` against the unified view.
+    ///
+    /// Every statement is parsed first and rejected with
+    /// [`EngineError::QueryRejected`] unless it is a single read-only `SELECT`
+    /// (a `WITH` statement parses as a `Query` too). Data-modifying, DDL, and
+    /// configuration statements — `CREATE EXTERNAL TABLE`, `COPY TO`, `INSERT`,
+    /// `SET`, and friends — are refused before DataFusion ever sees them.
+    ///
+    /// The result is capped at `config.max_query_rows` rows and the whole
+    /// execution is cancelled after `config.query_timeout_secs`.
     ///
     /// The `live_logs` provider snapshots the shared [`LiveBuffer`] during each
     /// scan under a brief read lock — cloning only the Arrow array reference
@@ -76,11 +107,95 @@ impl QueryEngine {
     ///
     /// # Errors
     ///
-    /// Returns [`EngineError::DataFusion`] when the SQL is invalid or fails to
-    /// execute, or [`EngineError::LockError`] if the buffer lock is poisoned.
+    /// Returns [`EngineError::QueryRejected`] for non-`SELECT` statements,
+    /// [`EngineError::DataFusion`] when the SQL is invalid or fails to execute,
+    /// [`EngineError::QueryTimeout`] if the query exceeds the configured limit,
+    /// or [`EngineError::LockError`] if the buffer lock is poisoned.
     pub async fn execute_sql(&self, sql: &str) -> Result<Vec<RecordBatch>, EngineError> {
-        let batches = self.ctx.sql(sql).await?.collect().await?;
+        validate_read_only_query(sql)?;
+
+        let df = self.ctx.sql(sql).await?;
+        let df = df.limit(0, Some(self.max_query_rows))?;
+
+        let timeout = Duration::from_secs(self.query_timeout_secs.max(1));
+        let query_rt = {
+            let mut slot = self.query_rt.lock().await;
+            match slot.take() {
+                Some(rt) => rt,
+                None => build_query_runtime()?,
+            }
+        };
+
+        let handle = query_rt.spawn(df.collect());
+        let result = tokio::time::timeout(timeout, handle).await;
+        let batches = match result {
+            Ok(Ok(Ok(batches))) => {
+                *self.query_rt.lock().await = Some(query_rt);
+                Ok(batches)
+            }
+            Ok(Ok(Err(e))) => {
+                *self.query_rt.lock().await = Some(query_rt);
+                Err(EngineError::DataFusion(e))
+            }
+            Ok(Err(_)) => {
+                *self.query_rt.lock().await = Some(query_rt);
+                Err(EngineError::DataFusion(DataFusionError::Execution(
+                    "query task aborted".to_string(),
+                )))
+            }
+            Err(_) => {
+                // Force-cancel every task still running on the query runtime,
+                // including the DataFusion execution tasks spawned internally.
+                // Dropping a runtime blocks, so hand the teardown to a dedicated
+                // thread; the slot is left `None` so the next call rebuilds.
+                std::thread::spawn(move || query_rt.shutdown_timeout(Duration::from_millis(0)));
+                Err(EngineError::QueryTimeout)
+            }
+        }?;
+
         Ok(batches)
+    }
+}
+
+impl Drop for QueryEngine {
+    fn drop(&mut self) {
+        // A `Runtime` must be torn down on a thread where blocking is allowed;
+        // dropping one inside an async context panics. Offload it.
+        if let Some(rt) = self.query_rt.get_mut().take() {
+            std::thread::spawn(move || drop(rt));
+        }
+    }
+}
+
+/// Builds the dedicated runtime used to execute a single query.
+///
+/// A small worker count keeps resource use proportional while still letting
+/// DataFusion parallelize the query.
+fn build_query_runtime() -> Result<Runtime, EngineError> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .map_err(|e| EngineError::IoError(std::io::Error::other(e.to_string())))
+}
+
+/// Rejects any statement that is not a plain, read-only `SELECT` query.
+///
+/// `WITH` queries parse as a [`Statement::Query`] with a CTE list, so they pass.
+/// Everything else — DDL, `COPY`, `INSERT`, `DELETE`, `SET`, and unknown
+/// statements — is refused with a descriptive reason.
+fn validate_read_only_query(sql: &str) -> Result<(), EngineError> {
+    let statements = SqlParser::parse_sql(&GenericDialect {}, sql)
+        .map_err(|e| EngineError::QueryRejected(format!("invalid SQL: {e}")))?;
+
+    match statements.as_slice() {
+        [Statement::Query(_)] => Ok(()),
+        [other] => Err(EngineError::QueryRejected(format!(
+            "only read-only SELECT queries are allowed, got: {other}"
+        ))),
+        _ => Err(EngineError::QueryRejected(
+            "only a single SELECT query is allowed per request".to_string(),
+        )),
     }
 }
 
@@ -88,44 +203,24 @@ impl QueryEngine {
 ///
 /// The `ParquetFormat` reads each chunk; the partition columns map the
 /// `key=value` folder names onto columns so directory pruning is possible.
-/// If the directory contains no Parquet files (fresh deployment), an empty
-/// `MemTable` with the expected 9-column schema is registered instead so the
-/// unified view can still be created.
+/// The directory is re-listed on every scan, so an empty tree at registration
+/// time becomes visible as soon as data arrives — no restart required.
+///
+/// An explicit file schema (the data fields only, partition columns are merged
+/// in by [`ListingTable`]) is supplied so that a data directory that contains
+/// no Parquet files yet still yields a well-typed `parquet_logs` table instead
+/// of DataFusion inferring an empty, partition-column-only schema.
 async fn register_parquet_table(
     ctx: &SessionContext,
     config: &EngineConfig,
 ) -> Result<(), EngineError> {
+    std::fs::create_dir_all(&config.data_dir)?;
     let partition_cols = vec![
         (String::from("year"), DataType::Int32),
         (String::from("month"), DataType::Int32),
         (String::from("day"), DataType::Int32),
         (String::from("service"), DataType::Utf8),
     ];
-
-    if !has_parquet_files(&config.data_dir) {
-        let empty_schema = Arc::new(arrow::datatypes::Schema::new(vec![
-            arrow::datatypes::Field::new(
-                "timestamp_us",
-                DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
-                false,
-            ),
-            arrow::datatypes::Field::new("trace_id", DataType::Utf8, true),
-            arrow::datatypes::Field::new(
-                "level",
-                DataType::Dictionary(Box::new(DataType::Int8), Box::new(DataType::Utf8)),
-                false,
-            ),
-            arrow::datatypes::Field::new("service", DataType::Utf8, false),
-            arrow::datatypes::Field::new("message", DataType::Utf8, false),
-            arrow::datatypes::Field::new("raw_body", DataType::Utf8, true),
-            arrow::datatypes::Field::new("year", DataType::Int32, false),
-            arrow::datatypes::Field::new("month", DataType::Int32, false),
-            arrow::datatypes::Field::new("day", DataType::Int32, false),
-        ]));
-        let empty_table = MemTable::try_new(empty_schema, vec![vec![]])?;
-        ctx.register_table("parquet_logs", Arc::new(empty_table))?;
-        return Ok(());
-    }
 
     let options = ListingOptions::new(Arc::new(ParquetFormat::default()))
         .with_table_partition_cols(partition_cols);
@@ -135,26 +230,29 @@ async fn register_parquet_table(
         .to_str()
         .ok_or_else(|| crate::error::parse_error("data_dir is not valid UTF-8"))?;
 
-    ctx.register_listing_table("parquet_logs", path, options, None, None).await?;
+    let url = ListingTableUrl::parse(path)?;
+    let config = ListingTableConfig::new(url)
+        .with_listing_options(options)
+        .with_schema(parquet_file_schema());
+    let table = ListingTable::try_new(config)?;
+    ctx.register_table("parquet_logs", Arc::new(table))?;
     Ok(())
 }
 
-/// Returns `true` if `dir` contains any `*.parquet` file recursively.
-fn has_parquet_files(dir: &std::path::Path) -> bool {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return false;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if has_parquet_files(&path) {
-                return true;
-            }
-        } else if path.extension().is_some_and(|ext| ext == "parquet") {
-            return true;
-        }
-    }
-    false
+/// The schema of the data fields written to a Parquet chunk.
+///
+/// Chunk files omit the `service` column — it lives only in the folder name —
+/// so the file schema is [`greplog_schema`] without `service`. [`ListingTable`]
+/// appends the `year`/`month`/`day`/`service` partition columns on top.
+fn parquet_file_schema() -> SchemaRef {
+    Arc::new(arrow::datatypes::Schema::new(
+        greplog_schema()
+            .fields()
+            .iter()
+            .filter(|field| field.name() != "service")
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>(),
+    ))
 }
 
 /// Registers an always-live provider named `live_logs` over the shared buffer.

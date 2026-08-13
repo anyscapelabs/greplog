@@ -17,7 +17,7 @@ fn schema_has_canonical_field_order_and_types() {
         ("trace_id", DataType::Utf8, true),
         (
             "level",
-            DataType::Dictionary(Box::new(DataType::Int8), Box::new(DataType::Utf8)),
+            DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8)),
             false,
         ),
         (

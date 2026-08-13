@@ -88,12 +88,16 @@ impl ParquetFlusher {
         nanos: i64,
         batch: &RecordBatch,
     ) -> Result<(), EngineError> {
-        let path = directory.join(format!("chunk_{nanos}.parquet"));
-        let file = File::create(&path)?;
+        let final_path = directory.join(format!("chunk_{nanos}.parquet"));
+        let temp_path = directory.join(format!(".tmp-chunk_{nanos}.parquet"));
+        let file = File::create(&temp_path)?;
         let mut writer =
             ArrowWriter::try_new(file, batch.schema().clone(), Some(self.properties.clone()))?;
         writer.write(batch)?;
         writer.close()?;
+        // Atomic rename: the temp file is only visible as the final name after
+        // close() succeeds, so concurrent readers never see a partial file.
+        std::fs::rename(&temp_path, &final_path)?;
         Ok(())
     }
 

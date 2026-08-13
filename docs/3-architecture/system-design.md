@@ -40,24 +40,25 @@ This is the exact lifecycle of a log from the moment the SDK sends it to the mom
 
 Greplog uses a two-stage Write-Once-Read-Many (WORM) storage architecture to bridge the gap between real-time RAM limits and the Parquet "small files problem."
 
-### Tier 1: Real-Time Flush (The 10MB Threshold)
+### Tier 1: Real-Time Flush (Row Threshold + Periodic Interval)
 
-The MemTable Worker continuously monitors the size of the Arrow `RecordBatch`.
+The MemTable Worker drains durable records into Arrow batches staged in the shared live buffer.
 
-- Once it hits **10 MB**, a `tokio::task::spawn_blocking` thread is triggered.
-- It compresses the Arrow data using Zstd or Snappy.
+- Once **10,000 rows** (`flush_row_limit`) are staged, the buffered batches are concatenated and written to Parquet.
+- For low-traffic deployments that never reach the row threshold, a flush also fires **10 seconds** (`flush_interval_secs`) after the last flush while any rows are pending.
+
+- It compresses the Arrow data using Snappy.
 - It writes a file to the active partition: `data/logs/year=2026/month=08/day=09/chunk_{timestamp}.parquet`.
-- Once the file is on disk, it signals the WAL Worker to truncate `current.wal` to 0 bytes.
+- Once the file is on disk, it signals the WAL Worker to confirm the written rows, sealing and reclaiming the corresponding WAL segments.
 
-### Tier 2: Background Compaction (The 512MB Target)
+### Tier 2: Background Compaction (Interval × File-Count Trigger)
 
-If Greplog runs for weeks, Tier 1 creates thousands of 10MB files, which slows down query planning.
+If Greplog runs for weeks, Tier 1 creates thousands of small files, which slows down query planning.
 
-- A background timer ticks daily at 2:00 AM (or whenever CPU is idle).
-- It scans partitioned directories for files smaller than 50MB.
-- It groups them until it has ~512MB of data.
-- It executes a background DataFusion job to rewrite those small files into a single, highly optimized `compacted_{uuid}.parquet` file with Page Indexes and Bloom Filters enabled.
-- It executes an atomic file system swap to replace the small files with the compacted file.
+- A background timer ticks every **3600 seconds** (`compaction_run_interval_secs`).
+- It scans partitioned directories for leaf partitions holding more than **5 Parquet chunks** (`max_files_before_compaction`).
+- It merges each crowded partition's chunks, streamed batch-by-batch, into a single highly compressed `compacted_{uuid}.parquet` file using Zstd.
+- It performs an atomic file system swap to replace the small files with the compacted file.
 
 ## 5. The Query Engine (Apache DataFusion)
 
@@ -88,10 +89,10 @@ To maximize columnar compression and query speed, the Arrow schema is rigidly ty
 
 If power is lost, Greplog recovers state autonomously:
 
-1. On boot, before Axum starts, Greplog checks `current.wal`.
-2. If the file size > 0, it deserializes the `bincode` logs.
-3. It instantly flushes them into a new Tier 1 `.parquet` chunk in the active day partition.
-4. It truncates the WAL and starts the servers.
+1. On boot, before Axum starts, Greplog replays `current.wal` (sealed segments then the active file).
+2. It deserializes the `bincode` logs and stages them into the live buffer so they are immediately queryable.
+3. The replayed rows are flushed to Parquet on the next flush trigger like any other rows.
+4. It starts the servers.
 
 ### Auto-Retention (TTL)
 
