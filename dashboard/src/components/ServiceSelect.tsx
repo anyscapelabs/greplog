@@ -2,21 +2,17 @@ import { useState } from 'react'
 import { LuChevronDown, LuChevronUp } from 'react-icons/lu'
 import ServiceIcon from './icons/ServiceIcon'
 
-const SERVICES = [
-  'All services',
-  'api-gateway',
-  'auth',
-  'worker',
-  'scheduler',
-]
-
 interface ServiceSelectProps {
+  /** Distinct service names fetched from storage; "All services" is prepended. */
+  services: string[]
   value: string
   onChange: (service: string) => void
 }
 
-function ServiceSelect({ value, onChange }: ServiceSelectProps) {
+function ServiceSelect({ services, value, onChange }: ServiceSelectProps) {
   const [open, setOpen] = useState(false)
+
+  const options = ['All services', ...services]
 
   const isAll = value === 'All services'
 
@@ -41,7 +37,7 @@ function ServiceSelect({ value, onChange }: ServiceSelectProps) {
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <ul className="absolute left-0 top-full z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-zinc-700 bg-zinc-900 py-1 text-sm shadow-lg">
-            {SERVICES.map((service) => (
+            {options.map((service) => (
               <li key={service}>
                 <button
                   type="button"

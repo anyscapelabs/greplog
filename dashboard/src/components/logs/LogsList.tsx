@@ -139,10 +139,26 @@ function formatFooterDate(timestamp: number): string {
   return `${MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+function resolveEpochMillis(timestampUs: unknown): number {
+  if (typeof timestampUs === 'number') {
+    return Math.floor(timestampUs / 1000)
+  }
+  if (typeof timestampUs === 'string') {
+    // arrow-json serializes timestamp columns as naive-UTC ISO-8601 strings
+    // (e.g. "2026-08-14T10:51:45.717136"); parse them as UTC epochs.
+    const iso = /Z$|[+-]\d{2}:\d{2}$/.test(timestampUs)
+      ? timestampUs
+      : `${timestampUs}Z`
+    const ms = Date.parse(iso)
+    if (!Number.isNaN(ms)) return ms
+  }
+  return NaN
+}
+
 function formatRowTimestamp(timestampUs: unknown): string {
-  const us = Number(timestampUs)
-  if (!Number.isFinite(us)) return ''
-  const date = new Date(Math.floor(us / 1000))
+  const ms = resolveEpochMillis(timestampUs)
+  if (!Number.isFinite(ms)) return ''
+  const date = new Date(ms)
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${String(date.getMilliseconds()).padStart(3, '0')}`
 }

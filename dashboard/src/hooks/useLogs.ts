@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { logApi, type QueryFilters } from '../api/logs'
+import { binIntervalSeconds } from '../components/logs/Timeline'
+import type { TimeRange } from '../components/Header'
 
-export function useLogExplorer(filters: QueryFilters) {
+export function useLogExplorer(filters: QueryFilters, range: TimeRange) {
   // The queryKey ensures that whenever a filter changes, the data is
   // automatically refetched.
   const logsQuery = useQuery({
@@ -10,8 +12,8 @@ export function useLogExplorer(filters: QueryFilters) {
   })
 
   const histogramQuery = useQuery({
-    queryKey: ['histogram', filters],
-    queryFn: () => logApi.fetchHistogram(filters),
+    queryKey: ['histogram', filters, range],
+    queryFn: () => logApi.fetchHistogram(filters, binIntervalSeconds(range)),
   })
 
   const facetsQuery = useQuery({

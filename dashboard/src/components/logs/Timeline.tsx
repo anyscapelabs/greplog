@@ -39,6 +39,16 @@ const HISTOGRAM_CONFIG: Partial<
   '30d': { spacing: 43200, bars: 60, labels: 172800 },
 }
 
+/** Bucket width in seconds for a given time range.
+ *
+ * The histogram is binned at this interval so every chart renders its
+ * configured number of bars (`RANGE_SECONDS[range] / spacing`), e.g. 60 bars
+ * for the last 15 minutes and 60 bars for the last hour.
+ */
+export function binIntervalSeconds(range: TimeRange): number {
+  return HISTOGRAM_CONFIG[range]?.spacing ?? 60
+}
+
 function formatAxisTime(timestamp: number, spacing: number): string {
   const date = new Date(timestamp * 1000)
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -62,6 +72,18 @@ function parseBucketSeconds(bucket: unknown): number | null {
   return Math.floor(ms / 1000)
 }
 
+const DEFAULT_BAR_COLOR = { fill: 'rgba(138, 180, 248, 0.5)', stroke: '#8ab4f8' }
+
+const SEVERITY_BAR_COLORS: Record<
+  string,
+  { fill: string; stroke: string }
+> = {
+  DEBUG: { fill: 'rgba(161, 161, 170, 0.6)', stroke: '#a1a1aa' },
+  INFO: { fill: 'rgba(56, 189, 248, 0.6)', stroke: '#38bdf8' },
+  WARN: { fill: 'rgba(251, 191, 36, 0.6)', stroke: '#fbbf24' },
+  ERROR: { fill: 'rgba(248, 113, 113, 0.6)', stroke: '#f87171' },
+}
+
 interface DragState {
   start: number
   base: number
@@ -72,6 +94,8 @@ interface TimelineProps {
   range: TimeRange
   shift: number
   histogram?: QueryRow[]
+  /** Active severity facet (e.g. "ERROR"); colors the bars to match. */
+  severity?: string
   onShiftChange: (shift: number) => void
 }
 
@@ -80,6 +104,7 @@ function Timeline({
   range,
   shift,
   histogram,
+  severity,
   onShiftChange,
 }: TimelineProps) {
   const [collapsed, setCollapsed] = useState(false)
@@ -96,17 +121,31 @@ function Timeline({
   const config = HISTOGRAM_CONFIG[range]
   const bars = config?.bars ?? 60
   const spacing = config?.spacing ?? RANGE_SECONDS[range] / bars
+  const barColors = useMemo(
+    () => (severity ? SEVERITY_BAR_COLORS[severity] ?? DEFAULT_BAR_COLOR : DEFAULT_BAR_COLOR),
+    [severity],
+  )
   const histogramData: [number[], number[]] = useMemo(() => {
-    const times: number[] = []
-    const counts: number[] = []
+    const end = Math.floor(Date.now() / 1000) - shift
+    const start = end - RANGE_SECONDS[range]
+    // date_bin aligns buckets to the Unix epoch, so every boundary must be an
+    // epoch-aligned multiple of `spacing`.
+    const first = Math.ceil(start / spacing) * spacing
+    const last = Math.floor(end / spacing) * spacing
+    const byBucket = new Map<number, number>()
     for (const row of histogram ?? []) {
       const bucket = parseBucketSeconds(row.bucket)
       if (bucket == null) continue
-      times.push(bucket)
-      counts.push(Number(row.count) || 0)
+      byBucket.set(bucket, Number(row.count) || 0)
+    }
+    const times: number[] = []
+    const counts: number[] = []
+    for (let t = first; t <= last; t += spacing) {
+      times.push(t)
+      counts.push(byBucket.get(t) ?? 0)
     }
     return [times, counts]
-  }, [histogram])
+  }, [histogram, range, spacing, shift])
 
   const labelInterval = HISTOGRAM_CONFIG[range]?.labels ?? 0
 
@@ -141,7 +180,8 @@ function Timeline({
         {},
         {
           label: 'Logs',
-          fill: 'rgba(138, 180, 248, 0.5)',
+          fill: barColors.fill,
+          stroke: barColors.stroke,
           points: { show: false },
           paths: uPlot.paths.bars!({ size: [0.9, 100] }),
         },
@@ -187,7 +227,7 @@ function Timeline({
         chartRef.current = null
       }
     }
-  }, [histogramData])
+  }, [histogramData, barColors])
 
   useEffect(() => {
     const frame = chartFrameRef.current
