@@ -125,20 +125,24 @@ impl QueryEngine {
                 None => build_query_runtime()?,
             }
         };
+        // The runtime is wrapped so a cancellation of this future (client
+        // disconnect, request timeout, shutdown) never drops it inside this
+        // async context, which Tokio rejects with a panic.
+        let query_rt = RuntimeDropGuard::new(query_rt);
 
-        let handle = query_rt.spawn(df.collect());
+        let handle = query_rt.as_runtime().spawn(df.collect());
         let result = tokio::time::timeout(timeout, handle).await;
         let batches = match result {
             Ok(Ok(Ok(batches))) => {
-                *self.query_rt.lock().await = Some(query_rt);
+                *self.query_rt.lock().await = Some(query_rt.take());
                 Ok(batches)
             }
             Ok(Ok(Err(e))) => {
-                *self.query_rt.lock().await = Some(query_rt);
+                *self.query_rt.lock().await = Some(query_rt.take());
                 Err(EngineError::DataFusion(e))
             }
             Ok(Err(_)) => {
-                *self.query_rt.lock().await = Some(query_rt);
+                *self.query_rt.lock().await = Some(query_rt.take());
                 Err(EngineError::DataFusion(DataFusionError::Execution(
                     "query task aborted".to_string(),
                 )))
@@ -148,7 +152,9 @@ impl QueryEngine {
                 // including the DataFusion execution tasks spawned internally.
                 // Dropping a runtime blocks, so hand the teardown to a dedicated
                 // thread; the slot is left `None` so the next call rebuilds.
-                std::thread::spawn(move || query_rt.shutdown_timeout(Duration::from_millis(0)));
+                std::thread::spawn(move || {
+                    query_rt.take().shutdown_timeout(Duration::from_millis(0));
+                });
                 Err(EngineError::QueryTimeout)
             }
         }?;
@@ -177,6 +183,81 @@ fn build_query_runtime() -> Result<Runtime, EngineError> {
         .enable_all()
         .build()
         .map_err(|e| EngineError::IoError(std::io::Error::other(e.to_string())))
+}
+
+/// Owns a [`Runtime`] and guarantees it is never dropped on a thread where
+/// blocking is disallowed.
+///
+/// Tokio panics — "Cannot drop a runtime in a context where blocking is not
+/// allowed" — if a [`Runtime`] is dropped from within an asynchronous context.
+/// A query can be torn down by the HTTP layer at any moment (a client
+/// disconnect, a request timeout, or graceful shutdown), which drops the
+/// in-flight future and with it any [`Runtime`] held in a local variable.
+/// Wrapping the runtime here parks that drop on a fresh, non-async OS thread
+/// instead.
+struct RuntimeDropGuard {
+    inner: Option<Runtime>,
+}
+
+impl RuntimeDropGuard {
+    fn new(runtime: Runtime) -> Self {
+        Self { inner: Some(runtime) }
+    }
+
+    /// Returns a shared handle to the owned runtime.
+    fn as_runtime(&self) -> &Runtime {
+        self.inner.as_ref().expect("runtime already taken")
+    }
+
+    /// Takes ownership back out of the guard.
+    fn take(mut self) -> Runtime {
+        self.inner.take().expect("runtime already taken")
+    }
+}
+
+impl Drop for RuntimeDropGuard {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.inner.take() {
+            // Offload the blocking teardown to a fresh OS thread so the
+            // runtime is never dropped inside an asynchronous context.
+            std::thread::spawn(move || drop(runtime));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RuntimeDropGuard;
+    use crate::error::EngineError;
+    use std::time::Duration;
+
+    fn build() -> Result<tokio::runtime::Runtime, EngineError> {
+        super::build_query_runtime()
+    }
+
+    #[test]
+    fn cancelled_future_must_not_drop_runtime_in_async_context() {
+        let outer = tokio::runtime::Runtime::new().expect("build outer runtime");
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            outer.block_on(async {
+                let inner = build().expect("build query runtime");
+                let guard = RuntimeDropGuard::new(inner);
+                let handle = guard.as_runtime().spawn(async {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                });
+                tokio::select! {
+                    _ = handle => {}
+                    _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+                }
+                // Guard is dropped here, still inside the async context. Prior
+                // to the guard this panicked with "Cannot drop a runtime in a
+                // context where blocking is not allowed"; now the teardown is
+                // parked on a fresh OS thread.
+                drop(guard);
+            });
+        }));
+        assert!(result.is_ok(), "dropping the runtime in an async context must not panic");
+    }
 }
 
 /// Rejects any statement that is not a plain, read-only `SELECT` query.
