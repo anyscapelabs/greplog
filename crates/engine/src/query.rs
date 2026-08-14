@@ -62,7 +62,10 @@ pub struct QueryEngine {
     /// `collect()` future leaves its internally-spawned execution tasks running
     /// (and burning CPU). Running each query on its own runtime — torn down via
     /// `shutdown_timeout(0)` when the deadline hits — is the only way to stop a
-    /// runaway query. A fresh runtime is rebuilt lazily after a timeout.
+    /// runaway query. A fresh runtime is rebuilt lazily after a timeout. Under
+    /// concurrent queries the slot may already hold a runtime when one finishes;
+    /// the idle one is retired on a dedicated thread instead of being dropped in
+    /// the async context (see [`execute_sql`]).
     query_rt: tokio::sync::Mutex<Option<Runtime>>,
 }
 
@@ -133,20 +136,11 @@ impl QueryEngine {
         let handle = query_rt.as_runtime().spawn(df.collect());
         let result = tokio::time::timeout(timeout, handle).await;
         let batches = match result {
-            Ok(Ok(Ok(batches))) => {
-                *self.query_rt.lock().await = Some(query_rt.take());
-                Ok(batches)
-            }
-            Ok(Ok(Err(e))) => {
-                *self.query_rt.lock().await = Some(query_rt.take());
-                Err(EngineError::DataFusion(e))
-            }
-            Ok(Err(_)) => {
-                *self.query_rt.lock().await = Some(query_rt.take());
-                Err(EngineError::DataFusion(DataFusionError::Execution(
-                    "query task aborted".to_string(),
-                )))
-            }
+            Ok(Ok(Ok(batches))) => Ok(batches),
+            Ok(Ok(Err(e))) => Err(EngineError::DataFusion(e)),
+            Ok(Err(_)) => Err(EngineError::DataFusion(DataFusionError::Execution(
+                "query task aborted".to_string(),
+            ))),
             Err(_) => {
                 // Force-cancel every task still running on the query runtime,
                 // including the DataFusion execution tasks spawned internally.
@@ -155,9 +149,24 @@ impl QueryEngine {
                 std::thread::spawn(move || {
                     query_rt.take().shutdown_timeout(Duration::from_millis(0));
                 });
-                Err(EngineError::QueryTimeout)
+                return Err(EngineError::QueryTimeout);
             }
         }?;
+
+        // Park the runtime for reuse -- unless the slot already holds one.
+        //
+        // With concurrent queries a fresh runtime is built while the previous
+        // one is still running, and both reach this point. Overwriting the
+        // slot would drop the parked runtime here, inside an async context,
+        // which Tokio rejects with a panic; instead, retire the idle one on a
+        // dedicated thread so teardown happens off the executor.
+        let idle = query_rt.take();
+        let mut slot = self.query_rt.lock().await;
+        if slot.is_none() {
+            *slot = Some(idle);
+        } else {
+            std::thread::spawn(move || drop(idle));
+        }
 
         Ok(batches)
     }
@@ -304,7 +313,12 @@ async fn register_parquet_table(
     ];
 
     let options = ListingOptions::new(Arc::new(ParquetFormat::default()))
-        .with_table_partition_cols(partition_cols);
+        .with_table_partition_cols(partition_cols)
+        // Without an explicit extension filter DataFusion keeps *every* file
+        // under the data tree, so in-progress chunk writes (`chunk_*.parquet.part`)
+        // are read as parquet and fail to parse, surfacing as intermittent
+        // scan errors. Only fully written `.parquet` files are legitimate.
+        .with_file_extension(".parquet");
 
     let path = config
         .data_dir

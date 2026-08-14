@@ -83,7 +83,10 @@ impl Compactor {
         }
 
         let final_path = partition_dir.join(format!("compacted_{}.parquet", Uuid::new_v4()));
-        let temp_path = partition_dir.join(format!(".tmp-compacted_{}.parquet", Uuid::new_v4()));
+        // Trailing `.part` so the listing scan never reads a half-written file:
+        // `parquet_files` globs `*.parquet`, which `compacted_*.parquet.part`
+        // does not match until the atomic rename below completes.
+        let temp_path = partition_dir.join(format!("compacted_{}.parquet.part", Uuid::new_v4()));
         let output = File::create(&temp_path)?;
         let properties = WriterProperties::builder()
             .set_compression(Compression::ZSTD(ZstdLevel::default()))

@@ -89,7 +89,11 @@ impl ParquetFlusher {
         batch: &RecordBatch,
     ) -> Result<(), EngineError> {
         let final_path = directory.join(format!("chunk_{nanos}.parquet"));
-        let temp_path = directory.join(format!(".tmp-chunk_{nanos}.parquet"));
+        // Note the trailing `.part`: the listing table matches `*.parquet`, so a
+        // temp file ending in `.parquet` would be scanned (and fail to parse)
+        // while it is being written. Only the atomic rename to `final_path`
+        // makes the chunk visible to readers.
+        let temp_path = directory.join(format!("chunk_{nanos}.parquet.part"));
         let file = File::create(&temp_path)?;
         let mut writer =
             ArrowWriter::try_new(file, batch.schema().clone(), Some(self.properties.clone()))?;
