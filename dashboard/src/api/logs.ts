@@ -1,4 +1,4 @@
-const API_BASE = 'http://127.0.0.1:3000/api'
+const API_BASE = '/api'
 
 export interface QueryFilters {
   timeRange: string // SQL interval string, e.g. '1 hour'
@@ -45,7 +45,7 @@ async function postQuery(sql: string): Promise<QueryRow[]> {
   const response = await fetch(`${API_BASE}/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: sql }),
+    body: JSON.stringify({ sql }),
   })
 
   if (!response.ok) {

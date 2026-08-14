@@ -4,7 +4,8 @@
   "description": "An example Express API demonstrating Greplog auto-instrumentation",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "traffic": "node src/traffic.ts"
   },
   "dependencies": {
     "express": "^4.19.2",
