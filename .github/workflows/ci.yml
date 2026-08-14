@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -26,6 +27,17 @@ jobs:
         run: cargo test --workspace
       - name: Clippy
         run: cargo clippy --workspace --all-targets
+
+  benchmark:
+    name: Engine benchmark (release throughput sweep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run throughput ceiling sweep
+        run: cargo test --release -p greplog-engine --test throughput_benchmark -- --nocapture
 
   dashboard:
     name: Dashboard (build + lint)
