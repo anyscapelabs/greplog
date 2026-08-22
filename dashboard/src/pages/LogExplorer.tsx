@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { RiPlayFill } from 'react-icons/ri'
 import SearchBar from '../components/SearchBar'
 import ServiceSelect from '../components/ServiceSelect'
+import ActiveFilterChips from '../components/logs/ActiveFilterChips'
 import FiltersSidebar from '../components/logs/FiltersSidebar'
 import LogsList from '../components/logs/LogsList'
 import Timeline from '../components/logs/Timeline'
 import { useLogExplorer } from '../hooks/useLogs'
-import type { QueryFilters } from '../api/logs'
 import { extractSeverity } from '../api/logs'
 import { RANGE_SECONDS } from '../components/logs/Timeline'
 import type { TimeRange } from '../components/Header'
@@ -29,25 +29,6 @@ function resolveTimeRangeSecs(range: TimeRange): number | null {
   if (!range) return null
 
   return RANGE_SECONDS[range] ?? null
-}
-
-function buildQueryFilters(
-  range: TimeRange,
-  activeSearchQuery: string,
-  selectedFacets: Record<string, string>,
-  selectedService: string,
-): QueryFilters | null {
-  const timeRangeSecs = resolveTimeRangeSecs(range)
-
-  if (!timeRangeSecs) return null
-
-  const activeFacets = buildActiveFacets(selectedFacets, selectedService)
-
-  return {
-    timeRangeSecs,
-    search: activeSearchQuery || undefined,
-    facets: activeFacets,
-  }
 }
 
 function getDiscoveredServices(facets: { service?: unknown }[] | undefined): string[] {
@@ -115,7 +96,42 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
     setActiveSearchQuery(draftSearchQuery)
   }
 
-  const queryFilters = useMemo(() => buildQueryFilters(range, activeSearchQuery, selectedFacets, selectedService), [range, activeSearchQuery, selectedFacets, selectedService])
+  // Wire-named view of everything currently filtering the page: sidebar picks
+  // plus the service dropdown. Drives both the chip bar and sidebar highlights.
+  const effectiveFacets = useMemo(
+    () => buildActiveFacets(selectedFacets, selectedService),
+    [selectedFacets, selectedService],
+  )
+
+  const queryFilters = useMemo(() => {
+    const timeRangeSecs = resolveTimeRangeSecs(range)
+    if (!timeRangeSecs) return null
+
+    return {
+      timeRangeSecs,
+      search: activeSearchQuery || undefined,
+      facets: effectiveFacets,
+    }
+  }, [range, activeSearchQuery, effectiveFacets])
+
+  const removeFacet = (key: string) => {
+    // The service dropdown also injects a service facet; clearing only the
+    // facet map would let the dropdown silently re-add it.
+    if (key === 'service') setSelectedService('All services')
+    setSelectedFacets((previous) => {
+      const next = { ...previous }
+      delete next[key]
+      delete next[key === 'level' ? 'severity' : 'level']
+      return next
+    })
+  }
+
+  const clearAllFilters = () => {
+    setSelectedService('All services')
+    setSelectedFacets({})
+    setActiveSearchQuery('')
+    setDraftSearchQuery('')
+  }
 
   const isFiltersValid = queryFilters !== null
 
@@ -186,6 +202,16 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
           Run query
         </button>
       </section>
+      <ActiveFilterChips
+        facets={effectiveFacets}
+        search={activeSearchQuery}
+        onRemoveFacet={removeFacet}
+        onRemoveSearch={() => {
+          setActiveSearchQuery('')
+          setDraftSearchQuery('')
+        }}
+        onClearAll={clearAllFilters}
+      />
       {isError && (
         <div className="mx-3 mt-3 rounded-md border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300" role="alert">
           Failed to load logs: {errorMessage ?? 'Unknown error'}. Try adjusting filters or refreshing.
@@ -198,7 +224,14 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
       )}
       <div className="flex min-h-0 flex-1">
         {!isLogsFullscreen && (
-          <FiltersSidebar facets={facets} onFilterSelect={handleFacetSelect} />
+          <FiltersSidebar
+            facets={facets}
+            active={{
+              level: effectiveFacets.level ?? effectiveFacets.severity,
+              service: effectiveFacets.service,
+            }}
+            onFilterSelect={handleFacetSelect}
+          />
         )}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <Timeline

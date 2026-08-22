@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import {
   LuArrowLeftToLine,
+  LuCheck,
   LuChevronDown,
   LuChevronRight,
 } from 'react-icons/lu'
@@ -26,6 +27,8 @@ interface FilterFacets {
 
 interface FiltersSidebarProps {
   facets?: QueryRow[]
+  /** Wire-named facets currently filtering the view, e.g. { level: 'ERROR' }. */
+  active?: Record<string, string>
   onFilterSelect?: (queryAddition: string) => void
 }
 
@@ -54,7 +57,7 @@ function buildFacetSections(rows: QueryRow[]): FilterFacets {
   return sections
 }
 
-function FiltersSidebar({ facets, onFilterSelect }: FiltersSidebarProps) {
+function FiltersSidebar({ facets, active, onFilterSelect }: FiltersSidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [width, setWidth] = useState(DEFAULT_FILTERS_WIDTH)
   const [search, setSearch] = useState('')
@@ -101,6 +104,11 @@ function FiltersSidebar({ facets, onFilterSelect }: FiltersSidebarProps) {
 
   const handleSelect = (section: string, label: string) => {
     onFilterSelect?.(`${section.toLowerCase()}='${label}'`)
+  }
+
+  const isActive = (section: string, label: string): boolean => {
+    const wireKey = section === 'Severity' ? 'level' : 'service'
+    return active?.[wireKey] === label
   }
 
   const sections = buildFacetSections(facets ?? [])
@@ -178,20 +186,31 @@ function FiltersSidebar({ facets, onFilterSelect }: FiltersSidebarProps) {
                   </div>
                   {isOpen && (
                     <div className="pb-2">
-                      {items.map((item) => (
-                        <div
-                          key={item.label}
-                          onClick={() => handleSelect(section, item.label)}
-                          className="group flex cursor-pointer items-center justify-between px-6 py-1 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
-                        >
-                          <span className="truncate group-hover:text-white">
-                            {item.label}
-                          </span>
-                          <span className="text-xs font-medium text-zinc-500">
-                            {item.count}
-                          </span>
-                        </div>
-                      ))}
+                      {items.map((item) => {
+                        const selected = isActive(section, item.label)
+                        return (
+                          <div
+                            key={item.label}
+                            onClick={() => handleSelect(section, item.label)}
+                            title={selected ? 'Click to remove this filter' : undefined}
+                            className={`group flex cursor-pointer items-center justify-between px-6 py-1 text-sm font-medium hover:bg-zinc-800 ${
+                              selected
+                                ? 'bg-blue-950/40 text-white'
+                                : 'text-zinc-300'
+                            }`}
+                          >
+                            <span className="flex min-w-0 items-center gap-1.5 truncate group-hover:text-white">
+                              {selected && (
+                                <LuCheck className="h-3 w-3 shrink-0 text-blue-400" />
+                              )}
+                              {item.label}
+                            </span>
+                            <span className="text-xs font-medium text-zinc-500">
+                              {item.count}
+                            </span>
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
