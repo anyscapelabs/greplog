@@ -20,6 +20,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      # rust_embed bakes dashboard/dist into the binary at compile time;
+      # without this step every artifact ships the "dashboard not built" page.
+      - name: Build dashboard bundle
+        run: >
+          npm ci --prefix dashboard &&
+          npm run build --prefix dashboard
       - uses: Swatinem/rust-cache@v2
       - name: Build all targets
         run: cargo build --workspace --all-targets
