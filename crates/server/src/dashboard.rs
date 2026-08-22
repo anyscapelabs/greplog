@@ -52,8 +52,7 @@ pub async fn handle_search(
 }
 
 /// Handles `GET /api/stats`, returning Parquet disk usage for the Storage card.
-pub async fn handle_stats(State(state): State<crate::DashboardState>) -> Result<Response, ApiError> {
-    let data_dir = state.data_dir;
+pub async fn handle_stats(State(data_dir): State<std::path::PathBuf>) -> Result<Response, ApiError> {
     let snapshot = tokio::task::spawn_blocking(move || crate::stats::storage_stats(&data_dir))
         .await
         .map_err(|e| ApiError::Engine(EngineError::IoError(std::io::Error::other(e.to_string()))))?;

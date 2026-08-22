@@ -32,7 +32,7 @@ pub(crate) struct DashboardState {
     engine: Arc<QueryEngine>,
     broadcast_tx: broadcast::Sender<Vec<greplog_engine::record::LogRecord>>,
     shutdown: Shutdown,
-    pub(crate) data_dir: std::path::PathBuf,
+    data_dir: std::path::PathBuf,
 }
 
 impl axum::extract::FromRef<DashboardState> for Arc<QueryEngine> {
@@ -47,6 +47,12 @@ impl axum::extract::FromRef<DashboardState> for dashboard::TailState {
             records: state.broadcast_tx.subscribe(),
             shutdown: state.shutdown.clone(),
         }
+    }
+}
+
+impl axum::extract::FromRef<DashboardState> for std::path::PathBuf {
+    fn from_ref(state: &DashboardState) -> Self {
+        state.data_dir.clone()
     }
 }
 
