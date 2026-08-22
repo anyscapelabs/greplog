@@ -40,8 +40,6 @@ interface HeaderProps {
   onTabChange: (tab: TabId) => void
   range: TimeRange
   onRangeChange: (range: TimeRange) => void
-  liveTailActive?: boolean
-  onLiveTailToggle?: () => void
   refreshInterval?: string
   onRefreshIntervalChange?: (value: string) => void
   onManualRefresh?: () => void
@@ -96,12 +94,11 @@ function Header({
   onTabChange,
   range,
   onRangeChange,
-  liveTailActive = false,
-  onLiveTailToggle,
   refreshInterval = 'off',
   onRefreshIntervalChange,
   onManualRefresh,
 }: HeaderProps) {
+  const liveTailActive = activeTab === 'tail'
   const [isRangeOpen, setIsRangeOpen] = useState(false)
   const [isRefreshOpen, setIsRefreshOpen] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -123,11 +120,7 @@ function Header({
   }
 
   const handleLiveTailClick = () => {
-    onTabChange('logs')
-
-    if (!onLiveTailToggle) return
-
-    onLiveTailToggle()
+    onTabChange(liveTailActive ? 'logs' : 'tail')
   }
 
   const handleManualRefresh = () => {

@@ -51,7 +51,6 @@ function App() {
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<TabId>('logs')
   const [selectedRange, setSelectedRange] = useState<TimeRange>('1h')
-  const [isLiveTailActive, setIsLiveTailActive] = useState(false)
   const [autoRefreshInterval, setAutoRefreshInterval] = useState('off')
 
   useEffect(() => {
@@ -85,13 +84,11 @@ function App() {
         onTabChange={setActiveTab}
         range={selectedRange}
         onRangeChange={setSelectedRange}
-        liveTailActive={isLiveTailActive}
-        onLiveTailToggle={() => setIsLiveTailActive((previousValue) => !previousValue)}
         refreshInterval={autoRefreshInterval}
         onRefreshIntervalChange={setAutoRefreshInterval}
         onManualRefresh={refreshActiveTab}
       />
-      {activeTab === 'logs' && <LogExplorer range={selectedRange} liveTailActive={isLiveTailActive} />}
+      {activeTab === 'logs' && <LogExplorer range={selectedRange} />}
       {activeTab === 'metrics' && <Metrics range={selectedRange} />}
       {activeTab === 'tail' && <LiveTail />}
     </div>
