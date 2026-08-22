@@ -1,6 +1,9 @@
 //! Greplog CLI entrypoint and graceful shutdown wiring.
 
 #![warn(clippy::all, clippy::pedantic)]
+// Pedantic style calls: error docs per function are noise here; the types
+// and the central error enum carry that contract.
+#![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 #![allow(clippy::missing_docs_in_private_items)]
 
 mod banner;
@@ -57,12 +60,7 @@ async fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::Status => {
-            if let Err(error) = run_status() {
-                eprintln!("status failed: {error}");
-                std::process::exit(1);
-            }
-        }
+        Commands::Status => run_status(),
     }
 }
 
@@ -92,7 +90,7 @@ async fn run_start(
 
 /// WAL and storage status straight from the filesystem; works without a
 /// running server.
-fn run_status() -> Result<(), Box<dyn std::error::Error>> {
+fn run_status() {
     let config = EngineConfig::default();
 
     let wal_bytes = wal_usage(&config.wal_path);
@@ -108,16 +106,15 @@ fn run_status() -> Result<(), Box<dyn std::error::Error>> {
     println!("  partitions    : {}", storage.partitions);
     println!("  parquet files : {}", storage.chunks);
     println!("  disk usage    : {} bytes", storage.bytes);
-    Ok(())
 }
 
 /// Total WAL bytes on disk: the active segment plus every sealed one. Only
 /// reporting `current.wal` understates the footprint exactly when an operator
 /// runs `status` to find out where the disk went.
 fn wal_usage(wal_path: &Path) -> u64 {
-    let mut bytes = fs::metadata(wal_path).map(|meta| meta.len()).unwrap_or(0);
+    let mut bytes = fs::metadata(wal_path).map_or(0, |meta| meta.len());
     for segment in greplog_engine::wal::sealed_segments(wal_path).unwrap_or_default() {
-        bytes += fs::metadata(&segment).map(|meta| meta.len()).unwrap_or(0);
+        bytes += fs::metadata(&segment).map_or(0, |meta| meta.len());
     }
     bytes
 }
@@ -193,7 +190,7 @@ async fn run_server(config: EngineConfig) -> Result<(), Box<dyn std::error::Erro
     server_result.map_err(Into::into)
 }
 
-/// Replays every WAL segment into the queryable live buffer; the MemTable
+/// Replays every WAL segment into the queryable live buffer; the `MemTable`
 /// worker re-flushes recovered rows to Parquet, which lets the WAL worker
 /// reclaim the segments they came from.
 fn recover_wal_into(
@@ -223,10 +220,7 @@ fn recover_wal_into(
     if batch.num_rows() == 0 {
         return Ok(());
     }
-    match live_buffer.write() {
-        Ok(mut buffer) => buffer.push(batch),
-        Err(_) => tracing::error!("live buffer write lock poisoned on WAL replay"),
-    }
+    if let Ok(mut buffer) = live_buffer.write() { buffer.push(batch) } else { tracing::error!("live buffer write lock poisoned on WAL replay") }
     Ok(())
 }
 

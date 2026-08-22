@@ -30,7 +30,7 @@ impl Retention {
         };
         let cutoff = Utc::now().date_naive() - ChronoDuration::days(i64::from(days));
         let mut expired = Vec::new();
-        walk_for_day_partitions(&self.config.data_dir, &cutoff, &mut expired)?;
+        walk_for_day_partitions(&self.config.data_dir, cutoff, &mut expired)?;
         Ok(expired)
     }
 
@@ -82,7 +82,7 @@ impl Retention {
 /// tolerating a missing root.
 fn walk_for_day_partitions(
     dir: &Path,
-    cutoff: &NaiveDate,
+    cutoff: NaiveDate,
     out: &mut Vec<PathBuf>,
 ) -> Result<(), EngineError> {
     let entries = match fs::read_dir(dir) {
@@ -97,7 +97,7 @@ fn walk_for_day_partitions(
             continue;
         }
         if let Some(date) = day_partition_date(&path) {
-            if date < *cutoff {
+            if date < cutoff {
                 out.push(path);
             }
         } else {
@@ -136,7 +136,7 @@ mod tests {
     use super::{Retention, day_partition_date};
     use crate::config::EngineConfig;
 
-    fn make_partition(root: &std::path::Path, date: &NaiveDate) -> std::path::PathBuf {
+    fn make_partition(root: &std::path::Path, date: NaiveDate) -> std::path::PathBuf {
         let path = root
             .join(format!("year={}", date.year()))
             .join(format!("month={:02}", date.month()))
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn day_partition_parser_reads_the_hive_hierarchy() {
         let dir = tempdir().expect("create temp dir");
-        let path = make_partition(dir.path(), &NaiveDate::from_ymd_opt(2026, 8, 9).unwrap());
+        let path = make_partition(dir.path(), NaiveDate::from_ymd_opt(2026, 8, 9).unwrap());
 
         let parsed = day_partition_date(&path).expect("parse partition date");
         assert_eq!(parsed, NaiveDate::from_ymd_opt(2026, 8, 9).unwrap());
@@ -165,8 +165,8 @@ mod tests {
         let today = Utc::now().date_naive();
         let old = today - chrono::Duration::days(40);
         let fresh = today - chrono::Duration::days(1);
-        let old_path = make_partition(&root, &old);
-        let _fresh_path = make_partition(&root, &fresh);
+        let old_path = make_partition(&root, old);
+        let _fresh_path = make_partition(&root, fresh);
 
         // A "year=9999" decoy that is not a real partition must be ignored.
         fs::create_dir_all(root.join("year=9999")).expect("create decoy");
@@ -188,7 +188,7 @@ mod tests {
         let dir = tempdir().expect("create temp dir");
         let root = dir.path().join("logs");
         let old = Utc::now().date_naive() - chrono::Duration::days(400);
-        make_partition(&root, &old);
+        make_partition(&root, old);
 
         let retention = Retention::new(EngineConfig {
             data_dir: root.clone(),
@@ -207,8 +207,8 @@ mod tests {
         let dir = tempdir().expect("create temp dir");
         let root = dir.path().join("logs");
         let today = Utc::now().date_naive();
-        let old_path = make_partition(&root, &(today - chrono::Duration::days(45)));
-        let fresh_path = make_partition(&root, &(today - chrono::Duration::days(2)));
+        let old_path = make_partition(&root, today - chrono::Duration::days(45));
+        let fresh_path = make_partition(&root, today - chrono::Duration::days(2));
 
         let retention = Retention::new(EngineConfig {
             data_dir: root.clone(),

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 /// The shared, queryable in-memory log tier: finished batches pushed by the
-/// MemTable worker, cloned (reference counts only) by queries.
+/// `MemTable` worker, cloned (reference counts only) by queries.
 pub type LiveBuffer = Arc<RwLock<Vec<arrow::record_batch::RecordBatch>>>;
 
 /// Tuning knobs for the ingest, WAL, and storage pipeline.
@@ -14,7 +14,7 @@ pub struct EngineConfig {
     pub data_dir: PathBuf,
     /// Path of the Write-Ahead Log file.
     pub wal_path: PathBuf,
-    /// Rows buffered in the MemTable before a flush to Parquet.
+    /// Rows buffered in the `MemTable` before a flush to Parquet.
     pub flush_row_limit: usize,
     /// Seconds pending rows may stay unflushed before a periodic flush fires.
     pub flush_interval_secs: u64,

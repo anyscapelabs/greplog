@@ -92,7 +92,7 @@ impl Compactor {
             if !is_parquet(&path) {
                 continue;
             }
-            let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+            let size = entry.metadata().map_or(0, |meta| meta.len());
             if size < self.config.compaction_target_bytes {
                 mergeable += 1;
             }

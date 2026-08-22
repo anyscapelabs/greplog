@@ -19,9 +19,7 @@ const SEALED_PREFIX: &str = "sealed-";
 #[must_use]
 pub fn sealed_path(wal_path: &Path, seq: u64) -> PathBuf {
     let name = wal_path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "current.wal".to_string());
+        .file_name().map_or_else(|| "current.wal".to_string(), |name| name.to_string_lossy().into_owned());
     let directory = wal_path.parent().unwrap_or_else(|| Path::new("."));
     directory.join(format!("{SEALED_PREFIX}{seq:06}-{name}"))
 }

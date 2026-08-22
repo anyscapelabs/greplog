@@ -1,7 +1,7 @@
 //! The dedicated OS worker threads of the write path.
 //!
 //! Disk I/O and columnar conversion never run on the Tokio runtime serving the
-//! API. The WAL worker persists batches and `fsync`s them; the MemTable worker
+//! API. The WAL worker persists batches and `fsync`s them; the `MemTable` worker
 //! converts durable records into Arrow batches, stages them in the shared
 //! [`LiveBuffer`], flushes to Parquet, and signals the WAL worker to reclaim
 //! covered records. The confirmation channel is separate from the ingest
@@ -164,7 +164,7 @@ impl WalState {
 /// Spawns the WAL worker on a dedicated OS thread and returns its handle.
 ///
 /// `receiver` carries [`WalCommand::Append`]s; a batch is forwarded to the
-/// MemTable worker only after a successful fsync. `truncate_rx` carries
+/// `MemTable` worker only after a successful fsync. `truncate_rx` carries
 /// Parquet-confirmation signals; each seals the active segment and deletes
 /// sealed segments now fully covered. The loop ends when the append channel
 /// closes; join the handle to wait for outstanding fsyncs.
@@ -181,7 +181,7 @@ pub fn spawn_wal_worker(
     })
 }
 
-/// Spawns the MemTable worker on a dedicated OS thread and returns its handle.
+/// Spawns the `MemTable` worker on a dedicated OS thread and returns its handle.
 #[must_use]
 pub fn spawn_memtable_worker(
     receiver: HandoffRx<Vec<LogRecord>>,

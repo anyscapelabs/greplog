@@ -1,6 +1,9 @@
 //! Greplog engine: the typed, zero-data-loss logging core.
 
 #![warn(clippy::all, clippy::pedantic)]
+// Pedantic style calls: error docs per function are noise here; the types
+// and the central error enum carry that contract.
+#![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
 #![allow(clippy::missing_docs_in_private_items)]
 
 pub mod compactor;

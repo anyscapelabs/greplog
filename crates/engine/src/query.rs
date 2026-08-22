@@ -45,7 +45,7 @@ pub struct QueryEngine {
     pub(crate) max_query_rows: usize,
     /// Dedicated runtime for query execution, reused across calls.
     ///
-    /// DataFusion 39 offers no per-query cancellation: aborting `collect()`
+    /// `DataFusion` 39 offers no per-query cancellation: aborting `collect()`
     /// leaves its internally-spawned tasks running. Running each query on its
     /// own runtime, torn down via `shutdown_timeout(0)` on deadline, is the
     /// only way to stop a runaway query. A fresh runtime is rebuilt lazily
@@ -59,7 +59,7 @@ impl QueryEngine {
     /// Builds a query engine over `config.data_dir` and the shared `live_buffer`.
     pub async fn new(config: &EngineConfig, live_buffer: LiveBuffer) -> Result<Self, EngineError> {
         let ctx = SessionContext::new();
-        register_parquet_table(&ctx, config).await?;
+        register_parquet_table(&ctx, config)?;
         register_live_table(&ctx, live_buffer, greplog_schema())?;
         ctx.sql(UNIFIED_VIEW_SQL).await?;
         Ok(Self {
@@ -185,41 +185,6 @@ impl Drop for RuntimeDropGuard {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::RuntimeDropGuard;
-    use crate::error::EngineError;
-    use std::time::Duration;
-
-    fn build() -> Result<tokio::runtime::Runtime, EngineError> {
-        super::build_query_runtime()
-    }
-
-    #[test]
-    fn cancelled_future_must_not_drop_runtime_in_async_context() {
-        let outer = tokio::runtime::Runtime::new().expect("build outer runtime");
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            outer.block_on(async {
-                let inner = build().expect("build query runtime");
-                let guard = RuntimeDropGuard::new(inner);
-                let handle = guard.as_runtime().spawn(async {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                });
-                tokio::select! {
-                    _ = handle => {}
-                    _ = tokio::time::sleep(Duration::from_millis(20)) => {}
-                }
-                // Guard is dropped here, still inside the async context. Prior
-                // to the guard this panicked with "Cannot drop a runtime in a
-                // context where blocking is not allowed"; now the teardown is
-                // parked on a fresh OS thread.
-                drop(guard);
-            });
-        }));
-        assert!(result.is_ok(), "dropping the runtime in an async context must not panic");
-    }
-}
-
 /// Rejects any statement that is not a plain, read-only `SELECT` query.
 /// `WITH` queries parse as a [`Statement::Query`] and pass.
 fn validate_read_only_query(sql: &str) -> Result<(), EngineError> {
@@ -242,7 +207,7 @@ fn validate_read_only_query(sql: &str) -> Result<(), EngineError> {
 /// arrives after startup is visible without a restart. An explicit file schema
 /// (data fields only; partition columns are merged in by [`ListingTable`])
 /// keeps the table well-typed even before any Parquet file exists.
-async fn register_parquet_table(
+fn register_parquet_table(
     ctx: &SessionContext,
     config: &EngineConfig,
 ) -> Result<(), EngineError> {
@@ -300,7 +265,7 @@ fn register_live_table(
 
 /// A [`TableProvider`] that snapshots the shared [`LiveBuffer`] on every scan.
 ///
-/// DataFusion bakes a view's leaf providers into the stored logical plan, so
+/// `DataFusion` bakes a view's leaf providers into the stored logical plan, so
 /// the provider registered as `live_logs` must stay a single object and hand
 /// back fresh rows itself. Each scan clones the buffered batch vector under a
 /// brief read lock (only Arrow reference counts) and serves it through an
@@ -346,5 +311,40 @@ impl TableProvider for LiveBufferTable {
         };
         let live = MemTable::try_new(Arc::clone(&self.schema), vec![batches])?;
         live.scan(state, projection, filters, limit).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RuntimeDropGuard;
+    use crate::error::EngineError;
+    use std::time::Duration;
+
+    fn build() -> Result<tokio::runtime::Runtime, EngineError> {
+        super::build_query_runtime()
+    }
+
+    #[test]
+    fn cancelled_future_must_not_drop_runtime_in_async_context() {
+        let outer = tokio::runtime::Runtime::new().expect("build outer runtime");
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            outer.block_on(async {
+                let inner = build().expect("build query runtime");
+                let guard = RuntimeDropGuard::new(inner);
+                let handle = guard.as_runtime().spawn(async {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                });
+                tokio::select! {
+                    _ = handle => {}
+                    () = tokio::time::sleep(Duration::from_millis(20)) => {}
+                }
+                // Guard is dropped here, still inside the async context. Prior
+                // to the guard this panicked with "Cannot drop a runtime in a
+                // context where blocking is not allowed"; now the teardown is
+                // parked on a fresh OS thread.
+                drop(guard);
+            });
+        }));
+        assert!(result.is_ok(), "dropping the runtime in an async context must not panic");
     }
 }

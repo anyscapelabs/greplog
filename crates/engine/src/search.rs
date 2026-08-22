@@ -122,7 +122,7 @@ impl LogSearch {
                         "bucket_secs must be greater than zero when grouping by bucket",
                     ));
                 }
-                if u64::from(*bucket_secs) > self.time_range_secs {
+                if (*bucket_secs) > self.time_range_secs {
                     return Err(search_error("bucket_secs cannot exceed time_range_secs"));
                 }
                 if metrics.is_empty() {
@@ -165,7 +165,7 @@ fn partition_days(now: DateTime<Utc>, time_range_secs: u64) -> Vec<(i32, u32, u3
 
 /// Single-clause Hive filter.
 ///
-/// DataFusion 39 mis-prunes when two partition columns are conjuncted (e.g.
+/// `DataFusion` 39 mis-prunes when two partition columns are conjuncted (e.g.
 /// `year IN (2026) AND month IN (8)` matches zero files), while any single
 /// partition clause prunes correctly. One column is also enough for
 /// correctness — the timestamp predicate cleans up the over-inclusion — so the
@@ -195,11 +195,11 @@ fn partition_predicate(days: &[(i32, u32, u32)]) -> Option<String> {
     if days.len() <= 32 {
         let mut sorted = day_numbers;
         sorted.sort_unstable();
-        Some(render("day", sorted.iter().map(|d| d.to_string()).collect()))
+        Some(render("day", sorted.iter().map(std::string::ToString::to_string).collect()))
     } else if days.len() <= 730 {
-        Some(render("month", months.iter().map(|m| m.to_string()).collect()))
+        Some(render("month", months.iter().map(std::string::ToString::to_string).collect()))
     } else {
-        Some(render("year", years.iter().map(|y| y.to_string()).collect()))
+        Some(render("year", years.iter().map(std::string::ToString::to_string).collect()))
     }
 }
 
@@ -437,7 +437,7 @@ fn merge_rows(batches: Vec<RecordBatch>, limit: usize) -> Result<Vec<RecordBatch
     let normalized: Vec<RecordBatch> = batches
         .into_iter()
         .filter(|batch| batch.num_rows() > 0)
-        .map(|batch| normalize_to_schema(batch, &schema))
+        .map(|batch| normalize_to_schema(&batch, &schema))
         .collect::<Result<_, _>>()?;
     if normalized.is_empty() {
         return Ok(Vec::new());
@@ -460,7 +460,7 @@ fn merge_rows(batches: Vec<RecordBatch>, limit: usize) -> Result<Vec<RecordBatch
 }
 
 fn normalize_to_schema(
-    batch: RecordBatch,
+    batch: &RecordBatch,
     schema: &SchemaRef,
 ) -> Result<RecordBatch, EngineError> {
     let columns: Vec<ArrayRef> = schema

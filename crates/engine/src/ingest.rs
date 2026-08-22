@@ -25,7 +25,7 @@ impl IngestBatch {
 }
 
 /// A command directed at the WAL worker actor. Sealed-segment reclamation is
-/// not a command here: the MemTable worker owns a separate signal channel, so
+/// not a command here: the `MemTable` worker owns a separate signal channel, so
 /// the two write phases share no channel and can never deadlock.
 #[derive(Debug)]
 pub enum WalCommand {

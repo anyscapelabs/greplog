@@ -43,7 +43,7 @@ impl ParquetFlusher {
     /// Writes `batch` to today's UTC partition, split by `service`.
     ///
     /// `service` lives only in the directory name, never in the file, so
-    /// DataFusion reads the partition folder as a column. A failure after some
+    /// `DataFusion` reads the partition folder as a column. A failure after some
     /// services were already written surfaces as an error, which prevents the
     /// caller from confirming those rows to the WAL.
     pub fn flush(&self, batch: &RecordBatch) -> Result<(), EngineError> {
@@ -133,7 +133,7 @@ fn filter_by_service(
 
 /// Drops the `service` column once the split is chosen: it is partition
 /// metadata encoded in the folder name, and storing it in the file too would
-/// collide with the partition column DataFusion joins in.
+/// collide with the partition column `DataFusion` joins in.
 fn strip_service_column(batch: &RecordBatch) -> Result<RecordBatch, EngineError> {
     let service_index = batch.schema().index_of("service")?;
     let indices: Vec<usize> = (0..batch.num_columns())
