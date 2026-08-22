@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import Header, { type TabId, type TimeRange } from './components/Header'
 import LiveTail from './pages/LiveTail'
 import LogExplorer from './pages/LogExplorer'
@@ -10,14 +11,26 @@ const TAB_TITLES: Record<TabId, string> = {
   tail: 'Live tail · Greplog',
 }
 
+/** Query-key prefixes each tab needs refreshed; the tail tab is push-fed by SSE. */
+const REFRESHABLE_QUERY_KEYS: Record<TabId, string[][]> = {
+  logs: [
+    ['logs'],
+    ['histogram'],
+    ['facets'],
+  ],
+  metrics: [
+    ['ingestion'],
+    ['severity-breakdown'],
+    ['ingestion-by-service'],
+    ['service-table'],
+    ['error-rate'],
+    ['storage'],
+  ],
+  tail: [],
+}
+
 function getTabTitle(tab: TabId): string {
-  if (!tab) return TAB_TITLES.logs
-
-  const title = TAB_TITLES[tab]
-
-  if (!title) return TAB_TITLES.logs
-
-  return title
+  return TAB_TITLES[tab] ?? TAB_TITLES.logs
 }
 
 function getRefreshIntervalMs(interval: string): number | null {
@@ -35,27 +48,35 @@ function getRefreshIntervalMs(interval: string): number | null {
 }
 
 function App() {
+  const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<TabId>('logs')
   const [selectedRange, setSelectedRange] = useState<TimeRange>('1h')
   const [isLiveTailActive, setIsLiveTailActive] = useState(false)
   const [autoRefreshInterval, setAutoRefreshInterval] = useState('off')
-  const [refreshTick, setRefreshTick] = useState(0)
 
   useEffect(() => {
-    const nextTitle = getTabTitle(activeTab)
-
-    document.title = nextTitle
+    document.title = getTabTitle(activeTab)
   }, [activeTab])
+
+  // Invalidate instead of remounting: queries refetch in place, so filters,
+  // search text, and scroll position survive every refresh.
+  const refreshActiveTab = useCallback(() => {
+    if (document.visibilityState !== 'visible') return
+
+    for (const queryKey of REFRESHABLE_QUERY_KEYS[activeTab]) {
+      void queryClient.invalidateQueries({ queryKey })
+    }
+  }, [activeTab, queryClient])
 
   useEffect(() => {
     const intervalMs = getRefreshIntervalMs(autoRefreshInterval)
 
     if (intervalMs === null) return
 
-    const intervalId = setInterval(() => setRefreshTick((previousTick) => previousTick + 1), intervalMs)
+    const intervalId = setInterval(refreshActiveTab, intervalMs)
 
     return () => clearInterval(intervalId)
-  }, [autoRefreshInterval])
+  }, [autoRefreshInterval, refreshActiveTab])
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
@@ -68,10 +89,10 @@ function App() {
         onLiveTailToggle={() => setIsLiveTailActive((previousValue) => !previousValue)}
         refreshInterval={autoRefreshInterval}
         onRefreshIntervalChange={setAutoRefreshInterval}
-        onManualRefresh={() => setRefreshTick((previousTick) => previousTick + 1)}
+        onManualRefresh={refreshActiveTab}
       />
-      {activeTab === 'logs' && <LogExplorer key={refreshTick} range={selectedRange} liveTailActive={isLiveTailActive} />}
-      {activeTab === 'metrics' && <Metrics key={refreshTick} range={selectedRange} />}
+      {activeTab === 'logs' && <LogExplorer range={selectedRange} liveTailActive={isLiveTailActive} />}
+      {activeTab === 'metrics' && <Metrics range={selectedRange} />}
       {activeTab === 'tail' && <LiveTail />}
     </div>
   )
