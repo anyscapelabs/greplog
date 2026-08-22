@@ -20,6 +20,22 @@ use tokio::sync::broadcast;
 use crate::error::ApiError;
 use crate::shutdown::Shutdown;
 
+fn internal_error(message: impl std::fmt::Display) -> ApiError {
+    ApiError::Engine(EngineError::IoError(std::io::Error::other(message.to_string())))
+}
+
+/// Encodes row batches on the blocking pool (CPU-bound, result-proportional).
+async fn encoded_rows(batches: Vec<RecordBatch>) -> Result<Response, ApiError> {
+    if batches.is_empty() {
+        return Ok(empty_rows());
+    }
+    let body = tokio::task::spawn_blocking(move || encode_rows(&batches))
+        .await
+        .map_err(internal_error)?
+        .map_err(ApiError::Engine)?;
+    Ok(json_response(body))
+}
+
 const TAIL_KEEP_ALIVE_SECS: u64 = 15;
 
 /// Request body for `POST /api/query`.
@@ -34,30 +50,16 @@ pub async fn handle_search(
     State(engine): State<Arc<QueryEngine>>,
     Json(search): Json<greplog_engine::search::LogSearch>,
 ) -> Result<Response, ApiError> {
-    let batches: Vec<RecordBatch> = engine
-        .search(&search)
-        .await
-        .map_err(ApiError::Engine)?;
-
-    if batches.is_empty() {
-        return Ok(empty_rows());
-    }
-
-    let body = tokio::task::spawn_blocking(move || encode_rows(&batches))
-        .await
-        .map_err(|e| ApiError::Engine(EngineError::IoError(std::io::Error::other(e.to_string()))))?
-        .map_err(ApiError::Engine)?;
-
-    Ok(json_response(body))
+    let batches = engine.search(&search).await.map_err(ApiError::Engine)?;
+    encoded_rows(batches).await
 }
 
 /// Handles `GET /api/stats`, returning Parquet disk usage for the Storage card.
 pub async fn handle_stats(State(data_dir): State<std::path::PathBuf>) -> Result<Response, ApiError> {
     let snapshot = tokio::task::spawn_blocking(move || crate::stats::storage_stats(&data_dir))
         .await
-        .map_err(|e| ApiError::Engine(EngineError::IoError(std::io::Error::other(e.to_string()))))?;
-    let body = serde_json::to_vec(&snapshot)
-        .map_err(|e| ApiError::Engine(EngineError::IoError(std::io::Error::other(e.to_string()))))?;
+        .map_err(internal_error)?;
+    let body = serde_json::to_vec(&snapshot).map_err(internal_error)?;
     Ok(json_response(body))
 }
 
@@ -76,26 +78,8 @@ pub async fn handle_query(
     State(engine): State<Arc<QueryEngine>>,
     Json(req): Json<QueryRequest>,
 ) -> Result<Response, ApiError> {
-    let batches: Vec<RecordBatch> = engine
-        .execute_sql(&req.sql)
-        .await
-        .map_err(ApiError::Engine)?;
-
-    if batches.is_empty() {
-        return Ok(empty_rows());
-    }
-
-    // Encoding is CPU-bound and proportional to result size.
-    let body = tokio::task::spawn_blocking(move || encode_rows(&batches))
-        .await
-        .map_err(|e| ApiError::Engine(EngineError::IoError(std::io::Error::other(e.to_string()))))?
-        .map_err(ApiError::Engine)?;
-
-    if body.is_empty() {
-        return Ok(empty_rows());
-    }
-
-    Ok(json_response(body))
+    let batches = engine.execute_sql(&req.sql).await.map_err(ApiError::Engine)?;
+    encoded_rows(batches).await
 }
 
 fn encode_rows(batches: &[RecordBatch]) -> Result<Vec<u8>, EngineError> {
