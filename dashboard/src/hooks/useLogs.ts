@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { logApi, type QueryFilters } from '../api/logs'
 import { RANGE_SECONDS, binIntervalSeconds } from '../components/logs/Timeline'
 import type { TimeRange } from '../components/Header'
@@ -29,6 +29,7 @@ function getErrorMessage(error: unknown): string {
 export function useLogExplorer(filters: QueryFilters | null, range: TimeRange) {
   const logsQuery = useQuery({
     queryKey: ['logs', filters],
+    placeholderData: keepPreviousData,
     queryFn: () => {
       if (!filters) throw new Error('Query filters are required')
 
@@ -39,6 +40,7 @@ export function useLogExplorer(filters: QueryFilters | null, range: TimeRange) {
 
   const histogramQuery = useQuery({
     queryKey: ['histogram', filters, range],
+    placeholderData: keepPreviousData,
     queryFn: () => {
       if (!filters) throw new Error('Query filters are required')
       validateRange(range)
@@ -50,6 +52,7 @@ export function useLogExplorer(filters: QueryFilters | null, range: TimeRange) {
 
   const facetsQuery = useQuery({
     queryKey: ['facets', filters],
+    placeholderData: keepPreviousData,
     queryFn: () => {
       if (!filters) throw new Error('Query filters are required')
 
@@ -93,6 +96,7 @@ export function useIngestion(range: TimeRange) {
 export function useSeverityBreakdown(filters: QueryFilters, range: TimeRange) {
   const severityQuery = useQuery({
     queryKey: ['severity-breakdown', filters, range],
+    placeholderData: keepPreviousData,
     queryFn: () => {
       validateFilters(filters)
       validateRange(range)
@@ -113,6 +117,7 @@ export function useSeverityBreakdown(filters: QueryFilters, range: TimeRange) {
 export function useIngestionByService(filters: QueryFilters, range: TimeRange) {
   const ingestionByServiceQuery = useQuery({
     queryKey: ['ingestion-by-service', filters, range],
+    placeholderData: keepPreviousData,
     queryFn: () => {
       validateFilters(filters)
       validateRange(range)
@@ -133,6 +138,7 @@ export function useIngestionByService(filters: QueryFilters, range: TimeRange) {
 export function useServiceTable(filters: QueryFilters) {
   const serviceTableQuery = useQuery({
     queryKey: ['service-table', filters],
+    placeholderData: keepPreviousData,
     queryFn: () => {
       validateFilters(filters)
 
@@ -159,6 +165,7 @@ export interface ScalarMetric {
 export function useErrorRate(filters: QueryFilters): ScalarMetric {
   const errorRateQuery = useQuery({
     queryKey: ['error-rate', filters],
+    placeholderData: keepPreviousData,
     queryFn: () => {
       validateFilters(filters)
 

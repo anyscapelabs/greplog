@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import {
   LuArrowLeftToLine,
+  LuCheck,
   LuChevronDown,
   LuChevronRight,
 } from 'react-icons/lu'
@@ -194,12 +195,21 @@ function FiltersSidebar({ facets, active, onFilterSelect }: FiltersSidebarProps)
                             className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
                           >
                             <span className="flex min-w-0 items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={selected}
-                                onChange={() => handleSelect(section, item.label)}
-                                className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-blue-500"
-                              />
+                              <span className="relative flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={() => handleSelect(section, item.label)}
+                                  className={`h-3.5 w-3.5 shrink-0 cursor-pointer appearance-none rounded-[3px] border transition-colors ${
+                                    selected
+                                      ? 'border-blue-500 bg-blue-500'
+                                      : 'border-zinc-600 bg-zinc-900 hover:border-zinc-400'
+                                  }`}
+                                />
+                                {selected && (
+                                  <LuCheck className="pointer-events-none absolute h-3 w-3 text-zinc-950" />
+                                )}
+                              </span>
                               <span className="truncate">{item.label}</span>
                             </span>
                             <span className="text-xs font-medium text-zinc-500">
