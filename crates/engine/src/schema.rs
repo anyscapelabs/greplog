@@ -12,6 +12,16 @@ use std::sync::Arc;
 
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 
+/// Name of the timestamp column, the axis every time-bounded query prunes on.
+///
+/// Named here rather than spelled out at each use site so the storage layer, the
+/// compactor's statistics lookup, and the query layer cannot drift apart.
+pub const TIMESTAMP_COLUMN: &str = "timestamp_us";
+
+/// Name of the service column, which is stored as a partition directory rather
+/// than inside a chunk file.
+pub const SERVICE_COLUMN: &str = "service";
+
 /// Returns the canonical Arrow [`Schema`] for Greplog log data.
 ///
 /// Field order is meaningful:

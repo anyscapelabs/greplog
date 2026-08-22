@@ -1,8 +1,4 @@
 //! The strongly-typed data model for incoming log records.
-//!
-//! SDKs serialize [`LogRecord`] to JSON and POST batches to the ingest endpoint.
-//! This crate owns the wire contract so every SDK (Rust, JS, Python) speaks the
-//! same schema.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -10,31 +6,25 @@ use serde::{Deserialize, Serialize};
 use crate::error::EngineError;
 
 /// A single log event produced by a backend service or worker.
-///
-/// See [`crate::schema::greplog_schema`] for how this struct maps onto the
-/// columnar Apache Arrow representation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LogRecord {
     /// Microseconds since the UNIX epoch.
     pub timestamp_us: i64,
-    /// Correlation id grouping logs from one worker job or HTTP request.
+    /// Correlation id grouping logs from one request or job.
     pub trace_id: Option<String>,
     /// Severity level, e.g. `"INFO"`, `"WARN"`, `"ERROR"`.
     pub level: String,
-    /// Source application or worker, e.g. `"payment-worker"` or `"auth-api"`.
+    /// Source application or worker.
     pub service: String,
-    /// A human-readable summary of what happened.
+    /// Human-readable summary of what happened.
     pub message: String,
-    /// Stringified JSON: the request body, stack trace, or worker payload that
-    /// caused the failure.
+    /// Stringified JSON payload that caused the event, if any.
     pub raw_body: Option<String>,
 }
 
 impl LogRecord {
-    /// Constructs a new [`LogRecord`] with the current wall-clock time.
-    ///
-    /// Useful for SDK convenience paths; ingestion typically sets the exact
-    /// timestamp captured at the call site instead.
+    /// Creates a record with the current wall-clock time; ingestion paths set
+    /// the exact call-site timestamp instead.
     #[must_use]
     pub fn new(level: impl Into<String>, service: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
@@ -47,12 +37,7 @@ impl LogRecord {
         }
     }
 
-    /// Returns the timestamp as a UTC [`DateTime`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::ParseError`] if `timestamp_us` holds a value
-    /// outside the range representable by [`chrono`].
+    /// The timestamp as a UTC [`DateTime`].
     pub fn timestamp(&self) -> Result<DateTime<Utc>, EngineError> {
         let seconds = self.timestamp_us.div_euclid(1_000_000);
         let micros = u32::try_from(self.timestamp_us.rem_euclid(1_000_000)).map_err(|_| {

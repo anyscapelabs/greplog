@@ -1,8 +1,4 @@
 //! Central error domain for the Greplog engine.
-//!
-//! Every fallible operation in this crate returns an [`EngineError`]. Production
-//! code must never panic; errors are always propagated with the `?` operator and
-//! converted into a [`EngineError`] via `#[from]` conversions.
 
 use thiserror::Error;
 
@@ -50,9 +46,6 @@ pub enum EngineError {
 }
 
 /// Convenience constructor for [`EngineError::ParseError`].
-///
-/// Keeps call sites concise (`return Err(EngineError::parse("..."))`) without
-/// formatting machinery leaking into the error domain.
 #[must_use]
 pub fn parse_error(message: impl Into<String>) -> EngineError {
     EngineError::ParseError(message.into())

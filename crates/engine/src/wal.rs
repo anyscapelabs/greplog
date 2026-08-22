@@ -1,17 +1,10 @@
 //! The physical Write-Ahead Log writer.
 //!
-//! Records are serialized with `bincode` and written through a [`BufWriter`].
-//! Durability is guaranteed by flushing the buffered writer to the OS and then
-//! calling `sync_data` to push bytes to the physical platter/SSD before the
-//! ingest acceptor is allowed to acknowledge receipt.
-//!
-//! The WAL is **segment-scoped**, never wholesale-truncated. The active
-//! segment lives at `current.wal`; once its records are durably stored as
-//! Parquet the worker rotates it to a `sealed-<n>.wal` segment and opens a
-//! fresh active file. Sealed segments are only deleted once every record they
-//! contain has been confirmed. Appends that land *after* a flush signal but
-//! *before* its rotation are sealed into the preceding segment and kept, so a
-//! (mis)ordered truncation can never destroy acknowledged bytes.
+//! Segments are never wholesale-truncated. The active segment lives at
+//! `current.wal`; once its records are durably stored as Parquet the worker
+//! rotates it to a `sealed-<n>.wal` segment. Sealed segments are only deleted
+//! once every record they contain has been confirmed, so a (mis)ordered
+//! truncation can never destroy acknowledged bytes.
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
@@ -20,10 +13,9 @@ use std::path::{Path, PathBuf};
 use crate::error::EngineError;
 use crate::record::LogRecord;
 
-/// Prefix of sealed (drained) WAL segment files.
 const SEALED_PREFIX: &str = "sealed-";
 
-/// Returns the path of the sealed WAL segment with sequence number `seq`.
+/// Path of the sealed WAL segment with sequence number `seq`.
 #[must_use]
 pub fn sealed_path(wal_path: &Path, seq: u64) -> PathBuf {
     let name = wal_path
@@ -41,10 +33,6 @@ pub struct WalWriter {
 
 impl WalWriter {
     /// Opens (creating if necessary) the WAL file at `path`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::IoError`] if the file cannot be created.
     pub fn open(path: &Path) -> Result<Self, EngineError> {
         let file = OpenOptions::new()
             .create(true)
@@ -56,17 +44,9 @@ impl WalWriter {
         })
     }
 
-    /// Appends `records` to the WAL and makes them durable.
+    /// Appends `records` to the WAL and makes them durable with `sync_data`.
     ///
-    /// The write order is deliberate: serialize each record into the buffer,
-    /// flush the [`BufWriter`] into the OS page cache, then `sync_data` to
-    /// force the kernel to write to physical storage. Only after all three
-    /// steps succeed is it safe to report success to the caller.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::BincodeError`] if any record fails to serialize,
-    /// or [`EngineError::IoError`] if the flush or `fsync` fails.
+    /// Only after the sync succeeds is it safe to report success to the caller.
     pub fn append_batch(&mut self, records: &[LogRecord]) -> Result<(), EngineError> {
         for record in records {
             bincode::serialize_into(&mut self.writer, record)?;
@@ -76,14 +56,7 @@ impl WalWriter {
         Ok(())
     }
 
-    /// Appends `records` to the buffered writer without syncing.
-    ///
-    /// Used by the group-commit path to coalesce multiple batches before a
-    /// single `fsync`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::BincodeError`] if serialization fails.
+    /// Appends `records` without syncing; the caller groups them under one fsync.
     pub fn append_batch_no_sync(&mut self, records: &[LogRecord]) -> Result<(), EngineError> {
         for record in records {
             bincode::serialize_into(&mut self.writer, record)?;
@@ -91,18 +64,14 @@ impl WalWriter {
         Ok(())
     }
 
-    /// Flushes the buffer and syncs the underlying file to durable storage.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::IoError`] if the flush or `sync_data` fails.
+    /// Flushes the buffer and syncs the file to durable storage.
     pub fn sync_data(&mut self) -> Result<(), EngineError> {
         self.writer.flush()?;
         self.writer.get_ref().sync_data()?;
         Ok(())
     }
 
-    /// Returns a cheap estimate of the bytes written so far, for diagnostics.
+    /// Cheap estimate of bytes written so far, for diagnostics.
     #[must_use]
     pub fn bytes_written(&self) -> u64 {
         self.writer
@@ -111,16 +80,10 @@ impl WalWriter {
             .map_or(0, |m| m.len())
     }
 
-    /// Replays the WAL file at `path` and returns all recovered records.
+    /// Replays the WAL file at `path`, returning all recovered records.
     ///
-    /// If the file does not exist, an empty vector is returned. Deserialization
-    /// loops until the end of the valid log is reached.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::IoError`] if the file cannot be opened (except
-    /// `NotFound`), or [`EngineError::BincodeError`] for corrupt entries other
-    /// than a truncated trailing record.
+    /// A truncated trailing record (crash mid-append) is tolerated; any other
+    /// corruption is an error.
     pub fn replay_wal(path: &Path) -> Result<Vec<LogRecord>, EngineError> {
         let file = match File::open(path) {
             Ok(f) => f,
@@ -144,26 +107,7 @@ impl WalWriter {
     }
 }
 
-/// Returns the sealed (drained) WAL segments for `wal_path`, oldest first.
-///
-/// Sealed segments are numbered in rotation order, so a crash during a
-/// rotation cycle is recovered by replaying the sealed files (oldest first)
-/// and then the active file.
-///
-/// # Errors
-///
-/// Returns an empty list if the WAL directory does not exist, otherwise
-/// [`EngineError::IoError`] on a failed read.
-/// Returns the sealed (drained) WAL segments for `wal_path`, oldest first.
-///
-/// Sealed segments are numbered in rotation order, so a crash during a
-/// rotation cycle is recovered by replaying the sealed files (oldest first)
-/// and then the active file.
-///
-/// # Errors
-///
-/// Returns an empty list if the WAL directory does not exist, otherwise
-/// [`EngineError::IoError`] on a failed read.
+/// Sealed WAL segments for `wal_path`, oldest first.
 pub fn sealed_segments(wal_path: &Path) -> Result<Vec<PathBuf>, EngineError> {
     let Some(directory) = wal_path.parent() else {
         return Err(EngineError::IoError(std::io::Error::new(
@@ -189,16 +133,9 @@ pub fn sealed_segments(wal_path: &Path) -> Result<Vec<PathBuf>, EngineError> {
     Ok(segments.into_iter().map(|(_, path)| path).collect())
 }
 
-/// Counts the complete records already stored in the WAL file at `path`.
+/// Complete records already stored in the WAL file at `path`.
 ///
-/// Used at startup to seed the segment bookkeeping so a process restart never
-/// miscounts the records it recovered from an existing WAL. A missing or empty
-/// file counts zero; a truncated trailing record is ignored.
-///
-/// # Errors
-///
-/// Returns [`EngineError::IoError`] if the file cannot be opened, or
-/// [`EngineError::BincodeError`] if a complete record is corrupt.
+/// Used at startup to seed segment bookkeeping across restarts.
 pub fn record_count(path: &Path) -> Result<usize, EngineError> {
     let file = match File::open(path) {
         Ok(f) => f,
@@ -221,13 +158,7 @@ pub fn record_count(path: &Path) -> Result<usize, EngineError> {
     Ok(count)
 }
 
-/// Replays every WAL segment — sealed files oldest-first, then the active
-/// file — restoring the full record stream across rotations.
-///
-/// # Errors
-///
-/// Returns [`EngineError::IoError`] or [`EngineError::BincodeError`] from any
-/// constituent file, mirroring [`WalWriter::replay_wal`].
+/// Replays every WAL segment — sealed files oldest-first, then the active file.
 pub fn replay_all(wal_path: &Path) -> Result<Vec<LogRecord>, EngineError> {
     let mut out = Vec::new();
     for sealed in sealed_segments(wal_path)? {
@@ -237,10 +168,8 @@ pub fn replay_all(wal_path: &Path) -> Result<Vec<LogRecord>, EngineError> {
     Ok(out)
 }
 
-/// Returns `true` when the bincode error signals the clean end of a log.
-///
-/// A log ends with an `UnexpectedEof` (possibly wrapped without the `Io`
-/// variant). Any other error means a corrupt mid-file record.
+/// True when the bincode error signals the clean end of a log (truncated
+/// trailing record), false for mid-file corruption.
 fn is_end_of_log(error: &bincode::ErrorKind) -> bool {
     if let bincode::ErrorKind::Io(io_err) = error {
         if io_err.kind() == std::io::ErrorKind::UnexpectedEof {

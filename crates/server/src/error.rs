@@ -1,8 +1,5 @@
-//! API error mapping.
-//!
-//! The HTTP layer must never leak internal engine details to clients. Engine
-//! failures are logged in full server-side and reduced to a stable error code
-//! plus a generic message in the response body.
+//! API error mapping: engine detail is logged server-side; clients get a
+//! stable code and a safe message.
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -13,30 +10,23 @@ use serde::Serialize;
 /// JSON body returned for every error response.
 #[derive(Debug, Serialize)]
 pub struct ErrorBody {
-    /// Stable machine-readable code for the failure class.
     pub code: &'static str,
-    /// Human-readable message safe to show to the client.
     pub message: String,
 }
 
 /// Errors that can be returned by the HTTP API.
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
-    /// An error originating from the `greplog-engine`.
     #[error("engine error: {0}")]
     Engine(#[from] EngineError),
 
-    /// The client sent a malformed request.
     #[error("bad request: {0}")]
     BadRequest(String),
 }
 
 impl ApiError {
-    /// Maps the error to an HTTP status code and a client-safe body.
-    ///
-    /// Engine errors are logged with full detail via `tracing::error!`; the
-    /// response only ever carries the stable [`ErrorBody::code`] and a generic
-    /// message, so DataFusion/sqlparser internals never reach the wire.
+    /// Maps to a status code and a client-safe body; engine internals never
+    /// reach the wire.
     fn into_parts(self) -> (StatusCode, ErrorBody) {
         match &self {
             Self::BadRequest(msg) => (

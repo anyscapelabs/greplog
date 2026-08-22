@@ -1,14 +1,4 @@
-//! The retention/TTL purger: removes expired day partitions from disk.
-//!
-//! [`Retention`] walks the Hive-partitioned tree under `config.data_dir`
-//! looking for `day=` partitions whose date is older than `config.retention_days`,
-//! then deletes them wholesale with `fs::remove_dir_all`. Deletion is direct —
-//! no SQL `DELETE`, no vacuum, no tombstones — so purging old data costs
-//! nothing at query time.
-//!
-//! The purge is scoped to whole `day=` directories below the `year=`/`month=`/`day=`
-//! hierarchy carved by the [`ParquetFlusher`](crate::storage::ParquetFlusher);
-//! the shared `data_dir` root and unrelated files are never touched.
+//! The retention/TTL purger: removes expired `day=` partitions from disk.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,16 +22,8 @@ impl Retention {
         Self { config }
     }
 
-    /// Returns every `day=` partition older than `config.retention_days`, or an
-    /// empty list when retention is disabled (`retention_days` is `None`).
-    ///
-    /// A missing `data_dir` (fresh engine, nothing flushed yet) is treated as an
-    /// empty scan and not an error, so the background loop can start before any
-    /// data exists.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::IoError`] if the tree cannot be walked.
+    /// Every `day=` partition older than `retention_days`; empty when
+    /// retention is disabled.
     pub fn find_expired_partitions(&self) -> Result<Vec<PathBuf>, EngineError> {
         let Some(days) = self.config.retention_days else {
             return Ok(Vec::new());
@@ -53,13 +35,7 @@ impl Retention {
     }
 
     /// Removes every expired `day=` partition, returning how many were purged.
-    ///
-    /// Removal is best-effort: an unreadable directory is logged and skipped,
-    /// never allowed to abort the sweep.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::IoError`] if the tree cannot be walked.
+    /// Removal is best-effort: a failure is logged and the sweep continues.
     pub fn purge_expired(&self) -> Result<usize, EngineError> {
         let expired = self.find_expired_partitions()?;
         let mut purged = 0usize;
@@ -77,13 +53,9 @@ impl Retention {
         Ok(purged)
     }
 
-    /// Runs retention forever: every `retention_run_interval_secs` the tree is
-    /// scanned and expired day partitions are removed on a blocking thread.
-    ///
-    /// When retention is disabled (`retention_days` is `None`) the loop returns
-    /// immediately. Failures are logged, never panicked on: a scan or purge
-    /// error skips to the next sweep so retention is retried on the following
-    /// interval.
+    /// Runs retention forever, purging expired partitions on a blocking
+    /// thread. Returns immediately when retention is disabled; failures are
+    /// logged and retried on the next interval.
     pub async fn start_background_loop(config: EngineConfig) {
         if config.retention_days.is_none() {
             return;
@@ -138,9 +110,8 @@ fn walk_for_day_partitions(
     Ok(())
 }
 
-/// Parses a `year=YYYY/month=MM/day=DD` directory path into its date.
-///
-/// Returns `None` for a path that does not end in the `day=` partition level.
+/// Parses a `year=YYYY/month=MM/day=DD` directory path into its date; `None`
+/// for anything that is not a day partition.
 fn day_partition_date(dir: &Path) -> Option<NaiveDate> {
     let day = dir.file_name()?.to_str()?.strip_prefix("day=")?;
     let month = dir.parent()?.file_name()?.to_str()?.strip_prefix("month=")?;

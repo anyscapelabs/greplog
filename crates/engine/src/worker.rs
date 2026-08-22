@@ -1,33 +1,12 @@
 //! The dedicated OS worker threads of the write path.
 //!
-//! Disk I/O and columnar conversion never run on the Tokio async runtime that
-//! serves the API:
-//! - [`spawn_wal_worker`] persists batches to the configured WAL path and
-//!   `fsync`s them. Space is reclaimed with *segment rotation*: each flush
-//!   signal seals the active `current.wal` into a `sealed-<n>-*.wal` segment
-//!   and opens a fresh active file; a sealed segment is only deleted once every
-//!   record it contains is confirmed safe as Parquet. A confirmation that is
-//!   misordered after a later append can therefore never destroy acknowledged
-//!   bytes — it only ever seals them.
-//! - [`spawn_memtable_worker`] converts durable records into Arrow batches,
-//!   stages them in the shared [`LiveBuffer`], flushes them to Parquet at the
-//!   configured row threshold or periodic interval, and signals the WAL worker
-//!   to reclaim the covered records.
-//!
-//! The two are joined by a lock-free `crossbeam` channel for record handoff and
-//! two `tokio` MPSC channels back to the WAL worker: one for append actor
-//! [`WalCommand`]s and a separate one for `MemTable` segment-confirmation
-//! signals carrying the number of rows just written as Parquet. A small
-//! single-threaded Tokio runtime is used inside the WAL thread only to
-//! multiplex those two channels; all disk I/O still executes on that dedicated
-//! OS thread. Keeping the confirmation channel separate means the `MemTable`
-//! worker never holds a clone of the ingest channel, so the WAL worker can see
-//! its ingest channel close and exit without deadlocking.
-//!
-//! The `MemTable` only ever sees records that are already safe on disk and the
-//! WAL is only rotated after those records are in Parquet. A Parquet flush
-//! never holds the [`LiveBuffer`] write lock, so queries are never stalled on
-//! disk I/O. Cell and channel sizes all come from the shared [`EngineConfig`].
+//! Disk I/O and columnar conversion never run on the Tokio runtime serving the
+//! API. The WAL worker persists batches and `fsync`s them; the MemTable worker
+//! converts durable records into Arrow batches, stages them in the shared
+//! [`LiveBuffer`], flushes to Parquet, and signals the WAL worker to reclaim
+//! covered records. The confirmation channel is separate from the ingest
+//! channel so the WAL worker can always see its ingest channel close without
+//! deadlocking.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -49,28 +28,23 @@ use crate::schema::greplog_schema;
 use crate::storage::ParquetFlusher;
 use crate::wal::{record_count, sealed_path, sealed_segments, WalWriter};
 
-/// Maximum number of batches to coalesce in a single group-commit.
 const MAX_GROUP_BATCH: usize = 50;
 
 /// A rotated, still-covered WAL segment awaiting full confirmation.
-///
-/// `cumulative_records` is the total number of records written across this
-/// segment and every earlier segment. A segment is only deleted once the
-/// globally confirmed record count has passed that boundary.
 struct SealedSegment {
     path: PathBuf,
+    /// Total records written across this segment and every earlier one; the
+    /// segment is deleted once the globally confirmed count passes this.
     cumulative_records: u64,
 }
 
-/// Bookkeeping for segment-scoped WAL reclamation.
+/// Segment-scoped WAL reclamation bookkeeping.
 ///
-/// Separates the two invariants that the old wholesale `truncate` conflated:
-/// - Records already durable as Parquet may be reclaimed (sealed → deleted).
-/// - Records that are merely appended — even acknowledged — may never be.
-///
-/// A confirmation whose processing raced ahead of a later append therefore
-/// only *seals* the active segment; the later append's bytes survive either in
-/// the fresh active file or inside the sealed (still-covered) one.
+/// Separates the two invariants a wholesale truncate would conflate:
+/// - Records durable as Parquet may be reclaimed (sealed → deleted).
+/// - Records merely appended — even acknowledged — may never be. A
+///   confirmation racing ahead of a later append only *seals* the active
+///   segment; the append's bytes survive either way.
 struct WalState {
     wal: Result<WalWriter, EngineError>,
     active: PathBuf,
@@ -81,7 +55,7 @@ struct WalState {
 }
 
 impl WalState {
-    /// Opens the active segment and restores any sealed segments left by a
+    /// Opens the active segment and restores sealed segments left by a
     /// previous process so rotation bookkeeping survives a restart.
     fn open(active: PathBuf) -> Self {
         let mut cumulative = 0u64;
@@ -121,12 +95,9 @@ impl WalState {
         self.cumulative += n as u64;
     }
 
-    /// Confirms that `n` records are now safe as Parquet, seals the active
-    /// segment, and deletes every sealed segment now fully confirmed.
-    ///
-    /// Never deletes the active segment. A `current.wal` holding a later
-    /// append is sealed rather than emptied; it is only deleted after a
-    /// confirmation covers its whole extent.
+    /// Confirms `n` records are safe as Parquet, seals the active segment, and
+    /// deletes every sealed segment now fully confirmed. Never deletes the
+    /// active segment.
     fn confirm(&mut self, n: usize) {
         self.confirmed += n as u64;
 
@@ -154,8 +125,8 @@ impl WalState {
     }
 
     /// Seals the active segment into a `sealed-<n>-*.wal` file and opens a
-    /// fresh active segment. Returns the sealed file's path, or `None` when the
-    /// writer is not usable (logging — never propagating the failure).
+    /// fresh active segment. Returns the sealed path, or `None` when the
+    /// writer is not usable (logging, never propagating the failure).
     fn rotate(&mut self) -> Option<PathBuf> {
         let held = std::mem::replace(
             &mut self.wal,
@@ -192,17 +163,11 @@ impl WalState {
 
 /// Spawns the WAL worker on a dedicated OS thread and returns its handle.
 ///
-/// The worker multiplexes two command sources:
-/// - `receiver` carries [`WalCommand`]s from the server: [`WalCommand::Append`]
-///   appends a batch and forwards durable records to the `MemTable` worker over
-///   `memtable_tx` only after a successful `fsync`.
-/// - `truncate_rx` carries confirmation signals from the `MemTable` worker,
-///   each naming the number of rows just written as Parquet. A signal seals
-///   the active WAL segment and deletes any sealed segments now fully covered.
-///
-/// The active WAL segment lives at `config.wal_path`. The loop ends when the
-/// append channel closes (all its senders dropped); call [`JoinHandle::join`]
-/// to wait for outstanding `fsync`s to finish.
+/// `receiver` carries [`WalCommand::Append`]s; a batch is forwarded to the
+/// MemTable worker only after a successful fsync. `truncate_rx` carries
+/// Parquet-confirmation signals; each seals the active segment and deletes
+/// sealed segments now fully covered. The loop ends when the append channel
+/// closes; join the handle to wait for outstanding fsyncs.
 #[must_use]
 pub fn spawn_wal_worker(
     config: Arc<EngineConfig>,
@@ -216,20 +181,7 @@ pub fn spawn_wal_worker(
     })
 }
 
-/// Spawns the `MemTable` worker on a dedicated OS thread and returns its handle.
-///
-/// Records are accumulated in a [`MemTable`] until `config.flush_row_limit`
-/// rows are staged, then the table is finished into a [`RecordBatch`] and
-/// pushed into the shared `live_buffer`, where the [`QueryEngine`](crate::query::QueryEngine)
-/// can read it.
-/// Once `config.flush_row_limit` rows accumulate across the buffer, the batches
-/// are concatenated and written to Parquet via `flusher` (then a confirmation
-/// of the flushed row count is sent to the WAL worker). Any unflushed rows are
-/// also written to Parquet once `config.flush_interval_secs` elapses, so a
-/// low-traffic deployment still lands data on disk and seals the WAL without
-/// waiting for the row threshold, and any remainder is flushed on shutdown. If
-/// a `broadcast_tx` is provided, each incoming batch is also fanned out to SSE
-/// subscribers.
+/// Spawns the MemTable worker on a dedicated OS thread and returns its handle.
 #[must_use]
 pub fn spawn_memtable_worker(
     receiver: HandoffRx<Vec<LogRecord>>,
@@ -241,11 +193,8 @@ pub fn spawn_memtable_worker(
     spawn_memtable_worker_with_broadcast(receiver, truncate_tx, flusher, live_buffer, config, None)
 }
 
-/// Spawns the `MemTable` worker with an optional broadcast sender for live tail.
-///
-/// See [`spawn_memtable_worker`] for the core behavior. When `broadcast_tx` is
-/// `Some`, every `Vec<LogRecord>` received on `receiver` is cloned and sent
-/// over the broadcast channel before being appended to the columnar table.
+/// Like [`spawn_memtable_worker`], but fans each incoming batch out to SSE
+/// subscribers when `broadcast_tx` is `Some`.
 #[must_use]
 pub fn spawn_memtable_worker_with_broadcast(
     receiver: HandoffRx<Vec<LogRecord>>,
@@ -319,15 +268,12 @@ fn drain_channel(
 ) {
     while let Some(command) = receiver.blocking_recv() {
         match command {
-            WalCommand::Append(batch) => {
-                // Fallback path does not coalesce; it uses single-batch logic but with proper error handling
-                handle_append_single(wal, batch, memtable_tx);
-            },
+            WalCommand::Append(batch) => handle_append_single(wal, batch, memtable_tx),
         }
     }
 }
 
-/// Group-commit: coalesces up to `MAX_GROUP_BATCH` appends into a single fsync.
+/// Group commit: coalesces up to `MAX_GROUP_BATCH` appends into a single fsync.
 fn handle_append_group(
     wal: &mut WalState,
     first: IngestBatch,
@@ -337,7 +283,6 @@ fn handle_append_group(
     let mut batches: Vec<IngestBatch> = Vec::new();
     batches.push(first);
 
-    // Drain any immediately available messages without waiting.
     for _ in 1..MAX_GROUP_BATCH {
         match receiver.try_recv() {
             Ok(WalCommand::Append(batch)) => batches.push(batch),
@@ -348,7 +293,6 @@ fn handle_append_group(
         }
     }
 
-    // Persist all batches with a single sync.
     let outcome: Result<(), EngineError> = match &mut wal.wal {
         Ok(writer) => {
             let mut result: Result<(), EngineError> = Ok(());
@@ -369,24 +313,19 @@ fn handle_append_group(
     };
 
     let is_ok = outcome.is_ok();
-    let error_string = if is_ok {
-        String::new()
-    } else {
-        // Capture error display for per-responder cloning
-        match &outcome {
-            Err(e) => e.to_string(),
-            Ok(()) => String::new(),
-        }
+    // One display string shared by every failing responder.
+    let error_string = match &outcome {
+        Err(e) => e.to_string(),
+        Ok(()) => String::new(),
     };
 
-    // Acknowledge all waiters and forward durable records.
     let mut written = 0usize;
     for batch in batches {
         let responder = batch.responder;
         let records = batch.records;
         if is_ok {
             written += records.len();
-            // Send success; ignore if receiver dropped (client gone)
+            // Receiver gone means client gone; the records are durable.
             let _ = responder.send(Ok(()));
             if let Err(e) = memtable_tx.send(records) {
                 tracing::error!(?e, "handoff channel dropped or full; losing durable records - triggering shutdown may be required");
@@ -421,18 +360,11 @@ fn handle_append_single(
 /// Drains durable record streams into columnar batches, staging them in the
 /// shared live buffer and flushing once the configured threshold is reached.
 ///
-/// Records are accumulated in the `MemTable` builder and finished when
-/// `config.flush_row_limit` rows are staged, or when the channel closes (and
-/// on timeout so partial batches stay visible to queries). A Parquet flush
-/// fires on either of two triggers: once `config.flush_row_limit` rows are
-/// staged across the buffer, or once `config.flush_interval_secs` have elapsed
-/// since the last flush. The interval trigger guarantees that low-traffic
-/// deployments still land data on disk — and let the WAL worker confirm and
-/// reclaim sealed segments — without ever reaching the row threshold. A flush
-/// only signals the WAL worker after the Parquet write has fully succeeded, so
-/// a crash between the two never loses acknowledged records. A batch that fails
-/// to build is never dropped: its records are requeued into the table for the
-/// next attempt.
+/// A flush fires on either the row threshold or `flush_interval_secs` since
+/// the last attempt — so low-traffic deployments still land data on disk and
+/// let the WAL worker reclaim sealed segments. A flush only confirms to the
+/// WAL worker after Parquet has fully succeeded; a failed flush returns its
+/// batches to the live buffer for retry on the next interval.
 #[allow(clippy::needless_pass_by_value)]
 fn run_memtable_loop(
     receiver: &HandoffRx<Vec<LogRecord>>,
@@ -444,20 +376,17 @@ fn run_memtable_loop(
 ) {
     let limit = config.flush_row_limit;
     let flush_interval = Duration::from_secs(config.flush_interval_secs.max(1));
-    // Measured from startup: the first periodic flush lands once the interval
-    // elapses after the worker starts, and is reset by every Parquet flush.
+    // Measured from startup; reset by every flush attempt.
     let mut last_flush = std::time::Instant::now();
     let mut table = MemTable::new(limit);
     loop {
-        // Use timeout to periodically flush partial batches even before limit is hit.
         match receiver.recv_timeout(Duration::from_millis(200)) {
             Ok(records) => {
-                // Fan out to SSE subscribers before moving records into the table.
                 if let Some(tx) = &broadcast_tx {
                     let _ = tx.send(records.clone());
                 }
-                for record in records {
-                    table.append_record(&record);
+                for record in &records {
+                    table.append_record(record);
                 }
                 if table.num_rows() >= limit {
                     finish_and_push(live_buffer, &mut table, "threshold");
@@ -470,10 +399,6 @@ fn run_memtable_loop(
             }
             Err(crossbeam::channel::RecvTimeoutError::Disconnected) => break,
         }
-        // Promote any rows still in the builder once the periodic interval
-        // elapses, then flush to Parquet when either the row threshold or the
-        // interval trigger fires — so low-traffic deployments still land data
-        // on disk (and seal the WAL) without ever reaching the row limit.
         let interval_due = last_flush.elapsed() >= flush_interval;
         if interval_due && !table.is_empty() {
             finish_and_push(live_buffer, &mut table, "interval");
@@ -481,10 +406,13 @@ fn run_memtable_loop(
         let buffered = live_row_count(live_buffer);
         if (buffered >= limit || interval_due) && buffered > 0 {
             flush_live_buffer(live_buffer, truncate_tx, flusher);
+            // Reset the clock whether or not the flush succeeded. Returned
+            // batches leave the buffer over the limit, so without this a retry
+            // would fire on every tick and hammer a failing disk instead of
+            // backing off to the configured interval.
             last_flush = std::time::Instant::now();
         }
     }
-    // Channel closed: flush any remaining rows in builder
     if !table.is_empty() {
         finish_and_push(live_buffer, &mut table, "remainder");
     }
@@ -493,32 +421,22 @@ fn run_memtable_loop(
     }
 }
 
-/// Finishes the memtable and pushes the resulting batch into the live buffer.
-///
-/// If the columnar build fails, the source records are requeued into the
-/// (now-empty) table instead of being dropped, so no acknowledged row is ever
-/// lost silently. `reason` names the flush trigger for the error log.
+/// Finishes the memtable and pushes the batch into the live buffer. A build
+/// failure is logged: every row is already fsynced in an unreclaimed WAL
+/// segment and comes back on the next start.
 fn finish_and_push(live_buffer: &LiveBuffer, table: &mut MemTable, reason: &str) {
-    match table.drain_to_batch() {
+    match table.finish() {
         Ok(batch) => push_to_live_buffer(live_buffer, batch),
-        Err((error, records)) => {
-            tracing::error!(
-                ?error,
-                ?reason,
-                records = records.len(),
-                "failed to build columnar batch; requeuing records (not dropping them)"
-            );
-            for record in records {
-                table.append_record(&record);
-            }
-        }
+        Err(error) => tracing::error!(
+            ?error,
+            ?reason,
+            "failed to build columnar batch; rows stay in the WAL and replay on restart"
+        ),
     }
 }
 
-/// Pushes a finished batch into the shared live buffer.
-///
-/// Zero-row batches (which `finish` can produce on an empty record group) are
-/// dropped; they would only waste a slot.
+/// Pushes a finished batch into the shared live buffer; zero-row batches are
+/// dropped.
 fn push_to_live_buffer(live_buffer: &LiveBuffer, batch: RecordBatch) {
     if batch.num_rows() == 0 {
         return;
@@ -530,7 +448,7 @@ fn push_to_live_buffer(live_buffer: &LiveBuffer, batch: RecordBatch) {
     }
 }
 
-/// Returns the total row count currently staged for querying.
+/// Total row count currently staged for querying.
 fn live_row_count(live_buffer: &LiveBuffer) -> usize {
     if let Ok(buffer) = live_buffer.read() {
         buffer.iter().map(RecordBatch::num_rows).sum()
@@ -543,9 +461,8 @@ fn live_row_count(live_buffer: &LiveBuffer) -> usize {
 /// Concatenates and persists the buffered batches, then confirms the WAL.
 ///
 /// The write lock is released as soon as the batches are taken out, so Parquet
-/// I/O and `fsync` never block a query reading the buffer. On success the
-/// number of rows written is signalled to the WAL worker as the confirmed
-/// count (the only signal that may reclaim WAL space).
+/// I/O never blocks a query. On failure the batches go back to the front of
+/// the live buffer — still queryable, retried on the next interval.
 fn flush_live_buffer(
     live_buffer: &LiveBuffer,
     truncate_tx: &WalTx<usize>,
@@ -557,23 +474,45 @@ fn flush_live_buffer(
         tracing::error!("live buffer write lock poisoned; skipping flush");
         return;
     };
-    match arrow::compute::concat_batches(&greplog_schema(), &batches) {
-        Ok(concatenated) => match flusher.flush(&concatenated) {
-            Ok(()) => {
-                tracing::info!("Flushed batch of {} rows", concatenated.num_rows());
-                let _ = truncate_tx.blocking_send(concatenated.num_rows());
-            }
-            Err(error) => tracing::error!(?error, "failed to write parquet"),
-        },
-        Err(error) => tracing::error!(?error, "failed to concatenate live batches"),
+
+    let concatenated = match arrow::compute::concat_batches(&greplog_schema(), &batches) {
+        Ok(concatenated) => concatenated,
+        Err(error) => {
+            tracing::error!(?error, "failed to concatenate live batches; returning them to the buffer");
+            return_to_live_buffer(live_buffer, batches);
+            return;
+        }
+    };
+
+    let rows = concatenated.num_rows();
+    if let Err(error) = flusher.flush(&concatenated) {
+        tracing::error!(?error, rows, "failed to write parquet; returning rows to the buffer for retry");
+        return_to_live_buffer(live_buffer, batches);
+        return;
     }
+
+    tracing::info!("Flushed batch of {rows} rows");
+    let _ = truncate_tx.blocking_send(rows);
+}
+
+/// Puts unflushed batches back at the *front* of the live buffer: rows staged
+/// while the flush was in flight are already in the buffer and newer, so
+/// prepending keeps timestamp order (and useful row-group min/max stats).
+fn return_to_live_buffer(live_buffer: &LiveBuffer, mut batches: Vec<RecordBatch>) {
+    let Ok(mut buffer) = live_buffer.write() else {
+        tracing::error!(
+            batches = batches.len(),
+            "live buffer write lock poisoned; unflushed rows stay in the WAL and replay on restart"
+        );
+        return;
+    };
+    batches.append(&mut buffer);
+    *buffer = batches;
 }
 
 /// Reconstructs an ingest-visible error when the WAL never opened.
-///
-/// `EngineError` is deliberately not `Clone` (its payloads cannot cheaply
-/// reproduce it), so when the WAL fails to open we report a fresh [`std::io::Error`]
-/// carrying the original message to every in-flight batch.
+/// `EngineError` is deliberately not `Clone`, so every in-flight batch gets a
+/// fresh `io::Error` carrying the original message.
 fn fallback_error(original: &EngineError) -> EngineError {
     EngineError::IoError(std::io::Error::other(original.to_string()))
 }

@@ -3,9 +3,12 @@
 #![warn(clippy::all, clippy::pedantic)]
 #![allow(clippy::missing_docs_in_private_items)]
 
+pub mod assets;
 pub mod dashboard;
 pub mod error;
 pub mod ingest;
+pub mod shutdown;
+pub mod stats;
 
 use std::sync::Arc;
 
@@ -17,18 +20,19 @@ use greplog_engine::query::QueryEngine;
 use tokio::sync::{broadcast, mpsc};
 use tower_http::limit::RequestBodyLimitLayer;
 
-/// Documented ceiling for a single ingest batch, in bytes.
+use crate::shutdown::Shutdown;
+
 const MAX_INGEST_BODY_BYTES: usize = 5 * 1024 * 1024;
 
-/// Shared state for the dashboard router.
-///
-/// Holds the query engine and a broadcast sender that fans out live logs to
-/// SSE subscribers. The sender is `Clone`, so the whole state is `Clone` as
-/// required by `axum::Router`.
+/// Shared state for the dashboard router: the query engine, the live-tail
+/// broadcast sender, the shutdown handle each SSE stream watches, and the
+/// data directory backing `/api/stats`.
 #[derive(Clone)]
-struct DashboardState {
+pub(crate) struct DashboardState {
     engine: Arc<QueryEngine>,
     broadcast_tx: broadcast::Sender<Vec<greplog_engine::record::LogRecord>>,
+    shutdown: Shutdown,
+    pub(crate) data_dir: std::path::PathBuf,
 }
 
 impl axum::extract::FromRef<DashboardState> for Arc<QueryEngine> {
@@ -37,42 +41,30 @@ impl axum::extract::FromRef<DashboardState> for Arc<QueryEngine> {
     }
 }
 
-impl axum::extract::FromRef<DashboardState> for broadcast::Receiver<Vec<greplog_engine::record::LogRecord>> {
+impl axum::extract::FromRef<DashboardState> for dashboard::TailState {
     fn from_ref(state: &DashboardState) -> Self {
-        state.broadcast_tx.subscribe()
+        dashboard::TailState {
+            records: state.broadcast_tx.subscribe(),
+            shutdown: state.shutdown.clone(),
+        }
     }
 }
 
-/// Starts the ingest and dashboard servers concurrently.
+/// Starts the ingest and dashboard servers and returns once both have drained.
 ///
-/// The ingest API listens on `config.ingest_port` and exposes `POST /api/log`.
-/// The dashboard API listens on `config.dashboard_port` and exposes
-/// `POST /api/query` and `GET /api/tail`.
-///
-/// The two servers are run concurrently via `tokio::join!`.
-///
-/// # Errors
-///
-/// Returns an `std::io::Error` if either `TcpListener` fails to bind.
+/// Both listeners bind before either is served, so a port conflict is reported
+/// instead of leaving one half of the system listening. When `shutdown` fires,
+/// both stop accepting and drain in-flight requests; dropping the per-
+/// connection tasks closes the last clones of `wal_tx`, which is what lets the
+/// WAL worker observe its channel close — this function returning is the
+/// caller's signal that it is safe to join the write path.
 pub async fn start_servers(
     config: EngineConfig,
     wal_tx: mpsc::Sender<WalCommand>,
     query_engine: Arc<QueryEngine>,
-    broadcast_rx: broadcast::Receiver<Vec<greplog_engine::record::LogRecord>>,
+    broadcast_tx: broadcast::Sender<Vec<greplog_engine::record::LogRecord>>,
+    shutdown: Shutdown,
 ) -> Result<(), std::io::Error> {
-    // Bridge the incoming `broadcast_rx` (which has no cloneable sender) into
-    // a new broadcast channel that can be cloned per SSE connection. A
-    // background forwarder pumps messages from the original receiver into the
-    // new sender.
-    let (broadcast_tx, _) = broadcast::channel::<Vec<greplog_engine::record::LogRecord>>(1024);
-    let forward_tx = broadcast_tx.clone();
-    let mut rx = broadcast_rx;
-    tokio::spawn(async move {
-        while let Ok(msg) = rx.recv().await {
-            let _ = forward_tx.send(msg);
-        }
-    });
-
     let ingest_router = Router::new()
         .route("/api/log", post(ingest::handle_ingest))
         .layer(RequestBodyLimitLayer::new(MAX_INGEST_BODY_BYTES))
@@ -81,23 +73,29 @@ pub async fn start_servers(
     let dashboard_state = DashboardState {
         engine: query_engine,
         broadcast_tx,
+        shutdown: shutdown.clone(),
+        data_dir: config.data_dir.clone(),
     };
 
     let dashboard_router = Router::new()
         .route("/api/query", post(dashboard::handle_query))
+        .route("/api/search", post(dashboard::handle_search))
+        .route("/api/stats", get(dashboard::handle_stats))
         .route("/api/tail", get(dashboard::handle_tail))
+        .fallback(assets::handle_asset)
         .with_state(dashboard_state);
 
-    let ingest_addr = format!("0.0.0.0:{}", config.ingest_port);
-    let dashboard_addr = format!("0.0.0.0:{}", config.dashboard_port);
+    let ingest_listener =
+        tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.ingest_port)).await?;
+    let dashboard_listener =
+        tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.dashboard_port)).await?;
 
-    let ingest_listener = tokio::net::TcpListener::bind(ingest_addr).await?;
-    let dashboard_listener = tokio::net::TcpListener::bind(dashboard_addr).await?;
+    let ingest_shutdown = shutdown.clone();
+    let ingest_server = axum::serve(ingest_listener, ingest_router)
+        .with_graceful_shutdown(async move { ingest_shutdown.wait().await });
+    let dashboard_server = axum::serve(dashboard_listener, dashboard_router)
+        .with_graceful_shutdown(async move { shutdown.wait().await });
 
-    let ingest_server = axum::serve(ingest_listener, ingest_router);
-    let dashboard_server = axum::serve(dashboard_listener, dashboard_router);
-
-    // Run both servers concurrently.
     let (ingest_res, dashboard_res) = tokio::join!(ingest_server, dashboard_server);
     ingest_res?;
     dashboard_res?;

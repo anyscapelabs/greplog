@@ -2,8 +2,7 @@
 //!
 //! [`ParquetFlusher`] writes finished [`RecordBatch`]es into
 //! `data_dir/year=YYYY/month=MM/day=DD/service=<name>/chunk_*.parquet` chunks
-//! using [`ArrowWriter`] with Snappy compression. The base directory comes from
-//! the engine configuration; no path is assumed.
+//! with Snappy compression.
 
 use std::collections::HashSet;
 use std::fs::File;
@@ -43,21 +42,10 @@ impl ParquetFlusher {
 
     /// Writes `batch` to today's UTC partition, split by `service`.
     ///
-    /// The unique `service` values present in the batch are discovered with a
-    /// comparison kernel; each is filtered out of the batch with
-    /// [`filter_record_batch`] and written to its own `service=<name>`
-    /// directory. `service` lives only in the directory name, never in the
-    /// file, so `DataFusion` reads the partition folder as a column without
-    /// colliding with stored data. The chunk filename is derived from the wall
-    /// clock at nanosecond resolution to avoid collisions between flushes.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::IoError`] if a partition cannot be created or a
-    /// file opened, [`EngineError::ArrowError`] if the batch cannot be split, or
-    /// [`EngineError::ParquetError`] if a chunk fails to encode. A failure after
-    /// some services were already written surfaces as an error, which prevents
-    /// the caller from truncating the WAL, so the remaining records are kept.
+    /// `service` lives only in the directory name, never in the file, so
+    /// DataFusion reads the partition folder as a column. A failure after some
+    /// services were already written surfaces as an error, which prevents the
+    /// caller from confirming those rows to the WAL.
     pub fn flush(&self, batch: &RecordBatch) -> Result<(), EngineError> {
         let service_column = service_column(batch)?;
         let services = unique_services(service_column.as_ref());
@@ -89,23 +77,20 @@ impl ParquetFlusher {
         batch: &RecordBatch,
     ) -> Result<(), EngineError> {
         let final_path = directory.join(format!("chunk_{nanos}.parquet"));
-        // Note the trailing `.part`: the listing table matches `*.parquet`, so a
-        // temp file ending in `.parquet` would be scanned (and fail to parse)
-        // while it is being written. Only the atomic rename to `final_path`
-        // makes the chunk visible to readers.
+        // Trailing `.part`: the listing table matches `*.parquet`, so a temp
+        // file with that extension would be scanned (and fail to parse)
+        // mid-write. Only the atomic rename below makes the chunk visible.
         let temp_path = directory.join(format!("chunk_{nanos}.parquet.part"));
         let file = File::create(&temp_path)?;
         let mut writer =
             ArrowWriter::try_new(file, batch.schema().clone(), Some(self.properties.clone()))?;
         writer.write(batch)?;
         writer.close()?;
-        // Atomic rename: the temp file is only visible as the final name after
-        // close() succeeds, so concurrent readers never see a partial file.
         std::fs::rename(&temp_path, &final_path)?;
         Ok(())
     }
 
-    /// Builds the Hive-style date partition directory for `time`.
+    /// Hive-style date partition directory for `time`.
     fn partition_path(&self, time: DateTime<Utc>) -> PathBuf {
         self.root_dir
             .join(format!("year={}", time.format("%Y")))
@@ -114,20 +99,14 @@ impl ParquetFlusher {
     }
 }
 
-/// Returns the `service` column cast to a plain [`StringArray`].
-///
-/// The schema's `service` field is dictionary-encoded; the UTF-8 cast makes it
-/// directly comparable and iterable.
+/// The `service` column cast to a plain [`StringArray`] for comparison.
 fn service_column(batch: &RecordBatch) -> Result<arrow::array::ArrayRef, EngineError> {
     let index = batch.schema().index_of("service")?;
     let column = batch.column(index);
     cast(column, &DataType::Utf8).map_err(EngineError::from)
 }
 
-/// Returns the sorted unique `service` names present in `service_values`.
-///
-/// `service_values` is the UTF-8-cast `service` column; it is iterated once and
-/// the distinct names are deduplicated.
+/// Sorted unique `service` names present in `service_values`.
 fn unique_services(service_values: &dyn arrow::array::Array) -> Vec<String> {
     let services = service_values.as_string::<i32>();
     let mut seen = HashSet::new();
@@ -139,10 +118,8 @@ fn unique_services(service_values: &dyn arrow::array::Array) -> Vec<String> {
     names
 }
 
-/// Filters out every row whose `service` matches `service_name`.
-///
-/// The mask comes from the `arrow_ord::cmp::eq` kernel comparing the `service`
-/// column against a scalar needle; no row is assembled by hand.
+/// Every row whose `service` matches `service_name`, via the arrow
+/// comparison kernel — no row assembled by hand.
 fn filter_by_service(
     batch: &RecordBatch,
     service_values: &dyn arrow::array::Array,
@@ -154,11 +131,9 @@ fn filter_by_service(
     filter_record_batch(batch, &mask).map_err(EngineError::from)
 }
 
-/// Drops the `service` column from `batch` once the split is chosen.
-///
-/// `service` is partition metadata encoded in the `service=<name>` folder, so
-/// storing it in the file duplicates the field once `DataFusion` joins the file
-/// schema with the partition columns. Projecting it out keeps the two disjoint.
+/// Drops the `service` column once the split is chosen: it is partition
+/// metadata encoded in the folder name, and storing it in the file too would
+/// collide with the partition column DataFusion joins in.
 fn strip_service_column(batch: &RecordBatch) -> Result<RecordBatch, EngineError> {
     let service_index = batch.schema().index_of("service")?;
     let indices: Vec<usize> = (0..batch.num_columns())

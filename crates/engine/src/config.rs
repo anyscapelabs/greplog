@@ -1,29 +1,10 @@
 //! Runtime configuration for the write path.
-//!
-//! Every tuneable knob of the engine lives in [`EngineConfig`]. The workers and
-//! the flusher read their values from the struct instance; nothing in the
-//! production code assumes a fixed directory, a fixed WAL file name, or a fixed
-//! row count. Callers override the fields they care about and keep the rest via
-//! struct-update syntax:
-//!
-//! ```
-//! use greplog_engine::config::EngineConfig;
-//!
-//! let config = EngineConfig {
-//!     data_dir: std::path::PathBuf::from("/var/log/greplog"),
-//!     ..EngineConfig::default()
-//! };
-//! ```
 
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-/// The shared, queryable in-memory log tier.
-///
-/// The `MemTable` worker appends finished columnar [`RecordBatch`](arrow::record_batch::RecordBatch)es here under
-/// a write lock; the [`QueryEngine`](crate::query::QueryEngine) clones the batch
-/// vector under a read lock just-in-time. Cloning only bumps the Arrow array
-/// reference counts, so a query never copies row data.
+/// The shared, queryable in-memory log tier: finished batches pushed by the
+/// MemTable worker, cloned (reference counts only) by queries.
 pub type LiveBuffer = Arc<RwLock<Vec<arrow::record_batch::RecordBatch>>>;
 
 /// Tuning knobs for the ingest, WAL, and storage pipeline.
@@ -31,50 +12,51 @@ pub type LiveBuffer = Arc<RwLock<Vec<arrow::record_batch::RecordBatch>>>;
 pub struct EngineConfig {
     /// Root directory for Hive-partitioned Parquet chunks.
     pub data_dir: PathBuf,
-    /// Exact path of the Write-Ahead Log file.
+    /// Path of the Write-Ahead Log file.
     pub wal_path: PathBuf,
-    /// Rows buffered in the `MemTable` before it flushes to Parquet.
+    /// Rows buffered in the MemTable before a flush to Parquet.
     pub flush_row_limit: usize,
-    /// Seconds a `MemTable` with pending rows may stay unflushed before a
-    /// periodic flush to Parquet fires, independent of row count.
+    /// Seconds pending rows may stay unflushed before a periodic flush fires.
     pub flush_interval_secs: u64,
-    /// Seconds between background compaction sweeps of the partition tree.
+    /// Seconds between background compaction sweeps.
     pub compaction_run_interval_secs: u64,
-    /// Leaf partitions holding more Parquet chunks than this get merged into a
-    /// single highly compressed file.
+    /// Leaf partitions holding more mergeable chunks than this get merged.
     pub max_files_before_compaction: usize,
-    /// Days of Parquet history to keep before automatic purge. `None` disables
-    /// retention (data is kept forever).
+    /// Size at which a compacted file is sealed and excluded from further
+    /// merges; without it every sweep rewrites the previous sweep's output.
+    pub compaction_target_bytes: u64,
+    /// Days of Parquet history to keep; `None` keeps data forever.
     pub retention_days: Option<u32>,
-    /// Seconds between background retention sweeps of the partition tree.
+    /// Seconds between background retention sweeps.
     pub retention_run_interval_secs: u64,
-    /// Maximum seconds a single query may run before it is cancelled.
+    /// Maximum seconds a query may run before cancellation.
     pub query_timeout_secs: u64,
-    /// Maximum number of rows a single query may return.
+    /// Maximum rows a single query may return.
     pub max_query_rows: usize,
-    /// Capacity of the `tokio` MPSC ingest channels.
+    /// Capacity of the tokio MPSC ingest channels.
     pub mpsc_buffer_size: usize,
     /// Capacity of the crossbeam record-handoff channel.
     pub crossbeam_buffer_size: usize,
-    /// TCP port for the ingest API (`POST /api/log` on `0.0.0.0:5050`).
+    /// TCP port for the ingest API (`POST /api/log`).
     pub ingest_port: u16,
-    /// TCP port for the dashboard API (`POST /api/query`, `GET /api/tail` on `0.0.0.0:3000`).
+    /// TCP port for the dashboard API and UI.
     pub dashboard_port: u16,
 }
 
 impl Default for EngineConfig {
-    /// Sensible out-of-the-box values for a developer machine.
-    ///
-    /// The defaults are only a fallback: production deployments are expected to
-    /// build their own instance and leave the fields they want customized.
+    /// Out-of-the-box values for a developer machine. The storage cadence
+    /// assumes query cost tracks the number of open Parquet files, so flushing
+    /// every 30s and sweeping every 5min keeps a partition at roughly a dozen
+    /// files while bounding how long an acknowledged row sits only in the WAL.
     fn default() -> Self {
         Self {
             data_dir: PathBuf::from("data/logs"),
             wal_path: PathBuf::from("data/wal/current.wal"),
             flush_row_limit: 10_000,
-            flush_interval_secs: 10,
-            compaction_run_interval_secs: 3600,
-            max_files_before_compaction: 5,
+            flush_interval_secs: 30,
+            compaction_run_interval_secs: 300,
+            max_files_before_compaction: 8,
+            compaction_target_bytes: 128 * 1024 * 1024,
             retention_days: Some(30),
             retention_run_interval_secs: 3600,
             query_timeout_secs: 30,
@@ -98,8 +80,6 @@ mod tests {
         let config = EngineConfig::default();
         assert_eq!(config.data_dir, PathBuf::from("data/logs"));
         assert_eq!(config.wal_path, PathBuf::from("data/wal/current.wal"));
-        assert_eq!(config.compaction_run_interval_secs, 3600);
-        assert_eq!(config.max_files_before_compaction, 5);
         assert_eq!(config.retention_days, Some(30));
         assert_eq!(config.retention_run_interval_secs, 3600);
         assert!(config.flush_row_limit > 0, "flush threshold must allow progress");
@@ -116,6 +96,10 @@ mod tests {
             "compaction trigger must allow merging"
         );
         assert!(
+            config.compaction_target_bytes > 0,
+            "a zero seal size would exclude every file from merging"
+        );
+        assert!(
             config.retention_run_interval_secs > 0,
             "retention cadence must allow progress"
         );
@@ -129,6 +113,22 @@ mod tests {
         );
         assert!(config.mpsc_buffer_size > 0, "ingest channel capacity must allow progress");
         assert!(config.crossbeam_buffer_size > 0, "handoff capacity must allow progress");
+    }
+
+    #[test]
+    fn compaction_sweeps_faster_than_files_accumulate() {
+        let config = EngineConfig::default();
+        let flushes_between_sweeps =
+            config.compaction_run_interval_secs / config.flush_interval_secs;
+        assert!(
+            flushes_between_sweeps <= config.max_files_before_compaction as u64 * 2,
+            "a sweep every {}s against a flush every {}s leaves {} chunks per service \
+             un-merged, well past the {} file merge threshold",
+            config.compaction_run_interval_secs,
+            config.flush_interval_secs,
+            flushes_between_sweeps,
+            config.max_files_before_compaction,
+        );
     }
 
     #[test]

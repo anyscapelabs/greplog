@@ -9,6 +9,7 @@ mod cli;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use clap::Parser;
@@ -20,12 +21,22 @@ use greplog_engine::query::QueryEngine;
 use greplog_engine::retention::Retention;
 use greplog_engine::storage::ParquetFlusher;
 use greplog_engine::wal::replay_all;
-use greplog_engine::worker::{
-    spawn_memtable_worker_with_broadcast, spawn_wal_worker,
-};
+use greplog_engine::worker::{spawn_memtable_worker_with_broadcast, spawn_wal_worker};
+use greplog_server::shutdown::{self, ShutdownTrigger};
 use tokio::sync::{broadcast, mpsc};
 
 use cli::{Cli, Commands};
+
+const TAIL_BROADCAST_CAPACITY: usize = 1_024;
+
+/// How long the write path gets to drain before shutdown gives up on it.
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Exit code when the write path did not drain inside [`DRAIN_TIMEOUT`].
+const EXIT_DRAIN_TIMEOUT: i32 = 75;
+
+/// Exit code when a second `Ctrl+C` forces an immediate stop.
+const EXIT_INTERRUPTED: i32 = 130;
 
 #[tokio::main]
 async fn main() {
@@ -79,98 +90,48 @@ async fn run_start(
     run_server(config).await
 }
 
-/// Reports WAL and storage status directly from the filesystem, so it works
-/// without a running server.
+/// WAL and storage status straight from the filesystem; works without a
+/// running server.
 fn run_status() -> Result<(), Box<dyn std::error::Error>> {
     let config = EngineConfig::default();
 
-    let wal_bytes = fs::metadata(&config.wal_path).map(|meta| meta.len()).unwrap_or(0);
-    let (partitions, chunks, bytes) = storage_usage(&config.data_dir);
+    let wal_bytes = wal_usage(&config.wal_path);
+    let storage = greplog_server::stats::storage_stats(&config.data_dir);
 
     println!("Greplog status");
-    println!("  data dir   : {}", config.data_dir.display());
-    println!("  wal        : {} ({} bytes)", config.wal_path.display(), wal_bytes);
+    println!("  data dir      : {}", config.data_dir.display());
+    println!("  wal           : {} ({wal_bytes} bytes across all segments)", config.wal_path.display());
     match config.retention_days {
-        Some(days) => println!("  retention  : {days} days"),
-        None => println!("  retention  : disabled"),
+        Some(days) => println!("  retention     : {days} days"),
+        None => println!("  retention     : disabled"),
     }
-    println!("  partitions : {partitions}");
-    println!("  parquet files : {chunks}");
-    println!("  disk usage : {} bytes", bytes);
+    println!("  partitions    : {}", storage.partitions);
+    println!("  parquet files : {}", storage.chunks);
+    println!("  disk usage    : {} bytes", storage.bytes);
     Ok(())
 }
 
-/// Counts day partitions, parquet chunks, and total disk bytes under `data_dir`.
-fn storage_usage(data_dir: &Path) -> (usize, usize, u64) {
-    let mut partitions = 0usize;
-    let mut chunks = 0usize;
-    let mut bytes = 0u64;
-    walk_usage(data_dir, &mut partitions, &mut chunks, &mut bytes);
-    (partitions, chunks, bytes)
-}
-
-/// Recursively accumulates storage statistics, tolerating a missing root.
-fn walk_usage(
-    dir: &Path,
-    partitions: &mut usize,
-    chunks: &mut usize,
-    bytes: &mut u64,
-) {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if path.file_name().is_some_and(|name| name == "day=" || name.to_string_lossy().starts_with("day=")) {
-                *partitions += 1;
-            }
-            walk_usage(&path, partitions, chunks, bytes);
-        } else if path.extension().is_some_and(|ext| ext == "parquet") {
-            *chunks += 1;
-            if let Ok(meta) = fs::metadata(&path) {
-                *bytes += meta.len();
-            }
-        }
+/// Total WAL bytes on disk: the active segment plus every sealed one. Only
+/// reporting `current.wal` understates the footprint exactly when an operator
+/// runs `status` to find out where the disk went.
+fn wal_usage(wal_path: &Path) -> u64 {
+    let mut bytes = fs::metadata(wal_path).map(|meta| meta.len()).unwrap_or(0);
+    for segment in greplog_engine::wal::sealed_segments(wal_path).unwrap_or_default() {
+        bytes += fs::metadata(&segment).map(|meta| meta.len()).unwrap_or(0);
     }
+    bytes
 }
 
-/// Runs the shared server body: WAL replay, workers, compactor, retention, and
-/// the dual-port servers.
+/// Runs the shared server body: WAL replay, workers, compactor, retention,
+/// and the dual-port servers.
 async fn run_server(config: EngineConfig) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&config.data_dir)?;
     if let Some(parent) = config.wal_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    let recovered = replay_all(&config.wal_path)?;
-    tracing::info!(
-        "recovered {} records from WAL (sealed segments + active)",
-        recovered.len()
-    );
-
     let live_buffer: LiveBuffer = LiveBuffer::default();
-    if !recovered.is_empty() {
-        let mut table = MemTable::new(recovered.len());
-        for record in &recovered {
-            table.append_record(record);
-        }
-        match table.finish() {
-            Ok(batch) => {
-                if batch.num_rows() > 0 {
-                    if let Ok(mut buffer) = live_buffer.write() {
-                        buffer.push(batch);
-                    } else {
-                        tracing::error!("live buffer write lock poisoned on WAL replay");
-                    }
-                }
-            }
-            Err(error) => {
-                tracing::error!(?error, "failed to finish replay memtable");
-            }
-        }
-    }
+    recover_wal_into(&config, &live_buffer)?;
 
     let (wal_tx, wal_rx) = mpsc::channel::<WalCommand>(config.mpsc_buffer_size);
     let (truncate_tx, truncate_rx) = mpsc::channel::<usize>(config.mpsc_buffer_size);
@@ -178,17 +139,16 @@ async fn run_server(config: EngineConfig) -> Result<(), Box<dyn std::error::Erro
         crossbeam::channel::bounded::<Vec<greplog_engine::record::LogRecord>>(
             config.crossbeam_buffer_size,
         );
-    let (broadcast_tx, broadcast_rx) =
-        broadcast::channel::<Vec<greplog_engine::record::LogRecord>>(1024);
+    let (broadcast_tx, _) =
+        broadcast::channel::<Vec<greplog_engine::record::LogRecord>>(TAIL_BROADCAST_CAPACITY);
 
     let config_arc = Arc::new(config.clone());
 
     let wal_handle = spawn_wal_worker(Arc::clone(&config_arc), wal_rx, truncate_rx, handoff_tx);
-    let flusher = ParquetFlusher::new(&config);
     let memtable_handle = spawn_memtable_worker_with_broadcast(
         handoff_rx,
         truncate_tx,
-        flusher,
+        ParquetFlusher::new(&config),
         Arc::clone(&live_buffer),
         Arc::clone(&config_arc),
         Some(broadcast_tx.clone()),
@@ -196,59 +156,133 @@ async fn run_server(config: EngineConfig) -> Result<(), Box<dyn std::error::Erro
 
     let query_engine = Arc::new(QueryEngine::new(&config, Arc::clone(&live_buffer)).await?);
 
-    // Background compactor: sweeps the partition tree every
-    // `compaction_run_interval_secs`, merging crowded partitions into single
-    // highly compressed chunks.
-    let compactor_config = config.clone();
-    let _compactor_handle = tokio::spawn(async move {
-        Compactor::start_background_loop(compactor_config).await;
+    let (trigger, shutdown) = shutdown::channel();
+
+    // Aborted at shutdown; a merge already in flight finishes on the blocking
+    // pool and either lands atomically or leaves a `.part` the next run discards.
+    let compactor_task = tokio::spawn(Compactor::start_background_loop(config.clone()));
+
+    let retention_task = tokio::spawn(Retention::start_background_loop(config.clone()));
+
+    spawn_signal_listener(trigger);
+
+    print_startup_banner(&config);
+
+    let server_result = greplog_server::start_servers(
+        config,
+        wal_tx.clone(),
+        query_engine,
+        broadcast_tx,
+        shutdown,
+    )
+    .await;
+
+    if let Err(error) = &server_result {
+        tracing::error!(?error, "server exited with error");
+    }
+
+    // Servers drained: dropping this last ingest-sender clone closes the WAL
+    // worker's channel, which closes the handoff channel and lets the
+    // MemTable worker flush its remainder and exit.
+    drop(wal_tx);
+    compactor_task.abort();
+    retention_task.abort();
+
+    drain_write_path(wal_handle, memtable_handle).await;
+
+    server_result.map_err(Into::into)
+}
+
+/// Replays every WAL segment into the queryable live buffer; the MemTable
+/// worker re-flushes recovered rows to Parquet, which lets the WAL worker
+/// reclaim the segments they came from.
+fn recover_wal_into(
+    config: &EngineConfig,
+    live_buffer: &LiveBuffer,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let recovered = replay_all(&config.wal_path)?;
+    tracing::info!(
+        "recovered {} records from WAL (sealed segments + active)",
+        recovered.len()
+    );
+    if recovered.is_empty() {
+        return Ok(());
+    }
+
+    let mut table = MemTable::new(recovered.len());
+    for record in &recovered {
+        table.append_record(record);
+    }
+    let batch = match table.finish() {
+        Ok(batch) => batch,
+        Err(error) => {
+            tracing::error!(?error, "failed to finish replay memtable");
+            return Ok(());
+        }
+    };
+    if batch.num_rows() == 0 {
+        return Ok(());
+    }
+    match live_buffer.write() {
+        Ok(mut buffer) => buffer.push(batch),
+        Err(_) => tracing::error!("live buffer write lock poisoned on WAL replay"),
+    }
+    Ok(())
+}
+
+/// Fires `trigger` on the first `Ctrl+C`; hard-exits on the second, because a
+/// shutdown you cannot interrupt is indistinguishable from a hang.
+fn spawn_signal_listener(trigger: ShutdownTrigger) {
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_err() {
+            tracing::error!("failed to listen for Ctrl+C; shutdown must be signalled externally");
+            return;
+        }
+        println!();
+        tracing::info!("shutting down Greplog safely (press Ctrl+C again to force)");
+        trigger.fire();
+
+        if tokio::signal::ctrl_c().await.is_ok() {
+            tracing::warn!("second Ctrl+C received; exiting without draining the write path");
+            std::process::exit(EXIT_INTERRUPTED);
+        }
+    });
+}
+
+/// Joins the write-path threads in pipeline order (WAL first: its exit closes
+/// the handoff channel), bounded by [`DRAIN_TIMEOUT`] so a wedged disk cannot
+/// hold the process open forever.
+async fn drain_write_path(wal_handle: JoinHandle<()>, memtable_handle: JoinHandle<()>) {
+    let joined = tokio::task::spawn_blocking(move || {
+        if wal_handle.join().is_err() {
+            tracing::error!("wal worker panicked");
+        }
+        if memtable_handle.join().is_err() {
+            tracing::error!("memtable worker panicked");
+        }
     });
 
-    // Background retention: every `retention_run_interval_secs`, purges day
-    // partitions older than `retention_days`.
-    let retention_config = config.clone();
-    let _retention_handle = tokio::spawn(async move {
-        Retention::start_background_loop(retention_config).await;
-    });
+    match tokio::time::timeout(DRAIN_TIMEOUT, joined).await {
+        Ok(Ok(())) => tracing::info!("write path drained; all buffered rows are on disk"),
+        Ok(Err(error)) => tracing::error!(?error, "drain task failed to run"),
+        Err(_) => {
+            tracing::error!(
+                timeout_secs = DRAIN_TIMEOUT.as_secs(),
+                "write path did not drain in time; exiting with buffered rows still in the WAL"
+            );
+            std::process::exit(EXIT_DRAIN_TIMEOUT);
+        }
+    }
+}
 
-    let server_wal_tx = wal_tx.clone();
-    let server_config = config.clone();
-    let server_engine = Arc::clone(&query_engine);
-
-    let server_future =
-        greplog_server::start_servers(server_config, server_wal_tx, server_engine, broadcast_rx);
-
-    let wal_tx_for_shutdown = wal_tx;
-
-    // Startup splash, printed just before the servers take over the process.
+fn print_startup_banner(config: &EngineConfig) {
     banner::print_ascii_banner();
     println!("  Greplog v{}", env!("CARGO_PKG_VERSION"));
     println!();
-    println!("  🚀 Ingest Agent : http://127.0.0.1:{}", config.ingest_port);
+    println!("  🚀 Ingest Agent : http://127.0.0.1:{}/api/log", config.ingest_port);
     println!("  📊 Dashboard UI : http://127.0.0.1:{}", config.dashboard_port);
     println!("  📚 Documentation: https://docs.greplog.dev");
     println!();
     println!("  Ready to receive logs. Press Ctrl+C to gracefully shut down.");
     println!();
-
-    tokio::select! {
-        res = server_future => {
-            if let Err(error) = res {
-                tracing::error!(?error, "server exited with error");
-            }
-        }
-        _ = tokio::signal::ctrl_c() => {
-            tracing::info!("Shutting down Greplog safely...");
-            drop(wal_tx_for_shutdown);
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            let _ = tokio::task::spawn_blocking(move || {
-                let _ = wal_handle.join();
-                let _ = memtable_handle.join();
-            })
-            .await;
-            std::process::exit(0);
-        }
-    }
-
-    Ok(())
 }

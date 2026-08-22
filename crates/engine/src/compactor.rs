@@ -1,14 +1,24 @@
-//! The background compactor: merges small Parquet chunks into one file.
+//! The background compactor: merges small Parquet chunks into large ones.
 //!
-//! [`Compactor`] walks the Hive-partitioned tree under `config.data_dir`
-//! looking for leaf partitions holding more than `max_files_before_compaction`
-//! chunks, then stream-merges each crowded partition into a single highly
-//! compressed `compacted_<uuid>.parquet` file. Rows are moved with a
-//! [`ParquetRecordBatchReader`](parquet::arrow::arrow_reader::ParquetRecordBatchReader)
-//! feeding an [`ArrowWriter`] one batch at a time, so memory stays flat no
-//! matter how many gigabytes of small files accumulate. Original chunks are
-//! deleted only after the merged file is written, flushed to disk, and closed,
-//! so a crash mid-compaction never loses rows.
+//! Files at or above `compaction_target_bytes` are never re-merged, so each
+//! partition converges to a few large sealed files plus a short tail of fresh
+//! chunks and every byte is written a bounded number of times.
+//!
+//! Chunks are merged in ascending `timestamp_us` order (from Parquet
+//! statistics, not filenames) so row groups get narrow min/max ranges, which
+//! is what time-bounded queries prune on.
+//!
+//! A merge is published without a visible-duplicate window and every crash
+//! point is recoverable:
+//!
+//! 1. write to `compacted_<uuid>.parquet.part` and fsync (invisible to scans);
+//! 2. rename every source chunk to `<name>.superseded` (rows briefly
+//!    invisible rather than duplicated);
+//! 3. rename the `.part` into place (merged rows become visible);
+//! 4. delete the superseded files.
+//!
+//! [`Compactor::recover_partition`] rolls a partition back when it finds a
+//! leftover `.part`, and finishes the cleanup when it does not.
 
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -17,19 +27,23 @@ use std::time::Duration;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::{Compression, ZstdLevel};
-use parquet::file::properties::WriterProperties;
+use parquet::file::properties::{EnabledStatistics, WriterProperties};
+use parquet::file::statistics::Statistics;
 use uuid::Uuid;
 
 use crate::config::EngineConfig;
 use crate::error::EngineError;
+use crate::schema::TIMESTAMP_COLUMN;
 
-/// How many rows each streaming reader yields per read.
-///
-/// Small batches keep the working set flat: only one batch is materialized at a
-/// time while a partition is being merged.
 const COMPACTION_BATCH_SIZE: usize = 1024;
 
-/// Merges crowded leaf partitions into a single highly compressed Parquet file.
+const COMPACTED_ROW_GROUP_ROWS: usize = 128 * 1024;
+
+const SUPERSEDED_SUFFIX: &str = "superseded";
+
+const PART_SUFFIX: &str = "part";
+
+/// Merges crowded leaf partitions into large, time-ordered Parquet files.
 #[derive(Debug, Clone)]
 pub struct Compactor {
     config: EngineConfig,
@@ -42,89 +56,133 @@ impl Compactor {
         Self { config }
     }
 
-    /// Returns every leaf partition holding more than `max_files_before_compaction`
-    /// Parquet chunks.
-    ///
-    /// A missing `data_dir` (fresh engine, nothing flushed yet) is treated as an
-    /// empty scan and not an error, so the background loop can start before any
-    /// data exists.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::IoError`] if the tree cannot be walked.
+    /// Leaf partitions holding more than `max_files_before_compaction`
+    /// mergeable Parquet chunks (or needing crash recovery).
     pub fn find_partitions_to_compact(&self) -> Result<Vec<PathBuf>, EngineError> {
         let mut partitions = Vec::new();
-        walk_for_partitions(
-            &self.config.data_dir,
-            self.config.max_files_before_compaction,
-            &mut partitions,
-        )?;
+        self.walk_for_partitions(&self.config.data_dir, &mut partitions)?;
         Ok(partitions)
     }
 
-    /// Stream-merges the Parquet chunks of `partition_dir` into one file.
-    ///
-    /// All `.parquet` files are opened one at a time and streamed batch by batch
-    /// into an [`ArrowWriter`] using Zstandard compression. The merged file is
-    /// written to a temp name, then atomically renamed, and only then are the
-    /// original chunks deleted — so the partition never exists in a partially
-    /// merged state and concurrent readers never see a partial file. Already-
-    /// compact partitions (at or under the merge threshold) are left untouched.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::IoError`] if a chunk cannot be opened or removed,
-    /// or [`EngineError::ParquetError`] or [`EngineError::ArrowError`] if a
-    /// chunk cannot be decoded or re-encoded.
-    pub fn compact_partition(&self, partition_dir: &Path) -> Result<(), EngineError> {
-        let files = parquet_files(partition_dir)?;
-        if files.len() <= self.config.max_files_before_compaction {
-            return Ok(());
-        }
+    fn walk_for_partitions(
+        &self,
+        dir: &Path,
+        out: &mut Vec<PathBuf>,
+    ) -> Result<(), EngineError> {
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
 
-        let final_path = partition_dir.join(format!("compacted_{}.parquet", Uuid::new_v4()));
-        // Trailing `.part` so the listing scan never reads a half-written file:
-        // `parquet_files` globs `*.parquet`, which `compacted_*.parquet.part`
-        // does not match until the atomic rename below completes.
-        let temp_path = partition_dir.join(format!("compacted_{}.parquet.part", Uuid::new_v4()));
-        let output = File::create(&temp_path)?;
-        let properties = WriterProperties::builder()
-            .set_compression(Compression::ZSTD(ZstdLevel::default()))
-            .build();
-
-        let builder = ParquetRecordBatchReaderBuilder::try_new(File::open(&files[0])?)?
-            .with_batch_size(COMPACTION_BATCH_SIZE);
-        let schema = builder.schema().clone();
-        let reader = builder.build()?;
-        let mut writer = ArrowWriter::try_new(output, schema, Some(properties))?;
-        for batch in reader {
-            writer.write(&batch?)?;
-        }
-        for path in &files[1..] {
-            let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(path)?)?
-                .with_batch_size(COMPACTION_BATCH_SIZE)
-                .build()?;
-            for batch in reader {
-                writer.write(&batch?)?;
+        let mut mergeable = 0usize;
+        let mut subdirs = Vec::new();
+        let mut needs_recovery = false;
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                subdirs.push(path);
+                continue;
+            }
+            if has_suffix(&path, PART_SUFFIX) || has_suffix(&path, SUPERSEDED_SUFFIX) {
+                needs_recovery = true;
+                continue;
+            }
+            if !is_parquet(&path) {
+                continue;
+            }
+            let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+            if size < self.config.compaction_target_bytes {
+                mergeable += 1;
             }
         }
-        writer.close()?;
-        // Atomic rename: the compacted file is only visible at its final name
-        // after the writer is fully closed and synced.
-        std::fs::rename(&temp_path, &final_path)?;
 
-        File::open(&final_path)?.sync_all()?;
-        for path in &files {
-            fs::remove_file(path)?;
+        if needs_recovery || mergeable > self.config.max_files_before_compaction {
+            out.push(dir.to_path_buf());
+        }
+        for subdir in subdirs {
+            self.walk_for_partitions(&subdir, out)?;
         }
         Ok(())
     }
 
-    /// Runs compaction forever: every `compaction_run_interval_secs` the tree is
-    /// scanned and each crowded partition is merged on a blocking thread.
-    ///
-    /// Failures are logged, never panicked on: a scan or merge error skips to
-    /// the next sweep so compaction is retried on the following interval.
+    /// Finishes or rolls back an interrupted merge in `partition_dir`.
+    pub fn recover_partition(&self, partition_dir: &Path) -> Result<(), EngineError> {
+        let mut parts = Vec::new();
+        let mut superseded = Vec::new();
+        for entry in fs::read_dir(partition_dir)? {
+            let path = entry?.path();
+            if has_suffix(&path, PART_SUFFIX) {
+                parts.push(path);
+            } else if has_suffix(&path, SUPERSEDED_SUFFIX) {
+                superseded.push(path);
+            }
+        }
+        if parts.is_empty() && superseded.is_empty() {
+            return Ok(());
+        }
+
+        let rolling_back = !parts.is_empty();
+        for path in parts {
+            tracing::warn!(?path, "discarding an unpublished compaction output");
+            fs::remove_file(&path)?;
+        }
+        for path in superseded {
+            if rolling_back {
+                let restored = path.with_extension("");
+                tracing::warn!(?path, ?restored, "restoring a superseded chunk after an interrupted compaction");
+                fs::rename(&path, &restored)?;
+            } else {
+                fs::remove_file(&path)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Stream-merges the mergeable Parquet chunks of `partition_dir` into one
+    /// file, opened one chunk at a time so memory stays flat.
+    pub fn compact_partition(&self, partition_dir: &Path) -> Result<(), EngineError> {
+        self.recover_partition(partition_dir)?;
+
+        let files = self.mergeable_files(partition_dir)?;
+        if files.len() <= self.config.max_files_before_compaction {
+            return Ok(());
+        }
+
+        let merge_id = Uuid::new_v4();
+        let temp_path = partition_dir.join(format!("compacted_{merge_id}.parquet.{PART_SUFFIX}"));
+        let final_path = partition_dir.join(format!("compacted_{merge_id}.parquet"));
+
+        write_merged(&files, &temp_path)?;
+        publish_merged(&files, &temp_path, &final_path)?;
+        Ok(())
+    }
+
+    /// Mergeable chunks of `dir`, ordered by first timestamp. Files already at
+    /// or above `compaction_target_bytes` are excluded — pulling them back in
+    /// is what turns compaction quadratic.
+    fn mergeable_files(&self, dir: &Path) -> Result<Vec<PathBuf>, EngineError> {
+        let mut candidates = Vec::new();
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() || !is_parquet(&path) {
+                continue;
+            }
+            if entry.metadata()?.len() >= self.config.compaction_target_bytes {
+                continue;
+            }
+            candidates.push(path);
+        }
+        sort_by_first_timestamp(&mut candidates);
+        Ok(candidates)
+    }
+
+    /// Runs compaction forever, merging each crowded partition on a blocking
+    /// thread. The first sweep runs immediately so a partition left mid-merge
+    /// by a crash is recovered before a query can observe it. Failures are
+    /// logged and retried on the next interval.
     pub async fn start_background_loop(config: EngineConfig) {
         let mut sweep = tokio::time::interval(Duration::from_secs(
             config.compaction_run_interval_secs.max(1),
@@ -157,46 +215,169 @@ impl Compactor {
     }
 }
 
-/// Recursively collects leaf directories holding more than `max_files` Parquet
-/// chunks into `out`, tolerating a missing root.
-fn walk_for_partitions(
-    dir: &Path,
-    max_files: usize,
-    out: &mut Vec<PathBuf>,
-) -> Result<(), EngineError> {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
-    };
-    let mut parquet_count = 0usize;
-    let mut subdirs = Vec::new();
-    for entry in entries {
-        let path = entry?.path();
-        if path.is_dir() {
-            subdirs.push(path);
-        } else if path.extension().is_some_and(|ext| ext == "parquet") {
-            parquet_count += 1;
+/// Streams every row of `files` into a single Parquet file at `temp_path`.
+///
+/// Zstd-compressed with page-level statistics, so a scan can prune both row
+/// groups and pages on `timestamp_us`.
+fn write_merged(files: &[PathBuf], temp_path: &Path) -> Result<(), EngineError> {
+    let properties = WriterProperties::builder()
+        .set_compression(Compression::ZSTD(ZstdLevel::default()))
+        .set_max_row_group_size(COMPACTED_ROW_GROUP_ROWS)
+        .set_statistics_enabled(EnabledStatistics::Page)
+        .build();
+
+    let first = ParquetRecordBatchReaderBuilder::try_new(File::open(&files[0])?)?
+        .with_batch_size(COMPACTION_BATCH_SIZE);
+    let schema = first.schema().clone();
+    let output = File::create(temp_path)?;
+    let mut writer = ArrowWriter::try_new(output, schema, Some(properties))?;
+
+    for batch in first.build()? {
+        writer.write(&batch?)?;
+    }
+    for path in &files[1..] {
+        let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(path)?)?
+            .with_batch_size(COMPACTION_BATCH_SIZE)
+            .build()?;
+        for batch in reader {
+            writer.write(&batch?)?;
         }
     }
-    if parquet_count > max_files {
-        out.push(dir.to_path_buf());
+
+    // `close` writes the footer; the fsync that follows is what makes it safe
+    // to hide the sources.
+    let file = writer.into_inner()?;
+    file.sync_all()?;
+    Ok(())
+}
+
+/// Publishes the merged file and retires the sources it replaced.
+fn publish_merged(
+    files: &[PathBuf],
+    temp_path: &Path,
+    final_path: &Path,
+) -> Result<(), EngineError> {
+    let superseded: Vec<PathBuf> = files.iter().map(|path| superseded_path(path)).collect();
+    for (source, hidden) in files.iter().zip(&superseded) {
+        fs::rename(source, hidden)?;
     }
-    for subdir in subdirs {
-        walk_for_partitions(&subdir, max_files, out)?;
+
+    fs::rename(temp_path, final_path)?;
+    sync_dir(final_path);
+
+    for path in &superseded {
+        if let Err(error) = fs::remove_file(path) {
+            // Rows are already published; a leftover file is invisible to
+            // queries and cleaned up by the next sweep.
+            tracing::warn!(?error, ?path, "failed to remove a superseded chunk");
+        }
     }
     Ok(())
 }
 
-/// Returns the row-group files directly inside `dir`, deterministically sorted.
-fn parquet_files(dir: &Path) -> Result<Vec<PathBuf>, EngineError> {
-    let mut files = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let path = entry?.path();
-        if !path.is_dir() && path.extension().is_some_and(|ext| ext == "parquet") {
-            files.push(path);
+/// Flushes the directory entry for `path` so the rename survives a crash.
+/// Without it the merged file can be durable while the directory entry naming
+/// it is not. Best-effort: platforms that refuse to open a directory for sync
+/// simply log.
+fn sync_dir(path: &Path) {
+    let Some(dir) = path.parent() else {
+        return;
+    };
+    match File::open(dir) {
+        Ok(handle) => {
+            if let Err(error) = handle.sync_all() {
+                tracing::warn!(?error, ?dir, "failed to fsync partition directory");
+            }
         }
+        Err(error) => tracing::warn!(?error, ?dir, "failed to open partition directory for fsync"),
     }
-    files.sort_unstable();
-    Ok(files)
+}
+
+fn superseded_path(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(".");
+    name.push(SUPERSEDED_SUFFIX);
+    PathBuf::from(name)
+}
+
+fn is_parquet(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "parquet")
+}
+
+fn has_suffix(path: &Path, suffix: &str) -> bool {
+    path.extension().is_some_and(|ext| ext == suffix)
+}
+
+/// Orders `files` by the first `timestamp_us` each one stores, read from
+/// Parquet statistics. Files without statistics sort last by path.
+fn sort_by_first_timestamp(files: &mut [PathBuf]) {
+    let mut keyed: Vec<(Option<i64>, PathBuf)> = files
+        .iter()
+        .map(|path| (min_timestamp(path), path.clone()))
+        .collect();
+    keyed.sort_by(|(left_ts, left_path), (right_ts, right_path)| match (left_ts, right_ts) {
+        (Some(left), Some(right)) => left.cmp(right).then_with(|| left_path.cmp(right_path)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => left_path.cmp(right_path),
+    });
+    for (slot, (_, path)) in files.iter_mut().zip(keyed) {
+        *slot = path;
+    }
+}
+
+/// Smallest `timestamp_us` in a chunk's statistics, or `None` when the file
+/// cannot be opened, has no min/max statistics, or stores the column as
+/// something other than `INT64`.
+fn min_timestamp(path: &Path) -> Option<i64> {
+    let file = File::open(path).ok()?;
+    let metadata = ParquetRecordBatchReaderBuilder::try_new(file).ok()?.metadata().clone();
+    let column = metadata
+        .file_metadata()
+        .schema_descr()
+        .columns()
+        .iter()
+        .position(|descriptor| descriptor.name() == TIMESTAMP_COLUMN)?;
+
+    metadata
+        .row_groups()
+        .iter()
+        .filter_map(|group| match group.column(column).statistics() {
+            Some(Statistics::Int64(stats)) if stats.has_min_max_set() => Some(*stats.min()),
+            _ => None,
+        })
+        .min()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use super::{has_suffix, is_parquet, superseded_path, PART_SUFFIX, SUPERSEDED_SUFFIX};
+
+    #[test]
+    fn only_published_parquet_files_are_scannable() {
+        assert!(is_parquet(Path::new("a/chunk_1.parquet")));
+        assert!(!is_parquet(Path::new("a/chunk_1.parquet.part")));
+        assert!(!is_parquet(Path::new("a/chunk_1.parquet.superseded")));
+        assert!(!is_parquet(Path::new("a/notes.txt")));
+    }
+
+    #[test]
+    fn in_flight_suffixes_are_recognised() {
+        assert!(has_suffix(Path::new("a/x.parquet.part"), PART_SUFFIX));
+        assert!(has_suffix(
+            Path::new("a/x.parquet.superseded"),
+            SUPERSEDED_SUFFIX
+        ));
+        assert!(!has_suffix(Path::new("a/x.parquet"), PART_SUFFIX));
+    }
+
+    #[test]
+    fn superseded_names_round_trip_back_to_the_original() {
+        let original = PathBuf::from("a/chunk_17.parquet");
+        let hidden = superseded_path(&original);
+        assert_eq!(hidden, PathBuf::from("a/chunk_17.parquet.superseded"));
+        assert_eq!(hidden.with_extension(""), original);
+    }
 }

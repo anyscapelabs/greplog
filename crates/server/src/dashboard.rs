@@ -1,95 +1,208 @@
-//! Dashboard API (`POST /api/query` and `GET /api/tail` on port 3000).
+//! Dashboard API: `POST /api/query` and `GET /api/tail`.
 
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::Duration;
 
 use arrow::record_batch::RecordBatch;
 use axum::extract::State;
-use axum::response::sse::{Event, Sse};
+use axum::http::header;
+use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use futures::Stream;
+use greplog_engine::error::EngineError;
 use greplog_engine::query::QueryEngine;
 use greplog_engine::record::LogRecord;
 use serde::Deserialize;
 use tokio::sync::broadcast;
 
 use crate::error::ApiError;
+use crate::shutdown::Shutdown;
+
+const TAIL_KEEP_ALIVE_SECS: u64 = 15;
 
 /// Request body for `POST /api/query`.
 #[derive(Debug, Deserialize)]
 pub struct QueryRequest {
-    /// SQL query to execute against the unified `logs` view.
     pub sql: String,
 }
 
-/// Handles `POST /api/query`.
+/// Handles `POST /api/search`: a validated structured search executed with
+/// Hive partition pruning on the Parquet tier.
+pub async fn handle_search(
+    State(engine): State<Arc<QueryEngine>>,
+    Json(search): Json<greplog_engine::search::LogSearch>,
+) -> Result<Response, ApiError> {
+    let batches: Vec<RecordBatch> = engine
+        .search(&search)
+        .await
+        .map_err(ApiError::Engine)?;
+
+    if batches.is_empty() {
+        return Ok(empty_rows());
+    }
+
+    let body = tokio::task::spawn_blocking(move || encode_rows(&batches))
+        .await
+        .map_err(|e| ApiError::Engine(EngineError::IoError(std::io::Error::other(e.to_string()))))?
+        .map_err(ApiError::Engine)?;
+
+    Ok(json_response(body))
+}
+
+/// Handles `GET /api/stats`, returning Parquet disk usage for the Storage card.
+pub async fn handle_stats(State(state): State<crate::DashboardState>) -> Result<Response, ApiError> {
+    let data_dir = state.data_dir;
+    let snapshot = tokio::task::spawn_blocking(move || crate::stats::storage_stats(&data_dir))
+        .await
+        .map_err(|e| ApiError::Engine(EngineError::IoError(std::io::Error::other(e.to_string()))))?;
+    let body = serde_json::to_vec(&snapshot)
+        .map_err(|e| ApiError::Engine(EngineError::IoError(std::io::Error::other(e.to_string()))))?;
+    Ok(json_response(body))
+}
+
+/// State for `GET /api/tail`.
+pub struct TailState {
+    pub records: broadcast::Receiver<Vec<LogRecord>>,
+    pub shutdown: Shutdown,
+}
+
+/// Handles `POST /api/query`, returning rows as a JSON array.
 ///
-/// Executes the supplied SQL via `QueryEngine` and returns the result as a
-/// JSON array. Heavy JSON serialization is offloaded to `spawn_blocking` to
-/// avoid blocking the async runtime.
-///
-/// # Errors
-///
-/// Returns `ApiError::Engine` if the SQL execution or JSON serialization fails.
+/// Batches are encoded straight to JSON bytes: round-tripping them through
+/// `serde_json::Value` would walk the payload two extra times on large
+/// results while producing identical output.
 pub async fn handle_query(
     State(engine): State<Arc<QueryEngine>>,
     Json(req): Json<QueryRequest>,
-) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
+) -> Result<Response, ApiError> {
     let batches: Vec<RecordBatch> = engine
         .execute_sql(&req.sql)
         .await
         .map_err(ApiError::Engine)?;
 
     if batches.is_empty() {
-        return Ok(Json(Vec::new()));
+        return Ok(empty_rows());
     }
 
-    // Offload JSON conversion to the blocking pool so large payloads do not
-    // stall the `tokio` event loop.
-    let json_rows = tokio::task::spawn_blocking(move || {
-        let mut buf = Vec::new();
-        let mut writer = arrow_json::ArrayWriter::new(&mut buf);
-        let refs: Vec<&RecordBatch> = batches.iter().collect();
-        writer
-            .write_batches(&refs)
-            .map_err(greplog_engine::error::EngineError::from)?;
-        writer.finish().map_err(greplog_engine::error::EngineError::from)?;
-        let values: Vec<serde_json::Value> = serde_json::from_slice(&buf)
-            .map_err(|e| greplog_engine::error::EngineError::ParseError(e.to_string()))?;
-        Ok::<Vec<serde_json::Value>, greplog_engine::error::EngineError>(values)
-    })
-    .await
-    .map_err(|e| {
-        ApiError::Engine(greplog_engine::error::EngineError::IoError(std::io::Error::other(
-            e.to_string(),
-        )))
-    })?
-    .map_err(ApiError::Engine)?;
+    // Encoding is CPU-bound and proportional to result size.
+    let body = tokio::task::spawn_blocking(move || encode_rows(&batches))
+        .await
+        .map_err(|e| ApiError::Engine(EngineError::IoError(std::io::Error::other(e.to_string()))))?
+        .map_err(ApiError::Engine)?;
 
-    Ok(Json(json_rows))
+    if body.is_empty() {
+        return Ok(empty_rows());
+    }
+
+    Ok(json_response(body))
 }
 
-/// Handles `GET /api/tail` as an SSE stream.
+fn encode_rows(batches: &[RecordBatch]) -> Result<Vec<u8>, EngineError> {
+    let mut buf = Vec::new();
+    let mut writer = arrow_json::ArrayWriter::new(&mut buf);
+    let refs: Vec<&RecordBatch> = batches.iter().collect();
+    writer.write_batches(&refs)?;
+    writer.finish()?;
+    Ok(buf)
+}
+
+/// Canonical empty result: an empty JSON array, never a bare body.
+fn empty_rows() -> Response {
+    json_response(b"[]".to_vec())
+}
+
+fn json_response(body: Vec<u8>) -> Response {
+    ([(header::CONTENT_TYPE, "application/json")], body).into_response()
+}
+
+/// Handles `GET /api/tail` as an SSE stream of live log batches.
 ///
-/// Each `Vec<LogRecord>` received on the broadcast channel is yielded as a
-/// JSON-encoded SSE `Event`.
+/// The shutdown signal ends the stream — without it, one open dashboard tab
+/// would hold a graceful drain open forever. A subscriber that falls behind
+/// the channel capacity gets an explicit `gap` event instead of silently
+/// missing records.
 pub async fn handle_tail(
-    State(mut broadcast_rx): State<broadcast::Receiver<Vec<LogRecord>>>,
+    State(state): State<TailState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let TailState {
+        mut records,
+        shutdown,
+    } = state;
+
     let stream = async_stream::stream! {
         loop {
-            match broadcast_rx.recv().await {
-                Ok(records) => {
-                    let event = Event::default()
-                        .json_data(&records)
-                        .unwrap_or_else(|_| Event::default().data("serialization error"));
-                    yield Ok(event);
+            let received = tokio::select! {
+                received = records.recv() => received,
+                () = shutdown.wait() => return,
+            };
+
+            match received {
+                Ok(batch) => yield Ok(logs_event(&batch)),
+                Err(broadcast::error::RecvError::Closed) => return,
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    tracing::warn!(skipped, "live tail subscriber lagged behind the broadcast channel");
+                    yield Ok(gap_event(skipped));
                 }
-                Err(broadcast::error::RecvError::Closed) => break,
-                Err(broadcast::error::RecvError::Lagged(_)) => {},
             }
         }
     };
 
-    Sse::new(stream)
+    Sse::new(stream).keep_alive(
+        KeepAlive::new().interval(Duration::from_secs(TAIL_KEEP_ALIVE_SECS)),
+    )
+}
+
+fn logs_event(batch: &[LogRecord]) -> Event {
+    match Event::default().event("logs").json_data(batch) {
+        Ok(event) => event,
+        Err(error) => {
+            tracing::error!(?error, "failed to encode live tail batch");
+            gap_event(batch.len() as u64)
+        }
+    }
+}
+
+fn gap_event(skipped: u64) -> Event {
+    Event::default()
+        .event("gap")
+        .data(skipped.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow::record_batch::RecordBatch;
+    use greplog_engine::memtable::MemTable;
+    use greplog_engine::record::LogRecord;
+
+    use super::encode_rows;
+
+    fn batch(rows: usize) -> RecordBatch {
+        let mut table = MemTable::new(rows);
+        for index in 0..rows {
+            table.append_record(&LogRecord::new("INFO", "auth-api", format!("row {index}")));
+        }
+        table.finish().expect("finish memtable")
+    }
+
+    #[test]
+    fn encoded_rows_are_a_json_array_of_objects() {
+        let encoded = encode_rows(&[batch(2)]).expect("encode");
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&encoded).expect("output must be valid JSON");
+        let rows = parsed.as_array().expect("output must be a JSON array");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["service"], "auth-api");
+    }
+
+    #[test]
+    fn zero_row_batches_encode_to_an_empty_array_or_nothing() {
+        let encoded = encode_rows(&[batch(0)]).expect("encode");
+        if encoded.is_empty() {
+            return;
+        }
+        let parsed: serde_json::Value = serde_json::from_slice(&encoded).expect("valid JSON");
+        assert!(parsed.as_array().expect("array").is_empty());
+    }
 }

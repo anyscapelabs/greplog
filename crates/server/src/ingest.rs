@@ -1,4 +1,4 @@
-//! Ingestion API (`POST /api/log` on port 5050).
+//! Ingestion API (`POST /api/log`).
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -9,16 +9,8 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::error::ApiError;
 
-/// Handles `POST /api/log`.
-///
-/// Receives a batch of `LogRecord`s, forwards it to the WAL worker via the
-/// MPSC channel, and awaits the `oneshot` group-commit acknowledgement before
-/// returning `200 OK`.
-///
-/// # Errors
-///
-/// Returns `ApiError::Engine` if the WAL channel is closed or the `oneshot`
-/// acknowledgement fails, and `ApiError::BadRequest` for malformed payloads.
+/// Handles `POST /api/log`: forwards the batch to the WAL worker and awaits
+/// the group-commit acknowledgement before returning `200 OK`.
 pub async fn handle_ingest(
     State(wal_tx): State<mpsc::Sender<WalCommand>>,
     Json(payload): Json<Vec<LogRecord>>,

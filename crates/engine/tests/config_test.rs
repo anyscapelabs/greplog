@@ -44,6 +44,7 @@ fn cloned_config_stays_an_independent_copy() {
         flush_interval_secs: 30,
         compaction_run_interval_secs: 60,
         max_files_before_compaction: 3,
+        compaction_target_bytes: 64 * 1024 * 1024,
         retention_days: Some(14),
         retention_run_interval_secs: 120,
         query_timeout_secs: 15,
@@ -66,6 +67,10 @@ fn cloned_config_stays_an_independent_copy() {
     assert_eq!(
         clone.max_files_before_compaction,
         original.max_files_before_compaction
+    );
+    assert_eq!(
+        clone.compaction_target_bytes,
+        original.compaction_target_bytes
     );
     assert_eq!(clone.retention_days, original.retention_days);
     assert_eq!(
