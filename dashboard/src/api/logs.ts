@@ -75,6 +75,23 @@ function validateFilters(filters: QueryFilters): void {
   }
 }
 
+/** The UI says "severity"; the server's column is "level". Unknown facet
+ * keys are dropped here rather than surfacing as 400s from the server. */
+const FACET_WIRE_NAMES: Record<string, string> = {
+  severity: 'level',
+  level: 'level',
+  service: 'service',
+}
+
+function toWireFacets(facets: Record<string, string> | undefined): SearchFacets {
+  const translated: SearchFacets = {}
+  for (const [key, value] of Object.entries(facets ?? {})) {
+    const wireName = FACET_WIRE_NAMES[key]
+    if (wireName && value.trim()) translated[wireName] = value
+  }
+  return translated
+}
+
 async function postSearch(request: SearchRequest): Promise<QueryRow[]> {
   const response = await fetch(`${API_BASE}/search`, {
     method: 'POST',
@@ -120,7 +137,7 @@ export const logApi = {
     return postSearch({
       type: 'rows',
       time_range_secs: filters.timeRangeSecs,
-      facets: filters.facets ?? {},
+      facets: toWireFacets(filters.facets),
       search: filters.search || undefined,
       limit: 500,
     })
@@ -135,7 +152,7 @@ export const logApi = {
     return postSearch({
       type: 'aggregate',
       time_range_secs: filters.timeRangeSecs,
-      facets: filters.facets ?? {},
+      facets: toWireFacets(filters.facets),
       search: filters.search || undefined,
       group_by: ['bucket'],
       bucket_secs: intervalSecs,
@@ -183,7 +200,7 @@ export const logApi = {
     return postSearch({
       type: 'aggregate',
       time_range_secs: filters.timeRangeSecs,
-      facets: filters.facets ?? {},
+      facets: toWireFacets(filters.facets),
       search: filters.search || undefined,
       group_by: ['bucket', 'level'],
       bucket_secs: intervalSecs,
@@ -200,7 +217,7 @@ export const logApi = {
     return postSearch({
       type: 'aggregate',
       time_range_secs: filters.timeRangeSecs,
-      facets: filters.facets ?? {},
+      facets: toWireFacets(filters.facets),
       search: filters.search || undefined,
       group_by: ['bucket', 'service'],
       bucket_secs: intervalSecs,
@@ -214,7 +231,7 @@ export const logApi = {
     return postSearch({
       type: 'aggregate',
       time_range_secs: filters.timeRangeSecs,
-      facets: filters.facets ?? {},
+      facets: toWireFacets(filters.facets),
       search: filters.search || undefined,
       group_by: ['service'],
       metrics: ['count', 'errors', 'warns', 'last_seen'],
@@ -228,7 +245,7 @@ export const logApi = {
     return postSearch({
       type: 'aggregate',
       time_range_secs: filters.timeRangeSecs,
-      facets: filters.facets ?? {},
+      facets: toWireFacets(filters.facets),
       search: filters.search || undefined,
       group_by: [],
       metrics: ['count', 'errors'],
