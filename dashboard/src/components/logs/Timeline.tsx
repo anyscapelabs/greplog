@@ -97,6 +97,8 @@ interface TimelineProps {
   /** Active severity facet (e.g. "ERROR"); colors the bars to match. */
   severity?: string
   onShiftChange: (shift: number) => void
+  /** Section title shown above the chart, e.g. "Timeline" or "Ingestion". */
+  title?: string
 }
 
 function Timeline({
@@ -106,6 +108,7 @@ function Timeline({
   histogram,
   severity,
   onShiftChange,
+  title = 'Timeline',
 }: TimelineProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [height, setHeight] = useState(DEFAULT_TIMELINE_HEIGHT)
@@ -276,7 +279,7 @@ function Timeline({
     <section className="shrink-0 border-b border-zinc-800">
       <div className="flex items-center justify-between px-3 py-2">
         <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-100">
-          Timeline
+          {title}
         </h2>
         <button
           type="button"

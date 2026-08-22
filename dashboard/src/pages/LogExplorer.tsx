@@ -8,124 +8,211 @@ import Timeline from '../components/logs/Timeline'
 import { useLogExplorer } from '../hooks/useLogs'
 import type { QueryFilters } from '../api/logs'
 import { extractSeverity } from '../api/logs'
+import { RANGE_SECONDS } from '../components/logs/Timeline'
 import type { TimeRange } from '../components/Header'
 
 interface LogExplorerProps {
   range: TimeRange
+  liveTailActive?: boolean
 }
 
-const RANGE_TO_SQL_INTERVAL: Record<TimeRange, string> = {
-  '15m': '15 minutes',
-  '1h': '1 hour',
-  '3h': '3 hours',
-  '6h': '6 hours',
-  '12h': '12 hours',
-  '24h': '1 day',
-  '7d': '7 days',
-  '30d': '30 days',
+function buildActiveFacets(
+  selectedFacets: Record<string, string>,
+  selectedService: string,
+): Record<string, string> {
+  if (selectedService === 'All services') return { ...selectedFacets }
+
+  return { ...selectedFacets, service: selectedService }
 }
 
-function LogExplorer({ range }: LogExplorerProps) {
-  const [logsFullscreen, setLogsFullscreen] = useState(false)
-  const [shift, setShift] = useState(0)
+function resolveTimeRangeSecs(range: TimeRange): number | null {
+  if (!range) return null
+
+  return RANGE_SECONDS[range] ?? null
+}
+
+function buildQueryFilters(
+  range: TimeRange,
+  activeSearchQuery: string,
+  selectedFacets: Record<string, string>,
+  selectedService: string,
+): QueryFilters | null {
+  const timeRangeSecs = resolveTimeRangeSecs(range)
+
+  if (!timeRangeSecs) return null
+
+  const activeFacets = buildActiveFacets(selectedFacets, selectedService)
+
+  return {
+    timeRangeSecs,
+    search: activeSearchQuery || undefined,
+    facets: activeFacets,
+  }
+}
+
+function getDiscoveredServices(facets: { service?: unknown }[] | undefined): string[] {
+  if (!facets) return []
+
+  const discoveredServices = new Set<string>()
+
+  for (const facetRow of facets) {
+    const rawService = String(facetRow.service ?? '').trim()
+
+    if (!rawService) continue
+
+    discoveredServices.add(rawService)
+  }
+
+  return Array.from(discoveredServices).sort((first, second) => first.localeCompare(second))
+}
+
+function getActiveSeverity(
+  selectedFacets: Record<string, string>,
+  activeSearchQuery: string,
+): string | undefined {
+  const facetSeverity = selectedFacets['severity'] ?? selectedFacets['level']
+
+  if (facetSeverity) return facetSeverity
+
+  return extractSeverity(activeSearchQuery)
+}
+
+function parseFacetSelection(facetQueryString: string): { facetKey: string; facetValue: string } | null {
+  if (!facetQueryString) return null
+
+  const trimmedQuery = facetQueryString.trim()
+
+  if (!trimmedQuery) return null
+
+  const facetMatch = /^([\w ]+)='(.*)'$/.exec(trimmedQuery)
+
+  if (!facetMatch) return null
+
+  const facetKey = facetMatch[1].trim()
+
+  if (!facetKey) return null
+
+  const facetValue = facetMatch[2]
+
+  return { facetKey, facetValue }
+}
+
+function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExplorerProps) {
+  const [isLogsFullscreen, setIsLogsFullscreen] = useState(false)
+  const [timelineShift, setTimelineShift] = useState(0)
   const [selectedService, setSelectedService] = useState('All services')
-  // The typed-but-not-yet-run query; only applied to the filters below when
-  // the user clicks "Run query" (or presses Enter) — no live search.
-  const [draftSearch, setDraftSearch] = useState('')
-  const [search, setSearch] = useState('')
+  const [draftSearchQuery, setDraftSearchQuery] = useState('')
+  const [activeSearchQuery, setActiveSearchQuery] = useState('')
   const [selectedFacets, setSelectedFacets] = useState<Record<string, string>>(
     {},
   )
 
   useEffect(() => {
-    setShift(0)
+    setTimelineShift(0)
   }, [range])
 
-  const runQuery = () => {
-    setSearch(draftSearch)
+  const handleRunQuery = () => {
+    setActiveSearchQuery(draftSearchQuery)
   }
 
-  const filters: QueryFilters = useMemo(
-    () => ({
-      timeRange: RANGE_TO_SQL_INTERVAL[range],
-      search: search || undefined,
-      facets: {
-        ...selectedFacets,
-        ...(selectedService !== 'All services'
-          ? { service: selectedService }
-          : {}),
-      },
-    }),
-    [range, search, selectedFacets, selectedService],
+  const queryFilters = useMemo(() => buildQueryFilters(range, activeSearchQuery, selectedFacets, selectedService), [range, activeSearchQuery, selectedFacets, selectedService])
+
+  const isFiltersValid = queryFilters !== null
+
+  const { logs, histogram, facets, isLoading, isError, errorMessage } = useLogExplorer(
+    queryFilters,
+    range,
   )
 
-  const { logs, histogram, facets } = useLogExplorer(filters, range)
-  const activeSeverity =
-    selectedFacets['severity'] ?? selectedFacets['level'] ?? extractSeverity(search)
+  const discoveredServices = useMemo(() => getDiscoveredServices(facets as { service?: unknown }[] | undefined), [facets])
 
-  // Distinct services present in the current window, sourced from the facet
-  // query so the dropdown always reflects what storage actually holds.
-  const serviceOptions = useMemo(() => {
-    const seen = new Set<string>()
-    for (const row of facets ?? []) {
-      const service = String(row.service ?? '').trim()
-      if (service) seen.add(service)
-    }
-    return Array.from(seen).sort((a, b) => a.localeCompare(b))
-  }, [facets])
+  const activeSeverity = useMemo(() => getActiveSeverity(selectedFacets, activeSearchQuery), [selectedFacets, activeSearchQuery])
 
-  const handleFacetSelect = (queryAddition: string) => {
-    const match = /^([\w ]+)='(.*)'$/.exec(queryAddition)
-    if (!match) return
-    const key = match[1].trim()
-    const value = match[2]
-    setSelectedFacets((prev) => {
-      const next = { ...prev }
-      if (next[key] === value) delete next[key]
-      else next[key] = value
-      return next
+  const handleFacetSelect = (facetQueryString: string) => {
+    const parsed = parseFacetSelection(facetQueryString)
+
+    if (!parsed) return
+
+    const { facetKey, facetValue } = parsed
+
+    setSelectedFacets((previousFacets) => {
+      const nextFacets = { ...previousFacets }
+
+      if (nextFacets[facetKey] === facetValue) {
+        delete nextFacets[facetKey]
+        return nextFacets
+      }
+
+      nextFacets[facetKey] = facetValue
+      return nextFacets
     })
+  }
+
+  if (!range) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-8 text-sm text-red-400">
+        Invalid time range: expected a valid TimeRange value.
+      </div>
+    )
+  }
+
+  if (!isFiltersValid) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-8 text-sm text-red-400">
+        Invalid query filters: unsupported time range &ldquo;{range}&rdquo;.
+      </div>
+    )
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <section className="flex items-center gap-3 border-b border-zinc-700 bg-zinc-900 px-3 py-2">
         <ServiceSelect
-          services={serviceOptions}
+          services={discoveredServices}
           value={selectedService}
           onChange={setSelectedService}
         />
         <SearchBar
-          value={draftSearch}
-          onChange={setDraftSearch}
-          onSearch={runQuery}
+          value={draftSearchQuery}
+          onChange={setDraftSearchQuery}
+          onSearch={handleRunQuery}
         />
         <button
           type="button"
-          onClick={runQuery}
+          onClick={handleRunQuery}
           className="flex h-9 cursor-pointer items-center gap-1.5 rounded-md bg-[#a06bff] px-4 text-sm font-medium text-white transition-colors hover:bg-[#b18cff]"
         >
           <RiPlayFill className="h-4 w-4" />
           Run query
         </button>
       </section>
+      {isError && (
+        <div className="mx-3 mt-3 rounded-md border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300" role="alert">
+          Failed to load logs: {errorMessage ?? 'Unknown error'}. Try adjusting filters or refreshing.
+        </div>
+      )}
+      {isLoading && !isError && (
+        <div className="mx-3 mt-3 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-400">
+          Loading logs…
+        </div>
+      )}
       <div className="flex min-h-0 flex-1">
-        {!logsFullscreen && (
+        {!isLogsFullscreen && (
           <FiltersSidebar facets={facets} onFilterSelect={handleFacetSelect} />
         )}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <Timeline
-            fullscreen={logsFullscreen}
+            fullscreen={isLogsFullscreen}
             range={range}
-            shift={shift}
+            shift={timelineShift}
             histogram={histogram}
             severity={activeSeverity}
-            onShiftChange={setShift}
+            onShiftChange={setTimelineShift}
           />
           <LogsList
-            onToggleFullscreen={() => setLogsFullscreen((value) => !value)}
+            onToggleFullscreen={() => setIsLogsFullscreen((previousValue) => !previousValue)}
             range={range}
-            shift={shift}
+            shift={timelineShift}
             logs={logs}
           />
         </main>
