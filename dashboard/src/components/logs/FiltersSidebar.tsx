@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
 import {
   LuArrowLeftToLine,
-  LuCheck,
   LuChevronDown,
   LuChevronRight,
 } from 'react-icons/lu'
@@ -185,30 +184,28 @@ function FiltersSidebar({ facets, active, onFilterSelect }: FiltersSidebarProps)
                     </div>
                   </div>
                   {isOpen && (
-                    <div className="pb-2">
+                    <div className="pb-1">
                       {items.map((item) => {
                         const selected = isActive(section, item.label)
                         return (
-                          <div
+                          <label
                             key={item.label}
-                            onClick={() => handleSelect(section, item.label)}
-                            title={selected ? 'Click to remove this filter' : undefined}
-                            className={`group flex cursor-pointer items-center justify-between px-6 py-1 text-sm font-medium hover:bg-zinc-800 ${
-                              selected
-                                ? 'bg-blue-950/40 text-white'
-                                : 'text-zinc-300'
-                            }`}
+                            title={selected ? 'Uncheck to remove this filter' : undefined}
+                            className="flex cursor-pointer items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
                           >
-                            <span className="flex min-w-0 items-center gap-1.5 truncate group-hover:text-white">
-                              {selected && (
-                                <LuCheck className="h-3 w-3 shrink-0 text-blue-400" />
-                              )}
-                              {item.label}
+                            <span className="flex min-w-0 items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => handleSelect(section, item.label)}
+                                className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-blue-500"
+                              />
+                              <span className="truncate">{item.label}</span>
                             </span>
                             <span className="text-xs font-medium text-zinc-500">
                               {item.count}
                             </span>
-                          </div>
+                          </label>
                         )
                       })}
                     </div>

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { RiPlayFill } from 'react-icons/ri'
 import SearchBar from '../components/SearchBar'
 import ServiceSelect from '../components/ServiceSelect'
-import ActiveFilterChips from '../components/logs/ActiveFilterChips'
 import FiltersSidebar from '../components/logs/FiltersSidebar'
 import LogsList from '../components/logs/LogsList'
 import Timeline from '../components/logs/Timeline'
@@ -114,25 +113,6 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
     }
   }, [range, activeSearchQuery, effectiveFacets])
 
-  const removeFacet = (key: string) => {
-    // The service dropdown also injects a service facet; clearing only the
-    // facet map would let the dropdown silently re-add it.
-    if (key === 'service') setSelectedService('All services')
-    setSelectedFacets((previous) => {
-      const next = { ...previous }
-      delete next[key]
-      delete next[key === 'level' ? 'severity' : 'level']
-      return next
-    })
-  }
-
-  const clearAllFilters = () => {
-    setSelectedService('All services')
-    setSelectedFacets({})
-    setActiveSearchQuery('')
-    setDraftSearchQuery('')
-  }
-
   const isFiltersValid = queryFilters !== null
 
   const { logs, histogram, facets, isLoading, isError, errorMessage } = useLogExplorer(
@@ -144,24 +124,27 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
 
   const activeSeverity = useMemo(() => getActiveSeverity(selectedFacets, activeSearchQuery), [selectedFacets, activeSearchQuery])
 
-  const handleFacetSelect = (facetQueryString: string) => {
-    const parsed = parseFacetSelection(facetQueryString)
+  const handleFacetSelect = (queryAddition: string) => {
+    const parsed = parseFacetSelection(queryAddition)
 
     if (!parsed) return
 
     const { facetKey, facetValue } = parsed
+    const next = { ...selectedFacets }
 
-    setSelectedFacets((previousFacets) => {
-      const nextFacets = { ...previousFacets }
-
-      if (nextFacets[facetKey] === facetValue) {
-        delete nextFacets[facetKey]
-        return nextFacets
+    if (next[facetKey] === facetValue) {
+      // Toggle off. The service dropdown also injects a service facet;
+      // clearing only the map would let the dropdown silently re-add it.
+      delete next[facetKey]
+      if (facetKey === 'service' && selectedService === facetValue) {
+        setSelectedService('All services')
       }
+      setSelectedFacets(next)
+      return
+    }
 
-      nextFacets[facetKey] = facetValue
-      return nextFacets
-    })
+    next[facetKey] = facetValue
+    setSelectedFacets(next)
   }
 
   if (!range) {
@@ -202,16 +185,6 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
           Run query
         </button>
       </section>
-      <ActiveFilterChips
-        facets={effectiveFacets}
-        search={activeSearchQuery}
-        onRemoveFacet={removeFacet}
-        onRemoveSearch={() => {
-          setActiveSearchQuery('')
-          setDraftSearchQuery('')
-        }}
-        onClearAll={clearAllFilters}
-      />
       {isError && (
         <div className="mx-3 mt-3 rounded-md border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-300" role="alert">
           Failed to load logs: {errorMessage ?? 'Unknown error'}. Try adjusting filters or refreshing.

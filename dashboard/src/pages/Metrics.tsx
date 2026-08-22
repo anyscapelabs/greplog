@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import ActiveFilterChips from '../components/logs/ActiveFilterChips'
 import FiltersSidebar from '../components/logs/FiltersSidebar'
 import Timeline from '../components/logs/Timeline'
 import { RANGE_SECONDS } from '../components/logs/Timeline'
@@ -48,15 +47,6 @@ function Metrics({ range }: MetricsProps) {
     })
   }
 
-  const removeFacet = (key: string) => {
-    setSelectedFacets((previous) => {
-      const next = { ...previous }
-      delete next[key]
-      delete next[key === 'level' ? 'severity' : 'level']
-      return next
-    })
-  }
-
   return (
     <div className="flex min-h-0 flex-1">
       <FiltersSidebar
@@ -68,7 +58,6 @@ function Metrics({ range }: MetricsProps) {
         onFilterSelect={handleFacetSelect}
       />
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-        <ActiveFilterChips facets={selectedFacets} onRemoveFacet={removeFacet} />
         <Timeline
           fullscreen={false}
           range={range}
