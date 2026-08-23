@@ -326,33 +326,119 @@ async fn drain_write_path(wal_handle: JoinHandle<()>, memtable_handle: JoinHandl
 }
 
 fn print_startup_banner(config: &EngineConfig) {
-    use ui::{bold, dim, link};
+    use ui::{bold, dim, link, wrap};
 
-    banner::print_ascii_banner();
-    let tagline = "Fast, lightweight, zero-data-loss logging engine and dashboard \
-                   for solo developers, startups, and small teams.";
-    println!("  {}", dim(tagline));
-    println!();
-
-    let row = |label: &str, value: String| {
-        println!("  {:<12} {}", dim(label), value);
+    let art = banner::art_lines();
+    let info = {
+        let tagline = "Fast, lightweight, zero-data-loss logging engine and dashboard \
+                       for solo developers, startups, and small teams.";
+        let mut lines: Vec<String> = wrap(tagline, 58)
+            .into_iter()
+            .map(|line| dim(&line))
+            .collect();
+        lines.push(String::new());
+        lines.push(format!("{:<10} {}", dim("Dashboard"), link(&format!("http://127.0.0.1:{}", config.dashboard_port))));
+        lines.push(format!(
+            "{:<10} {}",
+            dim("Ingest"),
+            link(&format!("POST http://127.0.0.1:{}/api/log", config.ingest_port))
+        ));
+        match config.retention_days {
+            Some(days) => lines.push(format!(
+                "{:<10} {} · {} retention",
+                dim("Storage"),
+                config.data_dir.display(),
+                bold(&format!("{days} day"))
+            )),
+            None => lines.push(format!(
+                "{:<10} {} · retention disabled",
+                dim("Storage"),
+                config.data_dir.display()
+            )),
+        }
+        lines.push(format!("{:<10} {}", dim("Docs"), link("https://docs.greplog.dev")));
+        lines.push(String::new());
+        lines.push(format!("  {} Ready. Ctrl+C to drain and exit.", ui::ok_mark()));
+        lines
     };
-    row("Dashboard", link(&format!("http://127.0.0.1:{}", config.dashboard_port)));
-    row(
-        "Ingest",
-        link(&format!("POST http://127.0.0.1:{}/api/log", config.ingest_port)),
-    );
-    match config.retention_days {
-        Some(days) => row(
-            "Storage",
-            format!("{} · {} retention", config.data_dir.display(), bold(&format!("{days} day"))),
-        ),
-        None => row("Storage", format!("{} · retention disabled", config.data_dir.display())),
+
+    print!("{}", compose_screen(&art, &info));
+}
+
+/// Lays out art and info side by side on wide terminals, stacked otherwise.
+fn compose_screen(art: &[String], info: &[String]) -> String {
+    let term_width = crossterm::terminal::window_size()
+        .map_or(80, |size| usize::from(size.columns));
+    compose_screen_for(art, info, term_width)
+}
+
+fn compose_screen_for(art: &[String], info: &[String], term_width: usize) -> String {
+    let mut out = String::from("\n");
+
+    // Side-by-side only when both columns plus a gutter actually fit.
+    if term_width >= banner::ART_WIDTH + 62 {
+        let offset = art.len().saturating_sub(info.len()) / 2;
+        let blank_art = " ".repeat(banner::ART_WIDTH + 2);
+        for index in 0..art.len().max(info.len() + offset) {
+            let left = art.get(index).map_or(blank_art.as_str(), String::as_str);
+            let info_line = if index >= offset {
+                info.get(index - offset)
+            } else {
+                None
+            };
+            match info_line {
+                Some(line) if !line.is_empty() => {
+                    out.push_str(&format!("{left}  {line}\n"));
+                }
+                _ => out.push_str(&format!("{left}\n")),
+            }
+        }
+    } else {
+        for line in art {
+            out.push_str(line);
+            out.push('\n');
+        }
+        for line in info {
+            out.push_str("  ");
+            out.push_str(line);
+            out.push('\n');
+        }
     }
-    println!();
-    println!(
-        "  {} Ready. Ctrl+C to drain and exit.",
-        ui::ok_mark()
-    );
-    println!();
+    out.push('\n');
+    out
+}
+#[cfg(test)]
+mod screen_tests {
+    #[test]
+    fn wide_terminals_put_info_beside_the_logo() {
+        // Real banner lines are uniformly ART_WIDTH wide.
+        let art: Vec<String> = (0..18)
+            .map(|row| format!("art{row:<43}"))
+            .collect();
+        let info: Vec<String> = (0..8).map(|row| format!("info{row}")).collect();
+        let screen = super::compose_screen_for(&art, &info, 140);
+
+        let offset = (art.len() - info.len()) / 2;
+        let expected_prefix = super::banner::ART_WIDTH + 2;
+        let info_row = screen
+            .lines()
+            .enumerate()
+            .find(|(index, line)| *index >= offset && line.trim_end().ends_with(&format!("info0")))
+            .map(|(_, line)| line)
+            .expect("info column rendered beside the logo");
+        assert_eq!(
+            info_row.find("info0"),
+            Some(expected_prefix),
+            "info starts right of the logo with a two-space gutter"
+        );
+    }
+
+    #[test]
+    fn narrow_terminals_stack_the_columns() {
+        let art: Vec<String> = (0..4).map(|row| format!("art{row}")).collect();
+        let info: Vec<String> = vec!["info0".to_string()];
+        let screen = super::compose_screen_for(&art, &info, 70);
+        assert!(screen.lines().any(|line| line == "art0"), "stacked art");
+        assert!(screen.lines().any(|line| line == "  info0"), "stacked info");
+    }
 }

@@ -76,9 +76,37 @@ pub fn human_bytes(bytes: u64) -> String {
     }
 }
 
+/// Greedy word wrap; words longer than `width` are never split.
+#[must_use]
+pub fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if !current.is_empty() && current.chars().count() + 1 + word.chars().count() > width {
+            lines.push(std::mem::take(&mut current));
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
 #[cfg(test)]
 mod tests {
-    use super::human_bytes;
+    use super::{human_bytes, wrap};
+
+    #[test]
+    fn wrap_breaks_at_word_boundaries_within_the_budget() {
+        let lines = wrap("zero-data-loss logging engine for developers", 16);
+        assert!(lines.iter().all(|line| line.chars().count() <= 16));
+        assert_eq!(lines.join(" "), "zero-data-loss logging engine for developers");
+        assert_eq!(wrap("", 10), Vec::<String>::new());
+    }
 
     #[test]
     fn human_bytes_scales_and_rounds() {

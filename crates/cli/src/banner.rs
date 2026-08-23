@@ -7,16 +7,16 @@
 
 /// Rendered brand icon; 46 columns wide.
 const ART: &str = include_str!("banner.txt");
-const ART_WIDTH: usize = 46;
 
-/// Prints the banner centered on the terminal width.
-pub fn print_ascii_banner() {
-    let term_width = crossterm::terminal::window_size().map_or(80, |size| usize::from(size.columns));
-    let padding = term_width.saturating_sub(ART_WIDTH) / 2;
-    let art = crate::ui::brand(ART);
+/// Width of the rendered art, for callers composing side-by-side layouts.
+pub const ART_WIDTH: usize = 46;
 
-    println!();
-    for line in art.lines().filter(|line| !line.trim().is_empty()) {
-        println!("{:width$}{}", "", line, width = padding);
-    }
+/// The rendered icon lines, brand-tinted when colors are enabled.
+#[must_use]
+pub fn art_lines() -> Vec<String> {
+    crate::ui::brand(ART)
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(str::to_string)
+        .collect()
 }
