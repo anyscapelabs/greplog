@@ -33,7 +33,7 @@ Available macros: `debug!`, `info!`, `warn!`, `error!`, `critical!`.
 
 Records queue in memory and flush to `POST /api/log`:
 
-- when the batch fills (100 records by default, tune via [`Config`](https://docs.rs/greplog)),
+- when the batch fills (100 records by default, tune via `greplog::init_with` with a custom [`Config`](../../sdk/rust/src/lib.rs)),
 - every 500 ms,
 - or immediately from `greplog::flush()`.
 
