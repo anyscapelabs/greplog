@@ -106,6 +106,7 @@ jobs:
           args: >-
             --no-progress --max-retries 2
             --exclude 'localhost|127\.0\.0\.1|greplog\.dev'
+            --exclude-path ./target
             './**/*.md'
           fail: true
 
