@@ -12,11 +12,19 @@ const ART: &str = include_str!("banner.txt");
 pub const ART_WIDTH: usize = 46;
 
 /// The rendered icon lines, brand-tinted when colors are enabled.
+///
+/// Each line is styled individually: an escape sequence wrapped around the
+/// whole block gets sliced apart by `lines()`, leaving middle lines with a
+/// dangling opener and no closer (they render in the default color).
 #[must_use]
 pub fn art_lines() -> Vec<String> {
-    crate::ui::brand(ART)
-        .lines()
+    ART.lines()
         .filter(|line| !line.trim().is_empty())
-        .map(str::to_string)
+        .map(|line| {
+            let tinted = crate::ui::brand(line);
+            // Defensive: the generator emits uniform widths, but composition
+            // depends on it.
+            format!("{tinted:<ART_WIDTH$}")
+        })
         .collect()
 }

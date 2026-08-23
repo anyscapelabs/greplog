@@ -38,8 +38,10 @@ def render(width: int) -> None:
             top = pixels[x, y][3] > 96
             bottom = pixels[x, y + 1][3] > 96
             line.append("█" if top and bottom else "▀" if top else "▄" if bottom else " ")
-        lines.append("".join(line).rstrip())
+        lines.append("".join(line))
 
+    # Keep trailing spaces: uniform-width lines let the CLI compose a fixed
+    # info column without re-measuring.
     with open(OUT, "w") as handle:
         handle.write("\n".join(line for line in lines if line.strip()) + "\n")
     print(f"wrote {OUT} ({len(lines)} rows x {width} cols)")
