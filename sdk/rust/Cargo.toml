@@ -1,0 +1,15 @@
+[package]
+name = "greplog"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Greplog Rust SDK: buffered logging to a Greplog ingest server."
+repository = "https://github.com/anyscapelabs/greplog"
+
+# Standalone: SDKs version and release independently of the engine workspace.
+[workspace]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", features = ["json"] }
