@@ -2,6 +2,11 @@
   <img src="assets/branding/logo/wordmark/wordmark-white.svg" alt="Greplog" width="400">
 </p>
 
+<p align="center">
+  <a href="https://github.com/anyscapelabs/greplog/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/anyscapelabs/greplog/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+</p>
+
 > Fast, lightweight, zero-data-loss logging engine and dashboard for solo developers, startups, and small teams. Built with Rust, Apache Arrow, DataFusion, and Vite.
 
 Greplog replaces clunky, resource-heavy cloud observability stacks with a single binary that handles ingestion, storage, real-time streaming, and querying—all locally or on a single small server.
@@ -74,15 +79,14 @@ cargo add greplog
 ```
 
 ```rust
-use greplog;
+use greplog::{init, info};
 
-fn main() {
-    greplog::init("auth-service", "production"); // Or greplog::init_from_env()
+init("auth-service", "production"); // or init_from_env()
 
-    greplog::info!("User authenticated", user_id = 42);
-    greplog::error!("Token generation failed", reason = "Key expired");
-}
+info!("User authenticated", user_id = 42);
+error!("Token generation failed", reason = "Key expired");
 ```
+
 
 ## How Greplog Works
 
@@ -127,6 +131,12 @@ If you prefer not to hardcode parameters inside `greplog.init()`, set these in y
 | `GREPLOG_URL` | Greplog backend server URL | `http://localhost:5050` |
 | `GREPLOG_SERVICE_NAME` | Name of your microservice/app | `api-gateway` |
 | `GREPLOG_ENV` | Deployment environment | `production` / `dev` |
+
+## Project
+
+- Full documentation lives in [`docs/`](docs/index.md)
+- Changelog: [`CHANGELOG.md`](CHANGELOG.md) · Security: [`SECURITY.md`](SECURITY.md)
+- Contributions start at [`docs/4-contributing/local-dev.md`](docs/4-contributing/local-dev.md)
 
 ## License
 
