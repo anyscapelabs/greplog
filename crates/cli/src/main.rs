@@ -388,9 +388,15 @@ fn compose_screen_for(art: &[String], info: &[String], term_width: usize) -> Str
             };
             match info_line {
                 Some(line) if !line.is_empty() => {
-                    out.push_str(&format!("{left}  {line}\n"));
+                    out.push_str(left);
+                    out.push_str("  ");
+                    out.push_str(line);
+                    out.push('\n');
                 }
-                _ => out.push_str(&format!("{left}\n")),
+                _ => {
+                    out.push_str(left);
+                    out.push('\n');
+                }
             }
         }
     } else {
@@ -423,7 +429,7 @@ mod screen_tests {
         let info_row = screen
             .lines()
             .enumerate()
-            .find(|(index, line)| *index >= offset && line.trim_end().ends_with(&format!("info0")))
+            .find(|(index, line)| *index >= offset && line.trim_end().ends_with("info0"))
             .map(|(_, line)| line)
             .expect("info column rendered beside the logo");
         assert_eq!(
