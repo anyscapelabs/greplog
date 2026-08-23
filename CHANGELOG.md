@@ -26,7 +26,15 @@ adheres to [Semantic Versioning](https://semver.org).
   searches now emit a single-clause partition filter.
 - Facet picks from the sidebar translate UI names to wire columns
   (`severity` → `level`).
-- Service table reads the server's `count` metric instead of a stale alias.
+- Service table reads the server's `count` metric instead of a stale alias,
+  and no longer shows fabricated latency/environment columns — latency comes
+  from `latency_ms` in the log payload when producers include it.
+- Parquet chunks are partitioned by each record's own timestamp, not the
+  flush clock: late records land in the day window they belong to.
+- WAL replay distinguishes a truncated crash tail from mid-file corruption
+  instead of matching error strings.
+- The live query buffer is capped under persistent Parquet-write failure;
+  shed rows stay WAL-durable and replay on restart.
 - CI builds the dashboard bundle before compiling so binaries embed it.
 
 ## [0.1.0] – initial development release

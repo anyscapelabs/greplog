@@ -155,13 +155,18 @@ pub fn replay_all(wal_path: &Path) -> Result<Vec<LogRecord>, EngineError> {
     Ok(out)
 }
 
+/// True when the bincode error signals the clean end of a log (truncated
+/// trailing record), false for mid-file corruption.
+///
+/// Only the `Io(UnexpectedEof)` variant counts. Matching error *strings*
+/// would misread a serde format change as end-of-log and silently drop
+/// everything after it.
 fn is_end_of_log(error: &bincode::ErrorKind) -> bool {
-    if let bincode::ErrorKind::Io(io_err) = error {
-        if io_err.kind() == std::io::ErrorKind::UnexpectedEof {
-            return true;
-        }
-    }
-    error.to_string().contains("unexpected end of file") || error.to_string().contains("UnexpectedEof")
+    matches!(
+        error,
+        bincode::ErrorKind::Io(io_error)
+            if io_error.kind() == std::io::ErrorKind::UnexpectedEof
+    )
 }
 
 fn parse_sealed_seq(name: &str) -> Option<u64> {
@@ -172,6 +177,7 @@ fn parse_sealed_seq(name: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::io::BufReader;
 
     use tempfile::tempdir;
@@ -244,6 +250,46 @@ mod tests {
             WalWriter::replay_wal(&path).expect("replay").len(),
             3,
             "replay must agree with record_count"
+        );
+    }
+
+    #[test]
+    fn replay_tolerates_a_truncated_tail_but_not_midfile_corruption() {
+        let dir = tempdir().expect("create temp dir");
+        let path = dir.path().join("current.wal");
+        {
+            let mut wal = WalWriter::open(&path).expect("open wal");
+            wal.append_batch(&[record("a", "INFO"), record("b", "WARN"), record("c", "ERROR")])
+                .expect("append");
+        }
+
+        // Truncate into the middle of the last record: a clean crash tail.
+        let full = fs::read(&path).expect("read wal");
+        let cut = full.len() - 4;
+        fs::write(&path, &full[..cut]).expect("truncate");
+
+        let recovered = WalWriter::replay_wal(&path).expect("truncated tail must not error");
+        let traces: Vec<String> = recovered
+            .iter()
+            .map(|record| record.trace_id.clone().unwrap_or_default())
+            .collect();
+        assert_eq!(traces, vec!["a", "b"], "complete records survive the cut");
+
+        // Corrupt string content mid-file: without checksums, byte flips in
+        // numeric fields are indistinguishable from valid (wrong) data, but
+        // invalid UTF-8 in a payload must surface instead of truncating.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a single test record is far below usize::MAX"
+        )]
+        let first_record_len = bincode::serialized_size(&record("a", "INFO")).expect("size")
+            as usize;
+        let mut corrupted = full.clone();
+        corrupted[first_record_len - 2] = 0xFF;
+        fs::write(&path, &corrupted).expect("write corrupted wal");
+        assert!(
+            WalWriter::replay_wal(&path).is_err(),
+            "mid-file corruption must surface, never truncate silently"
         );
     }
 

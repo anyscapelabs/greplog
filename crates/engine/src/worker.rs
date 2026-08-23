@@ -334,6 +334,9 @@ fn run_memtable_loop(
 ) {
     let limit = config.flush_row_limit;
     let flush_interval = Duration::from_secs(config.flush_interval_secs.max(1));
+    // Ten flush cycles' worth of rows; bounds memory when Parquet writes
+    // keep failing. Shed rows stay WAL-durable and replay on restart.
+    let live_cap = limit.saturating_mul(10).max(1);
     // Measured from startup; reset by every flush attempt.
     let mut last_flush = std::time::Instant::now();
     let mut table = MemTable::new(limit);
@@ -363,7 +366,7 @@ fn run_memtable_loop(
         }
         let buffered = live_row_count(live_buffer);
         if (buffered >= limit || interval_due) && buffered > 0 {
-            flush_live_buffer(live_buffer, truncate_tx, flusher);
+            flush_live_buffer(live_buffer, truncate_tx, flusher, live_cap);
             // Reset the clock whether or not the flush succeeded. Returned
             // batches leave the buffer over the limit, so without this a retry
             // would fire on every tick and hammer a failing disk instead of
@@ -375,7 +378,7 @@ fn run_memtable_loop(
         finish_and_push(live_buffer, &mut table, "remainder");
     }
     if live_row_count(live_buffer) > 0 {
-        flush_live_buffer(live_buffer, truncate_tx, flusher);
+        flush_live_buffer(live_buffer, truncate_tx, flusher, live_cap);
     }
 }
 
@@ -414,6 +417,7 @@ fn flush_live_buffer(
     live_buffer: &LiveBuffer,
     truncate_tx: &WalTx<usize>,
     flusher: &ParquetFlusher,
+    live_cap: usize,
 ) {
     let batches = if let Ok(mut buffer) = live_buffer.write() {
         std::mem::take(&mut *buffer)
@@ -426,7 +430,7 @@ fn flush_live_buffer(
         Ok(concatenated) => concatenated,
         Err(error) => {
             tracing::error!(?error, "failed to concatenate live batches; returning them to the buffer");
-            return_to_live_buffer(live_buffer, batches);
+            return_to_live_buffer(live_buffer, batches, live_cap);
             return;
         }
     };
@@ -434,7 +438,7 @@ fn flush_live_buffer(
     let rows = concatenated.num_rows();
     if let Err(error) = flusher.flush(&concatenated) {
         tracing::error!(?error, rows, "failed to write parquet; returning rows to the buffer for retry");
-        return_to_live_buffer(live_buffer, batches);
+        return_to_live_buffer(live_buffer, batches, live_cap);
         return;
     }
 
@@ -442,7 +446,17 @@ fn flush_live_buffer(
     let _ = truncate_tx.blocking_send(rows);
 }
 
-fn return_to_live_buffer(live_buffer: &LiveBuffer, mut batches: Vec<RecordBatch>) {
+/// Returns failed batches to the front of the live buffer (older rows first,
+/// preserving timestamp order), then enforces the cap.
+///
+/// The cap bounds memory when Parquet writes keep failing. Rows shed here are
+/// still durable in unconfirmed WAL segments — they replay on restart — so
+/// dropping the *oldest* batches loses nothing acknowledged.
+fn return_to_live_buffer(
+    live_buffer: &LiveBuffer,
+    mut batches: Vec<RecordBatch>,
+    live_cap: usize,
+) {
     let Ok(mut buffer) = live_buffer.write() else {
         tracing::error!(
             batches = batches.len(),
@@ -451,6 +465,21 @@ fn return_to_live_buffer(live_buffer: &LiveBuffer, mut batches: Vec<RecordBatch>
         return;
     };
     batches.append(&mut buffer);
+    let mut total: usize = batches.iter().map(RecordBatch::num_rows).sum();
+    let mut dropped = 0usize;
+    while total > live_cap {
+        let Some(oldest) = batches.first() else { break };
+        total -= oldest.num_rows();
+        dropped += oldest.num_rows();
+        batches.remove(0);
+    }
+    if dropped > 0 {
+        tracing::error!(
+            dropped,
+            cap = live_cap,
+            "live buffer over cap; oldest rows shed from memory — still durable in the WAL and replay on restart"
+        );
+    }
     *buffer = batches;
 }
 
@@ -463,9 +492,11 @@ fn fallback_error(original: &EngineError) -> EngineError {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::sync::Arc;
     use std::time::Duration;
 
+    use arrow::record_batch::RecordBatch;
     use tempfile::tempdir;
     use tokio::sync::{mpsc, oneshot};
 
@@ -557,6 +588,64 @@ mod tests {
         drop(sender);
 
         handle.join().expect("memtable worker must exit cleanly");
+    }
+
+    #[test]
+    fn live_buffer_stays_bounded_when_parquet_writes_fail() {
+        let dir = tempdir().expect("create temp dir");
+        // data_dir is a *file*: every Parquet write fails, so every flush
+        // returns its batches to the live buffer.
+        let data_dir = dir.path().join("logs");
+        fs::write(&data_dir, b"not a directory").expect("plant file");
+
+        let config = Arc::new(EngineConfig {
+            data_dir,
+            wal_path: dir.path().join("current.wal"),
+            flush_row_limit: 10,
+            flush_interval_secs: 1,
+            mpsc_buffer_size: 64,
+            crossbeam_buffer_size: 64,
+            ..EngineConfig::default()
+        });
+        let (truncate_tx, truncate_rx) = mpsc::channel(config.mpsc_buffer_size);
+        drop(truncate_rx);
+        let flusher = ParquetFlusher::new(&config);
+        let live = LiveBuffer::default();
+        let (sender, receiver) = crossbeam::channel::bounded(config.crossbeam_buffer_size);
+        let handle = spawn_memtable_worker(
+            receiver,
+            truncate_tx,
+            flusher,
+            Arc::clone(&live),
+            Arc::clone(&config),
+        );
+
+        // Far more rows than the cap (limit * 10 = 100).
+        for index in 0..300 {
+            sender.send(vec![sample(index)]).expect("send");
+        }
+        drop(sender);
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let buffered: usize = live
+                .read()
+                .map_or(0, |buffer| buffer.iter().map(RecordBatch::num_rows).sum());
+            if buffered > 0 && buffered <= 110 {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "live buffer never settled under the cap (currently {buffered})"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        handle.join().expect("worker exits cleanly");
+        let final_rows: usize = live
+            .read()
+            .map_or(0, |buffer| buffer.iter().map(RecordBatch::num_rows).sum());
+        assert!(final_rows <= 110, "buffer must stay bounded, got {final_rows}");
     }
 
     #[test]

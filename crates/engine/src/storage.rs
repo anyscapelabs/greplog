@@ -13,14 +13,14 @@ use arrow::compute::{cast, filter_record_batch};
 use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
 use arrow_ord::cmp::eq;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
 
 use crate::config::EngineConfig;
-use crate::error::EngineError;
+use crate::error::{parse_error, EngineError};
 
 pub struct ParquetFlusher {
     root_dir: PathBuf,
@@ -38,6 +38,11 @@ impl ParquetFlusher {
         }
     }
 
+    /// Writes `batch` split by `service` and by each row's own timestamp day.
+    ///
+    /// Partitioning follows the record, not the flush clock: a late record
+    /// lands in the day directory its `timestamp_us` points at, so date
+    /// windows stay truthful.
     pub fn flush(&self, batch: &RecordBatch) -> Result<(), EngineError> {
         let service_column = service_column(batch)?;
         let services = unique_services(service_column.as_ref());
@@ -45,18 +50,19 @@ impl ParquetFlusher {
             return Ok(());
         }
 
-        let now = Utc::now();
-        let date_dir = self.partition_path(now);
-        let nanos = now
-            .timestamp_nanos_opt()
-            .unwrap_or_else(|| now.timestamp_millis() * 1_000_000);
+        let nanos = now_nanos();
 
         for service in services {
-            let directory = date_dir.join(format!("service={service}"));
-            std::fs::create_dir_all(&directory)?;
             let split = filter_by_service(batch, service_column.as_ref(), &service)?;
             let split = strip_service_column(&split)?;
-            self.write_chunk(&directory, nanos, &split)?;
+            for (year, month, day) in unique_days(&split)? {
+                let day_batch = rows_for_day(&split, year, month, day)?;
+                let directory = self
+                    .partition_path(year, month, day)
+                    .join(format!("service={service}"));
+                std::fs::create_dir_all(&directory)?;
+                self.write_chunk(&directory, nanos, &day_batch)?;
+            }
         }
         Ok(())
     }
@@ -82,12 +88,85 @@ impl ParquetFlusher {
     }
 
     /// Hive-style date partition directory for `time`.
-    fn partition_path(&self, time: DateTime<Utc>) -> PathBuf {
+    /// Hive-style `year=/month=/day=` directory for a record's own date.
+    fn partition_path(&self, year: i32, month: u32, day: u32) -> PathBuf {
         self.root_dir
-            .join(format!("year={}", time.format("%Y")))
-            .join(format!("month={}", time.format("%m")))
-            .join(format!("day={}", time.format("%d")))
+            .join(format!("year={year}"))
+            .join(format!("month={month:02}"))
+            .join(format!("day={day:02}"))
     }
+}
+
+/// Wall-clock nanos for chunk filenames — uniqueness only, never partitioning.
+fn now_nanos() -> i64 {
+    let now = Utc::now();
+    now.timestamp_nanos_opt()
+        .unwrap_or_else(|| now.timestamp_millis() * 1_000_000)
+}
+
+/// Distinct `(year, month, day)` dates present in the batch's timestamp
+/// column, ascending.
+fn unique_days(batch: &RecordBatch) -> Result<Vec<(i32, u32, u32)>, EngineError> {
+    let timestamps = timestamp_micros(batch)?;
+    let mut days: Vec<(i32, u32, u32)> = Vec::new();
+    for micros in timestamps {
+        let date = micros_to_date(micros);
+        if !days.contains(&date) {
+            days.push(date);
+        }
+    }
+    days.sort_unstable();
+    Ok(days)
+}
+
+/// The sub-batch whose rows fall on `year-month-day`, via an index take.
+fn rows_for_day(
+    batch: &RecordBatch,
+    year: i32,
+    month: u32,
+    day: u32,
+) -> Result<RecordBatch, EngineError> {
+    let timestamps = timestamp_micros(batch)?;
+    let indices: Vec<u32> = timestamps
+        .iter()
+        .enumerate()
+        .filter(|(_, micros)| micros_to_date(**micros) == (year, month, day))
+        .filter_map(|(index, _)| u32::try_from(index).ok())
+        .collect();
+    if indices.is_empty() {
+        return Err(parse_error("no rows match the requested day"));
+    }
+    let indices_array = arrow::array::UInt32Array::from(indices);
+    Ok(arrow::compute::take_record_batch(batch, &indices_array)?)
+}
+
+fn timestamp_micros(batch: &RecordBatch) -> Result<Vec<i64>, EngineError> {
+    use arrow::array::AsArray;
+
+    let index = batch.schema().index_of("timestamp_us")?;
+    let column = batch.column(index);
+    let micros: Vec<i64> = match column.data_type() {
+        DataType::Timestamp(_, _) => (0..column.len())
+            .map(|row| {
+                let value = column.as_primitive::<arrow::datatypes::TimestampMicrosecondType>();
+                value.value(row)
+            })
+            .collect(),
+        DataType::Int64 => column.as_primitive::<arrow::datatypes::Int64Type>().values().to_vec(),
+        other => return Err(parse_error(format!("unexpected timestamp type: {other}"))),
+    };
+    Ok(micros)
+}
+
+fn micros_to_date(micros: i64) -> (i32, u32, u32) {
+    use chrono::Datelike;
+
+    let seconds = micros.div_euclid(1_000_000);
+    let nanos = u32::try_from(micros.rem_euclid(1_000_000)).unwrap_or(0) * 1_000;
+    let date = chrono::DateTime::from_timestamp(seconds, nanos)
+        .unwrap_or_else(Utc::now)
+        .date_naive();
+    (date.year(), date.month(), date.day())
 }
 
 fn service_column(batch: &RecordBatch) -> Result<arrow::array::ArrayRef, EngineError> {
@@ -144,7 +223,7 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use chrono::{DateTime, Utc};
+    use chrono::Utc;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use tempfile::tempdir;
 
@@ -256,17 +335,67 @@ mod tests {
     }
 
     #[test]
+    fn flush_partitions_follow_the_record_timestamp_not_the_clock() {
+        let dir = tempdir().expect("create temp dir");
+        let root = dir.path().join("logs");
+        let config = EngineConfig {
+            data_dir: root.clone(),
+            ..EngineConfig::default()
+        };
+        let flusher = ParquetFlusher::new(&config);
+
+        // One row stamped five days ago, one now: the late row must land in
+        // its own day directory, not today's.
+        let now_us = Utc::now().timestamp_micros();
+        let late_us = now_us - 5 * 86_400 * 1_000_000;
+        let mut table = MemTable::new(2);
+        table.append_record(&LogRecord {
+            timestamp_us: late_us,
+            trace_id: Some("late".into()),
+            level: "ERROR".into(),
+            service: "auth-api".into(),
+            message: "old failure".into(),
+            raw_body: None,
+        });
+        table.append_record(&LogRecord {
+            timestamp_us: now_us,
+            trace_id: Some("fresh".into()),
+            level: "INFO".into(),
+            service: "auth-api".into(),
+            message: "current".into(),
+            raw_body: None,
+        });
+        flusher.flush(&table.finish().expect("finish memtable")).expect("flush");
+
+        let chunks = parquet_files(&root);
+        assert_eq!(chunks.len(), 2, "one chunk per day");
+        let late_date = chrono::DateTime::from_timestamp(
+            late_us.div_euclid(1_000_000),
+            0,
+        )
+        .expect("valid timestamp");
+        let late_dir = format!("day={:02}", chrono::Datelike::day(&late_date.date_naive()));
+        let late_path = chunks.iter().find(|path| path.to_string_lossy().contains(&late_dir))
+            .expect("late row has its own day partition");
+        assert_eq!(row_count(late_path), 1, "only the late row lives there");
+
+        let fresh_date = Utc::now().date_naive();
+        let fresh_dir = format!("day={:02}", chrono::Datelike::day(&fresh_date));
+        assert!(
+            chunks.iter().any(|path| path.to_string_lossy().contains(&fresh_dir)),
+            "fresh row lands in today's partition"
+        );
+    }
+
+    #[test]
     fn partition_path_matches_hive_layout() {
         let config = EngineConfig {
             data_dir: PathBuf::from("data/logs"),
             ..EngineConfig::default()
         };
         let flusher = ParquetFlusher::new(&config);
-        let time: DateTime<Utc> = DateTime::parse_from_rfc3339("2026-08-09T12:00:00Z")
-            .expect("parse rfc3339")
-            .with_timezone(&Utc);
 
-        let path = flusher.partition_path(time);
+        let path = flusher.partition_path(2026, 8, 9);
         assert_eq!(
             path,
             PathBuf::from("data/logs/year=2026/month=08/day=09")
