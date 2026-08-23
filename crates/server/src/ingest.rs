@@ -10,8 +10,6 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::error::ApiError;
 
-/// Bridges channel/transport failures the engine cannot model into the
-/// internal-error class.
 fn internal_error(message: impl Into<String>) -> ApiError {
     ApiError::Engine(EngineError::IoError(std::io::Error::other(
         message.into(),

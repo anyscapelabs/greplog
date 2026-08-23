@@ -32,10 +32,8 @@ use cli::{Cli, Commands};
 
 const TAIL_BROADCAST_CAPACITY: usize = 1_024;
 
-/// How long the write path gets to drain before shutdown gives up on it.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Exit code when the write path did not drain inside [`DRAIN_TIMEOUT`].
 const EXIT_DRAIN_TIMEOUT: i32 = 75;
 
 /// Exit code when a second `Ctrl+C` forces an immediate stop.
@@ -64,7 +62,6 @@ async fn main() {
     }
 }
 
-/// Runs the `dev` command: a server with engine defaults.
 async fn run_dev(port: Option<u16>) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = EngineConfig::default();
     if let Some(p) = port {
@@ -73,7 +70,6 @@ async fn run_dev(port: Option<u16>) -> Result<(), Box<dyn std::error::Error>> {
     run_server(config).await
 }
 
-/// Runs the `start` command: a server with retention configurable.
 async fn run_start(
     port: Option<u16>,
     retention_days: Option<u32>,
@@ -88,8 +84,6 @@ async fn run_start(
     run_server(config).await
 }
 
-/// WAL and storage status straight from the filesystem; works without a
-/// running server.
 fn run_status() {
     let config = EngineConfig::default();
 
@@ -119,8 +113,6 @@ fn wal_usage(wal_path: &Path) -> u64 {
     bytes
 }
 
-/// Runs the shared server body: WAL replay, workers, compactor, retention,
-/// and the dual-port servers.
 async fn run_server(config: EngineConfig) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&config.data_dir)?;
     if let Some(parent) = config.wal_path.parent() {
@@ -190,9 +182,6 @@ async fn run_server(config: EngineConfig) -> Result<(), Box<dyn std::error::Erro
     server_result.map_err(Into::into)
 }
 
-/// Replays every WAL segment into the queryable live buffer; the `MemTable`
-/// worker re-flushes recovered rows to Parquet, which lets the WAL worker
-/// reclaim the segments they came from.
 fn recover_wal_into(
     config: &EngineConfig,
     live_buffer: &LiveBuffer,
@@ -224,8 +213,6 @@ fn recover_wal_into(
     Ok(())
 }
 
-/// Fires `trigger` on the first `Ctrl+C`; hard-exits on the second, because a
-/// shutdown you cannot interrupt is indistinguishable from a hang.
 fn spawn_signal_listener(trigger: ShutdownTrigger) {
     tokio::spawn(async move {
         if tokio::signal::ctrl_c().await.is_err() {
@@ -243,9 +230,6 @@ fn spawn_signal_listener(trigger: ShutdownTrigger) {
     });
 }
 
-/// Joins the write-path threads in pipeline order (WAL first: its exit closes
-/// the handoff channel), bounded by [`DRAIN_TIMEOUT`] so a wedged disk cannot
-/// hold the process open forever.
 async fn drain_write_path(wal_handle: JoinHandle<()>, memtable_handle: JoinHandle<()>) {
     let joined = tokio::task::spawn_blocking(move || {
         if wal_handle.join().is_err() {

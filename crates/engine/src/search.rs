@@ -29,15 +29,11 @@ const ROW_COLUMNS: &str = "timestamp_us, trace_id, level, service, message, raw_
 /// just after midnight under yesterday's folder is never pruned away.
 const PARTITION_PAD_DAYS: i64 = 1;
 
-/// A validated dashboard search over both tiers.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LogSearch {
-    /// How far back to look, in seconds, anchored at "now".
     pub time_range_secs: u64,
-    /// Equality filters; only `level` and `service` are accepted.
     #[serde(default)]
     pub facets: HashMap<String, String>,
-    /// Free-text / `field:value` terms.
     #[serde(default)]
     pub search: Option<String>,
     #[serde(flatten)]
@@ -47,13 +43,10 @@ pub struct LogSearch {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SearchMode {
-    /// Raw log rows, newest first.
     Rows {
         #[serde(default = "default_row_limit")]
         limit: usize,
     },
-    /// Grouped counts over the window; an empty `group_by` yields one global
-    /// row (e.g. an overall error rate).
     Aggregate {
         #[serde(default)]
         group_by: Vec<GroupDimension>,
@@ -90,7 +83,6 @@ pub enum Metric {
 }
 
 impl LogSearch {
-    /// Rejects malformed requests with a message naming the offending field.
     pub fn validate(&self, max_rows: usize) -> Result<(), EngineError> {
         if self.time_range_secs == 0 {
             return Err(search_error("time_range_secs must be greater than zero"));
@@ -203,13 +195,10 @@ fn partition_predicate(days: &[(i32, u32, u32)]) -> Option<String> {
     }
 }
 
-/// Escapes a value into a single-quoted SQL string literal.
 fn sql_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-/// The cutoff as a typed literal: the column is `Timestamp(us)`, and a bare
-/// integer comparison fails type coercion.
 fn timestamp_literal(micros: i64) -> String {
     let moment = chrono::DateTime::from_timestamp(
         micros.div_euclid(1_000_000),
@@ -219,7 +208,6 @@ fn timestamp_literal(micros: i64) -> String {
     format!("TIMESTAMP '{}'", moment.format("%Y-%m-%dT%H:%M:%S%.6fZ"))
 }
 
-/// Splits a search string into terms, honouring double-quoted phrases.
 fn split_terms(query: &str) -> Vec<String> {
     let mut terms = Vec::new();
     let mut current = String::new();
@@ -253,8 +241,6 @@ fn strip_quotes(value: &str) -> &str {
     stripped.unwrap_or(value)
 }
 
-/// Translates one term into a WHERE conjunct; unknown fields contribute
-/// nothing, matching the previous client-side behaviour.
 fn term_condition(term: &str) -> Option<String> {
     let trimmed = term.trim();
     if trimmed.is_empty() {
@@ -290,7 +276,6 @@ fn term_condition(term: &str) -> Option<String> {
     ))
 }
 
-/// The WHERE clause applied to both tiers.
 fn where_clause(search: &LogSearch, cutoff_us: i64) -> String {
     let mut parts = vec![format!("timestamp_us >= {}", timestamp_literal(cutoff_us))];
 
@@ -336,12 +321,6 @@ fn metric_expressions(metrics: &[Metric]) -> Vec<String> {
 }
 
 impl super::query::QueryEngine {
-    /// Runs a [`LogSearch`] against both tiers, pruning Parquet partitions
-    /// derived from the time range.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`EngineError::QueryRejected`] for invalid searches.
     pub async fn search(&self, search: &LogSearch) -> Result<Vec<RecordBatch>, EngineError> {
         search.validate(self.max_query_rows)?;
 
@@ -427,11 +406,6 @@ struct AggregateRow {
     last_seen: i64,
 }
 
-/// Concatenates per-tier row results, sorts newest-first, truncates.
-///
-/// The two branches can disagree on string column types (the live tier is
-/// dictionary-encoded), so every batch is normalized to the canonical schema
-/// before concatenation.
 fn merge_rows(batches: Vec<RecordBatch>, limit: usize) -> Result<Vec<RecordBatch>, EngineError> {
     let schema = greplog_schema();
     let normalized: Vec<RecordBatch> = batches
@@ -478,8 +452,6 @@ fn normalize_to_schema(
     RecordBatch::try_new(Arc::clone(schema), columns).map_err(EngineError::from)
 }
 
-/// Merges per-tier aggregate results: rows sharing a group key combine, with
-/// counts summed and `last_seen` taking the max.
 fn merge_aggregate(
     batches: Vec<RecordBatch>,
     group_by: &[GroupDimension],
@@ -527,8 +499,6 @@ fn merge_aggregate(
     build_aggregate_batch(&merged, group_by, metrics)
 }
 
-/// Casts a result column to its comparison type: timestamps become
-/// microseconds-as-Int64, everything non-numeric becomes Utf8.
 fn canonical_column(column: &ArrayRef) -> Result<ArrayRef, EngineError> {
     match column.data_type() {
         DataType::Int64 => Ok(Arc::clone(column)),
@@ -542,7 +512,6 @@ fn canonical_column(column: &ArrayRef) -> Result<ArrayRef, EngineError> {
     }
 }
 
-/// Reads one row of a timestamp column as microseconds.
 fn timestamp_value_us(column: &ArrayRef, row: usize) -> i64 {
     match column.data_type() {
         DataType::Timestamp(TimeUnit::Second, _) => {
@@ -568,8 +537,6 @@ fn group_key(columns: &[ArrayRef], row: usize) -> Result<Vec<KeyPart>, EngineErr
         .collect()
 }
 
-/// Builds the output batch: bucket keys become timestamps again, text keys
-/// stay text, metrics are Int64.
 fn build_aggregate_batch(
     rows: &[(Vec<KeyPart>, AggregateRow)],
     group_by: &[GroupDimension],

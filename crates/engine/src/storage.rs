@@ -21,15 +21,12 @@ use parquet::file::properties::WriterProperties;
 use crate::config::EngineConfig;
 use crate::error::EngineError;
 
-/// Writes Arrow batches to Hive-partitioned Parquet chunks under the
-/// configured `data_dir`.
 pub struct ParquetFlusher {
     root_dir: PathBuf,
     properties: WriterProperties,
 }
 
 impl ParquetFlusher {
-    /// Creates a flusher rooted at the configured `data_dir`.
     #[must_use]
     pub fn new(config: &EngineConfig) -> Self {
         Self {
@@ -40,12 +37,6 @@ impl ParquetFlusher {
         }
     }
 
-    /// Writes `batch` to today's UTC partition, split by `service`.
-    ///
-    /// `service` lives only in the directory name, never in the file, so
-    /// `DataFusion` reads the partition folder as a column. A failure after some
-    /// services were already written surfaces as an error, which prevents the
-    /// caller from confirming those rows to the WAL.
     pub fn flush(&self, batch: &RecordBatch) -> Result<(), EngineError> {
         let service_column = service_column(batch)?;
         let services = unique_services(service_column.as_ref());
@@ -69,7 +60,6 @@ impl ParquetFlusher {
         Ok(())
     }
 
-    /// Writes `batch` to a new chunk file inside `directory`.
     fn write_chunk(
         &self,
         directory: &Path,
@@ -99,14 +89,12 @@ impl ParquetFlusher {
     }
 }
 
-/// The `service` column cast to a plain [`StringArray`] for comparison.
 fn service_column(batch: &RecordBatch) -> Result<arrow::array::ArrayRef, EngineError> {
     let index = batch.schema().index_of("service")?;
     let column = batch.column(index);
     cast(column, &DataType::Utf8).map_err(EngineError::from)
 }
 
-/// Sorted unique `service` names present in `service_values`.
 fn unique_services(service_values: &dyn arrow::array::Array) -> Vec<String> {
     let services = service_values.as_string::<i32>();
     let mut seen = HashSet::new();
@@ -118,8 +106,6 @@ fn unique_services(service_values: &dyn arrow::array::Array) -> Vec<String> {
     names
 }
 
-/// Every row whose `service` matches `service_name`, via the arrow
-/// comparison kernel — no row assembled by hand.
 fn filter_by_service(
     batch: &RecordBatch,
     service_values: &dyn arrow::array::Array,
@@ -131,9 +117,6 @@ fn filter_by_service(
     filter_record_batch(batch, &mask).map_err(EngineError::from)
 }
 
-/// Drops the `service` column once the split is chosen: it is partition
-/// metadata encoded in the folder name, and storing it in the file too would
-/// collide with the partition column `DataFusion` joins in.
 fn strip_service_column(batch: &RecordBatch) -> Result<RecordBatch, EngineError> {
     let service_index = batch.schema().index_of("service")?;
     let indices: Vec<usize> = (0..batch.num_columns())

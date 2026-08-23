@@ -3,19 +3,13 @@
 use std::fs;
 use std::path::Path;
 
-/// Disk usage of the Parquet tree under `data_dir`.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StorageStats {
-    /// Total bytes across every Parquet chunk.
     pub bytes: u64,
-    /// Number of `day=` partitions.
     pub partitions: usize,
-    /// Number of Parquet chunk files.
     pub chunks: usize,
 }
 
-/// Walks `data_dir` and accumulates [`StorageStats`], tolerating a missing
-/// root (a fresh engine with nothing flushed yet).
 #[must_use]
 pub fn storage_stats(data_dir: &Path) -> StorageStats {
     let mut stats = StorageStats {

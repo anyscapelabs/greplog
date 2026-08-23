@@ -5,20 +5,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::EngineError;
 
-/// A single log event produced by a backend service or worker.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LogRecord {
-    /// Microseconds since the UNIX epoch.
     pub timestamp_us: i64,
-    /// Correlation id grouping logs from one request or job.
     pub trace_id: Option<String>,
-    /// Severity level, e.g. `"INFO"`, `"WARN"`, `"ERROR"`.
     pub level: String,
-    /// Source application or worker.
     pub service: String,
-    /// Human-readable summary of what happened.
     pub message: String,
-    /// Stringified JSON payload that caused the event, if any.
     pub raw_body: Option<String>,
 }
 
@@ -37,7 +30,6 @@ impl LogRecord {
         }
     }
 
-    /// The timestamp as a UTC [`DateTime`].
     pub fn timestamp(&self) -> Result<DateTime<Utc>, EngineError> {
         let seconds = self.timestamp_us.div_euclid(1_000_000);
         let micros = u32::try_from(self.timestamp_us.rem_euclid(1_000_000)).map_err(|_| {

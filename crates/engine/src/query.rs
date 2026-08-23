@@ -24,9 +24,6 @@ use crate::config::{EngineConfig, LiveBuffer};
 use crate::error::EngineError;
 use crate::schema::greplog_schema;
 
-/// The unified `logs` view over both tiers. The live branch casts its
-/// dictionary-encoded `service` to `Utf8` and derives the partition columns
-/// from `timestamp_us` to match the Parquet branch.
 const UNIFIED_VIEW_SQL: &str = "\
 CREATE VIEW logs AS \
 SELECT timestamp_us, trace_id, level, service, message, raw_body, year, month, day \
@@ -38,25 +35,14 @@ SELECT timestamp_us, trace_id, level, CAST(service AS VARCHAR), message, raw_bod
        CAST(EXTRACT(day FROM timestamp_us) AS INT) AS day \
 FROM live_logs";
 
-/// Executes SQL over the unified live + Parquet `logs` view.
 pub struct QueryEngine {
     pub(crate) ctx: SessionContext,
     query_timeout_secs: u64,
     pub(crate) max_query_rows: usize,
-    /// Dedicated runtime for query execution, reused across calls.
-    ///
-    /// `DataFusion` 39 offers no per-query cancellation: aborting `collect()`
-    /// leaves its internally-spawned tasks running. Running each query on its
-    /// own runtime, torn down via `shutdown_timeout(0)` on deadline, is the
-    /// only way to stop a runaway query. A fresh runtime is rebuilt lazily
-    /// after a timeout; under concurrency the idle one is retired on a
-    /// dedicated thread instead of being dropped in the async context (see
-    /// [`QueryEngine::execute_sql`]).
     query_rt: tokio::sync::Mutex<Option<Runtime>>,
 }
 
 impl QueryEngine {
-    /// Builds a query engine over `config.data_dir` and the shared `live_buffer`.
     pub async fn new(config: &EngineConfig, live_buffer: LiveBuffer) -> Result<Self, EngineError> {
         let ctx = SessionContext::new();
         register_parquet_table(&ctx, config)?;
@@ -140,7 +126,6 @@ impl Drop for QueryEngine {
     }
 }
 
-/// Builds the dedicated runtime used to execute a single query.
 fn build_query_runtime() -> Result<Runtime, EngineError> {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -149,14 +134,6 @@ fn build_query_runtime() -> Result<Runtime, EngineError> {
         .map_err(|e| EngineError::IoError(std::io::Error::other(e.to_string())))
 }
 
-/// Owns a [`Runtime`] and guarantees it is never dropped on a thread where
-/// blocking is disallowed.
-///
-/// Tokio panics — "Cannot drop a runtime in a context where blocking is not
-/// allowed" — if a [`Runtime`] is dropped from within an asynchronous context.
-/// A query can be torn down by the HTTP layer at any moment, which drops the
-/// in-flight future and with it any [`Runtime`] held in a local variable; this
-/// parks that drop on a fresh, non-async OS thread instead.
 struct RuntimeDropGuard {
     inner: Option<Runtime>,
 }
@@ -185,8 +162,6 @@ impl Drop for RuntimeDropGuard {
     }
 }
 
-/// Rejects any statement that is not a plain, read-only `SELECT` query.
-/// `WITH` queries parse as a [`Statement::Query`] and pass.
 fn validate_read_only_query(sql: &str) -> Result<(), EngineError> {
     let statements = SqlParser::parse_sql(&GenericDialect {}, sql)
         .map_err(|e| EngineError::QueryRejected(format!("invalid SQL: {e}")))?;
@@ -239,8 +214,6 @@ fn register_parquet_table(
     Ok(())
 }
 
-/// Schema of the data fields written to a Parquet chunk: [`greplog_schema`]
-/// without `service`, which lives only in the folder name.
 fn parquet_file_schema() -> SchemaRef {
     Arc::new(arrow::datatypes::Schema::new(
         greplog_schema()
@@ -252,7 +225,6 @@ fn parquet_file_schema() -> SchemaRef {
     ))
 }
 
-/// Registers an always-live provider named `live_logs` over the shared buffer.
 fn register_live_table(
     ctx: &SessionContext,
     live_buffer: LiveBuffer,

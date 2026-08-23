@@ -22,7 +22,6 @@ use crate::schema::greplog_schema;
 /// dictionary key space.
 const LEVELS: &[&str] = &["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "CRITICAL", "UNKNOWN"];
 
-/// Case-insensitively normalizes a level string into [`LEVELS`].
 #[must_use]
 pub fn normalize_level(level: &str) -> &'static str {
     let upper = level.trim().to_ascii_uppercase();
@@ -33,7 +32,6 @@ pub fn normalize_level(level: &str) -> &'static str {
         .unwrap_or("UNKNOWN")
 }
 
-/// Append-only columnar buffer for [`LogRecord`]s.
 pub struct MemTable {
     timestamps: TimestampMicrosecondBuilder,
     trace_ids: StringBuilder,
@@ -71,7 +69,6 @@ impl MemTable {
         append_optional(&mut self.raw_bodies, record.raw_body.as_deref());
     }
 
-    /// Finishes the current batch and resets the table for reuse.
     pub fn finish(&mut self) -> Result<RecordBatch, EngineError> {
         build_batch(
             std::mem::take(&mut self.timestamps),
@@ -83,13 +80,11 @@ impl MemTable {
         )
     }
 
-    /// Rows currently staged in the builders.
     #[must_use]
     pub fn num_rows(&self) -> usize {
         self.timestamps.len()
     }
 
-    /// True if no rows are staged.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.num_rows() == 0

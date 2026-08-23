@@ -30,21 +30,11 @@ use crate::wal::{record_count, sealed_path, sealed_segments, WalWriter};
 
 const MAX_GROUP_BATCH: usize = 50;
 
-/// A rotated, still-covered WAL segment awaiting full confirmation.
 struct SealedSegment {
     path: PathBuf,
-    /// Total records written across this segment and every earlier one; the
-    /// segment is deleted once the globally confirmed count passes this.
     cumulative_records: u64,
 }
 
-/// Segment-scoped WAL reclamation bookkeeping.
-///
-/// Separates the two invariants a wholesale truncate would conflate:
-/// - Records durable as Parquet may be reclaimed (sealed → deleted).
-/// - Records merely appended — even acknowledged — may never be. A
-///   confirmation racing ahead of a later append only *seals* the active
-///   segment; the append's bytes survive either way.
 struct WalState {
     wal: Result<WalWriter, EngineError>,
     active: PathBuf,
@@ -55,8 +45,6 @@ struct WalState {
 }
 
 impl WalState {
-    /// Opens the active segment and restores sealed segments left by a
-    /// previous process so rotation bookkeeping survives a restart.
     fn open(active: PathBuf) -> Self {
         let mut cumulative = 0u64;
         let mut next_seq = 1u64;
@@ -90,14 +78,10 @@ impl WalState {
         Self { wal, active, sealed, confirmed: 0, cumulative, next_seq }
     }
 
-    /// Records `n` records being appended to the active segment.
     fn records_written(&mut self, n: usize) {
         self.cumulative += n as u64;
     }
 
-    /// Confirms `n` records are safe as Parquet, seals the active segment, and
-    /// deletes every sealed segment now fully confirmed. Never deletes the
-    /// active segment.
     fn confirm(&mut self, n: usize) {
         self.confirmed += n as u64;
 
@@ -124,9 +108,6 @@ impl WalState {
         }
     }
 
-    /// Seals the active segment into a `sealed-<n>-*.wal` file and opens a
-    /// fresh active segment. Returns the sealed path, or `None` when the
-    /// writer is not usable (logging, never propagating the failure).
     fn rotate(&mut self) -> Option<PathBuf> {
         let held = std::mem::replace(
             &mut self.wal,
@@ -161,13 +142,6 @@ impl WalState {
     }
 }
 
-/// Spawns the WAL worker on a dedicated OS thread and returns its handle.
-///
-/// `receiver` carries [`WalCommand::Append`]s; a batch is forwarded to the
-/// `MemTable` worker only after a successful fsync. `truncate_rx` carries
-/// Parquet-confirmation signals; each seals the active segment and deletes
-/// sealed segments now fully covered. The loop ends when the append channel
-/// closes; join the handle to wait for outstanding fsyncs.
 #[must_use]
 pub fn spawn_wal_worker(
     config: Arc<EngineConfig>,
@@ -181,7 +155,6 @@ pub fn spawn_wal_worker(
     })
 }
 
-/// Spawns the `MemTable` worker on a dedicated OS thread and returns its handle.
 #[must_use]
 pub fn spawn_memtable_worker(
     receiver: HandoffRx<Vec<LogRecord>>,
@@ -193,8 +166,6 @@ pub fn spawn_memtable_worker(
     spawn_memtable_worker_with_broadcast(receiver, truncate_tx, flusher, live_buffer, config, None)
 }
 
-/// Like [`spawn_memtable_worker`], but fans each incoming batch out to SSE
-/// subscribers when `broadcast_tx` is `Some`.
 #[must_use]
 pub fn spawn_memtable_worker_with_broadcast(
     receiver: HandoffRx<Vec<LogRecord>>,
@@ -209,7 +180,6 @@ pub fn spawn_memtable_worker_with_broadcast(
     })
 }
 
-/// Runs the WAL worker body: multiplex the append and confirmation channels.
 fn run_wal_loop(
     wal_path: &Path,
     mut receiver: WalRx<WalCommand>,
@@ -228,7 +198,6 @@ fn run_wal_loop(
     }
 }
 
-/// Selects over the append and confirmation channels, persisting in order with group commit.
 async fn select_commands(
     wal: &mut WalState,
     receiver: &mut WalRx<WalCommand>,
@@ -252,7 +221,6 @@ async fn select_commands(
     }
 }
 
-/// Pends forever once the confirmation channel is closed, disarming that arm.
 async fn truncate_signal(rx: &mut Option<WalRx<usize>>) -> Option<usize> {
     match rx {
         Some(rx) => rx.recv().await,
@@ -260,7 +228,6 @@ async fn truncate_signal(rx: &mut Option<WalRx<usize>>) -> Option<usize> {
     }
 }
 
-/// Drains commands off the WAL channel in fallback mode (no runtime).
 fn drain_channel(
     wal: &mut Result<WalWriter, EngineError>,
     receiver: &mut WalRx<WalCommand>,
@@ -338,7 +305,6 @@ fn handle_append_group(
     wal.records_written(written);
 }
 
-/// Single-batch fallback used when no async runtime is available.
 fn handle_append_single(
     wal: &mut Result<WalWriter, EngineError>,
     batch: IngestBatch,
@@ -357,14 +323,6 @@ fn handle_append_single(
     }
 }
 
-/// Drains durable record streams into columnar batches, staging them in the
-/// shared live buffer and flushing once the configured threshold is reached.
-///
-/// A flush fires on either the row threshold or `flush_interval_secs` since
-/// the last attempt — so low-traffic deployments still land data on disk and
-/// let the WAL worker reclaim sealed segments. A flush only confirms to the
-/// WAL worker after Parquet has fully succeeded; a failed flush returns its
-/// batches to the live buffer for retry on the next interval.
 #[allow(clippy::needless_pass_by_value)]
 fn run_memtable_loop(
     receiver: &HandoffRx<Vec<LogRecord>>,
@@ -421,9 +379,6 @@ fn run_memtable_loop(
     }
 }
 
-/// Finishes the memtable and pushes the batch into the live buffer. A build
-/// failure is logged: every row is already fsynced in an unreclaimed WAL
-/// segment and comes back on the next start.
 fn finish_and_push(live_buffer: &LiveBuffer, table: &mut MemTable, reason: &str) {
     match table.finish() {
         Ok(batch) => push_to_live_buffer(live_buffer, batch),
@@ -435,8 +390,6 @@ fn finish_and_push(live_buffer: &LiveBuffer, table: &mut MemTable, reason: &str)
     }
 }
 
-/// Pushes a finished batch into the shared live buffer; zero-row batches are
-/// dropped.
 fn push_to_live_buffer(live_buffer: &LiveBuffer, batch: RecordBatch) {
     if batch.num_rows() == 0 {
         return;
@@ -448,7 +401,6 @@ fn push_to_live_buffer(live_buffer: &LiveBuffer, batch: RecordBatch) {
     }
 }
 
-/// Total row count currently staged for querying.
 fn live_row_count(live_buffer: &LiveBuffer) -> usize {
     if let Ok(buffer) = live_buffer.read() {
         buffer.iter().map(RecordBatch::num_rows).sum()
@@ -458,11 +410,6 @@ fn live_row_count(live_buffer: &LiveBuffer) -> usize {
     }
 }
 
-/// Concatenates and persists the buffered batches, then confirms the WAL.
-///
-/// The write lock is released as soon as the batches are taken out, so Parquet
-/// I/O never blocks a query. On failure the batches go back to the front of
-/// the live buffer — still queryable, retried on the next interval.
 fn flush_live_buffer(
     live_buffer: &LiveBuffer,
     truncate_tx: &WalTx<usize>,
@@ -495,9 +442,6 @@ fn flush_live_buffer(
     let _ = truncate_tx.blocking_send(rows);
 }
 
-/// Puts unflushed batches back at the *front* of the live buffer: rows staged
-/// while the flush was in flight are already in the buffer and newer, so
-/// prepending keeps timestamp order (and useful row-group min/max stats).
 fn return_to_live_buffer(live_buffer: &LiveBuffer, mut batches: Vec<RecordBatch>) {
     let Ok(mut buffer) = live_buffer.write() else {
         tracing::error!(

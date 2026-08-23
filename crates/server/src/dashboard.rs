@@ -38,14 +38,11 @@ async fn encoded_rows(batches: Vec<RecordBatch>) -> Result<Response, ApiError> {
 
 const TAIL_KEEP_ALIVE_SECS: u64 = 15;
 
-/// Request body for `POST /api/query`.
 #[derive(Debug, Deserialize)]
 pub struct QueryRequest {
     pub sql: String,
 }
 
-/// Handles `POST /api/search`: a validated structured search executed with
-/// Hive partition pruning on the Parquet tier.
 pub async fn handle_search(
     State(engine): State<Arc<QueryEngine>>,
     Json(search): Json<greplog_engine::search::LogSearch>,
@@ -54,7 +51,6 @@ pub async fn handle_search(
     encoded_rows(batches).await
 }
 
-/// Handles `GET /api/stats`, returning Parquet disk usage for the Storage card.
 pub async fn handle_stats(State(data_dir): State<std::path::PathBuf>) -> Result<Response, ApiError> {
     let snapshot = tokio::task::spawn_blocking(move || crate::stats::storage_stats(&data_dir))
         .await
@@ -63,7 +59,6 @@ pub async fn handle_stats(State(data_dir): State<std::path::PathBuf>) -> Result<
     Ok(json_response(body))
 }
 
-/// State for `GET /api/tail`.
 pub struct TailState {
     pub records: broadcast::Receiver<Vec<LogRecord>>,
     pub shutdown: Shutdown,
@@ -91,7 +86,6 @@ fn encode_rows(batches: &[RecordBatch]) -> Result<Vec<u8>, EngineError> {
     Ok(buf)
 }
 
-/// Canonical empty result: an empty JSON array, never a bare body.
 fn empty_rows() -> Response {
     json_response(b"[]".to_vec())
 }

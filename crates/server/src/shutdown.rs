@@ -3,13 +3,11 @@
 
 use tokio::sync::watch;
 
-/// A cloneable handle to the process-wide shutdown signal.
 #[derive(Clone, Debug)]
 pub struct Shutdown {
     receiver: watch::Receiver<bool>,
 }
 
-/// Fires the shutdown signal exactly once, for every holder of a [`Shutdown`].
 #[derive(Debug)]
 pub struct ShutdownTrigger {
     sender: watch::Sender<bool>,

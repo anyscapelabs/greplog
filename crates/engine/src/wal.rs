@@ -15,7 +15,6 @@ use crate::record::LogRecord;
 
 const SEALED_PREFIX: &str = "sealed-";
 
-/// Path of the sealed WAL segment with sequence number `seq`.
 #[must_use]
 pub fn sealed_path(wal_path: &Path, seq: u64) -> PathBuf {
     let name = wal_path
@@ -24,13 +23,11 @@ pub fn sealed_path(wal_path: &Path, seq: u64) -> PathBuf {
     directory.join(format!("{SEALED_PREFIX}{seq:06}-{name}"))
 }
 
-/// Owns the on-disk WAL file and appends batches of records to it.
 pub struct WalWriter {
     writer: BufWriter<File>,
 }
 
 impl WalWriter {
-    /// Opens (creating if necessary) the WAL file at `path`.
     pub fn open(path: &Path) -> Result<Self, EngineError> {
         let file = OpenOptions::new()
             .create(true)
@@ -54,7 +51,6 @@ impl WalWriter {
         Ok(())
     }
 
-    /// Appends `records` without syncing; the caller groups them under one fsync.
     pub fn append_batch_no_sync(&mut self, records: &[LogRecord]) -> Result<(), EngineError> {
         for record in records {
             bincode::serialize_into(&mut self.writer, record)?;
@@ -62,14 +58,12 @@ impl WalWriter {
         Ok(())
     }
 
-    /// Flushes the buffer and syncs the file to durable storage.
     pub fn sync_data(&mut self) -> Result<(), EngineError> {
         self.writer.flush()?;
         self.writer.get_ref().sync_data()?;
         Ok(())
     }
 
-    /// Cheap estimate of bytes written so far, for diagnostics.
     #[must_use]
     pub fn bytes_written(&self) -> u64 {
         self.writer
@@ -105,7 +99,6 @@ impl WalWriter {
     }
 }
 
-/// Sealed WAL segments for `wal_path`, oldest first.
 pub fn sealed_segments(wal_path: &Path) -> Result<Vec<PathBuf>, EngineError> {
     let Some(directory) = wal_path.parent() else {
         return Err(EngineError::IoError(std::io::Error::new(
@@ -131,9 +124,6 @@ pub fn sealed_segments(wal_path: &Path) -> Result<Vec<PathBuf>, EngineError> {
     Ok(segments.into_iter().map(|(_, path)| path).collect())
 }
 
-/// Complete records already stored in the WAL file at `path`.
-///
-/// Used at startup to seed segment bookkeeping across restarts.
 pub fn record_count(path: &Path) -> Result<usize, EngineError> {
     let file = match File::open(path) {
         Ok(f) => f,
@@ -156,7 +146,6 @@ pub fn record_count(path: &Path) -> Result<usize, EngineError> {
     Ok(count)
 }
 
-/// Replays every WAL segment — sealed files oldest-first, then the active file.
 pub fn replay_all(wal_path: &Path) -> Result<Vec<LogRecord>, EngineError> {
     let mut out = Vec::new();
     for sealed in sealed_segments(wal_path)? {
@@ -166,8 +155,6 @@ pub fn replay_all(wal_path: &Path) -> Result<Vec<LogRecord>, EngineError> {
     Ok(out)
 }
 
-/// True when the bincode error signals the clean end of a log (truncated
-/// trailing record), false for mid-file corruption.
 fn is_end_of_log(error: &bincode::ErrorKind) -> bool {
     if let bincode::ErrorKind::Io(io_err) = error {
         if io_err.kind() == std::io::ErrorKind::UnexpectedEof {
@@ -177,7 +164,6 @@ fn is_end_of_log(error: &bincode::ErrorKind) -> bool {
     error.to_string().contains("unexpected end of file") || error.to_string().contains("UnexpectedEof")
 }
 
-/// Parses the sequence number out of a `sealed-<n>-*.wal` file name.
 fn parse_sealed_seq(name: &str) -> Option<u64> {
     let rest = name.strip_prefix(SEALED_PREFIX)?;
     let seq = rest.split_once('-')?.0;

@@ -9,21 +9,17 @@ use chrono::{Duration as ChronoDuration, NaiveDate, Utc};
 use crate::config::EngineConfig;
 use crate::error::EngineError;
 
-/// Purges expired day partitions.
 #[derive(Debug, Clone)]
 pub struct Retention {
     config: EngineConfig,
 }
 
 impl Retention {
-    /// Creates a retention purger anchored at the configured `data_dir`.
     #[must_use]
     pub fn new(config: EngineConfig) -> Self {
         Self { config }
     }
 
-    /// Every `day=` partition older than `retention_days`; empty when
-    /// retention is disabled.
     pub fn find_expired_partitions(&self) -> Result<Vec<PathBuf>, EngineError> {
         let Some(days) = self.config.retention_days else {
             return Ok(Vec::new());
@@ -53,9 +49,6 @@ impl Retention {
         Ok(purged)
     }
 
-    /// Runs retention forever, purging expired partitions on a blocking
-    /// thread. Returns immediately when retention is disabled; failures are
-    /// logged and retried on the next interval.
     pub async fn start_background_loop(config: EngineConfig) {
         if config.retention_days.is_none() {
             return;
@@ -78,8 +71,6 @@ impl Retention {
     }
 }
 
-/// Recursively collects `day=` leaf partitions older than `cutoff` into `out`,
-/// tolerating a missing root.
 fn walk_for_day_partitions(
     dir: &Path,
     cutoff: NaiveDate,
@@ -110,8 +101,6 @@ fn walk_for_day_partitions(
     Ok(())
 }
 
-/// Parses a `year=YYYY/month=MM/day=DD` directory path into its date; `None`
-/// for anything that is not a day partition.
 fn day_partition_date(dir: &Path) -> Option<NaiveDate> {
     let day = dir.file_name()?.to_str()?.strip_prefix("day=")?;
     let month = dir.parent()?.file_name()?.to_str()?.strip_prefix("month=")?;

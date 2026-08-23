@@ -43,21 +43,17 @@ const SUPERSEDED_SUFFIX: &str = "superseded";
 
 const PART_SUFFIX: &str = "part";
 
-/// Merges crowded leaf partitions into large, time-ordered Parquet files.
 #[derive(Debug, Clone)]
 pub struct Compactor {
     config: EngineConfig,
 }
 
 impl Compactor {
-    /// Creates a compactor anchored at the configured `data_dir`.
     #[must_use]
     pub fn new(config: EngineConfig) -> Self {
         Self { config }
     }
 
-    /// Leaf partitions holding more than `max_files_before_compaction`
-    /// mergeable Parquet chunks (or needing crash recovery).
     pub fn find_partitions_to_compact(&self) -> Result<Vec<PathBuf>, EngineError> {
         let mut partitions = Vec::new();
         self.walk_for_partitions(&self.config.data_dir, &mut partitions)?;
@@ -107,7 +103,6 @@ impl Compactor {
         Ok(())
     }
 
-    /// Finishes or rolls back an interrupted merge in `partition_dir`.
     pub fn recover_partition(&self, partition_dir: &Path) -> Result<(), EngineError> {
         let mut parts = Vec::new();
         let mut superseded = Vec::new();
@@ -140,8 +135,6 @@ impl Compactor {
         Ok(())
     }
 
-    /// Stream-merges the mergeable Parquet chunks of `partition_dir` into one
-    /// file, opened one chunk at a time so memory stays flat.
     pub fn compact_partition(&self, partition_dir: &Path) -> Result<(), EngineError> {
         self.recover_partition(partition_dir)?;
 
@@ -179,10 +172,6 @@ impl Compactor {
         Ok(candidates)
     }
 
-    /// Runs compaction forever, merging each crowded partition on a blocking
-    /// thread. The first sweep runs immediately so a partition left mid-merge
-    /// by a crash is recovered before a query can observe it. Failures are
-    /// logged and retried on the next interval.
     pub async fn start_background_loop(config: EngineConfig) {
         let mut sweep = tokio::time::interval(Duration::from_secs(
             config.compaction_run_interval_secs.max(1),
@@ -215,10 +204,6 @@ impl Compactor {
     }
 }
 
-/// Streams every row of `files` into a single Parquet file at `temp_path`.
-///
-/// Zstd-compressed with page-level statistics, so a scan can prune both row
-/// groups and pages on `timestamp_us`.
 fn write_merged(files: &[PathBuf], temp_path: &Path) -> Result<(), EngineError> {
     let properties = WriterProperties::builder()
         .set_compression(Compression::ZSTD(ZstdLevel::default()))
@@ -251,7 +236,6 @@ fn write_merged(files: &[PathBuf], temp_path: &Path) -> Result<(), EngineError> 
     Ok(())
 }
 
-/// Publishes the merged file and retires the sources it replaced.
 fn publish_merged(
     files: &[PathBuf],
     temp_path: &Path,
@@ -275,10 +259,6 @@ fn publish_merged(
     Ok(())
 }
 
-/// Flushes the directory entry for `path` so the rename survives a crash.
-/// Without it the merged file can be durable while the directory entry naming
-/// it is not. Best-effort: platforms that refuse to open a directory for sync
-/// simply log.
 fn sync_dir(path: &Path) {
     let Some(dir) = path.parent() else {
         return;
@@ -308,8 +288,6 @@ fn has_suffix(path: &Path, suffix: &str) -> bool {
     path.extension().is_some_and(|ext| ext == suffix)
 }
 
-/// Orders `files` by the first `timestamp_us` each one stores, read from
-/// Parquet statistics. Files without statistics sort last by path.
 fn sort_by_first_timestamp(files: &mut [PathBuf]) {
     let mut keyed: Vec<(Option<i64>, PathBuf)> = files
         .iter()
@@ -326,9 +304,6 @@ fn sort_by_first_timestamp(files: &mut [PathBuf]) {
     }
 }
 
-/// Smallest `timestamp_us` in a chunk's statistics, or `None` when the file
-/// cannot be opened, has no min/max statistics, or stores the column as
-/// something other than `INT64`.
 fn min_timestamp(path: &Path) -> Option<i64> {
     let file = File::open(path).ok()?;
     let metadata = ParquetRecordBatchReaderBuilder::try_new(file).ok()?.metadata().clone();

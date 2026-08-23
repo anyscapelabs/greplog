@@ -7,14 +7,12 @@ use axum::Json;
 use greplog_engine::error::EngineError;
 use serde::Serialize;
 
-/// JSON body returned for every error response.
 #[derive(Debug, Serialize)]
 pub struct ErrorBody {
     pub code: &'static str,
     pub message: String,
 }
 
-/// Errors that can be returned by the HTTP API.
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("engine error: {0}")]
@@ -25,8 +23,6 @@ pub enum ApiError {
 }
 
 impl ApiError {
-    /// Maps to a status code and a client-safe body; engine internals never
-    /// reach the wire.
     fn into_parts(self) -> (StatusCode, ErrorBody) {
         match &self {
             Self::BadRequest(msg) => (

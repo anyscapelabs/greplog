@@ -27,9 +27,6 @@ use crate::shutdown::Shutdown;
 
 const MAX_INGEST_BODY_BYTES: usize = 5 * 1024 * 1024;
 
-/// Shared state for the dashboard router: the query engine, the live-tail
-/// broadcast sender, the shutdown handle each SSE stream watches, and the
-/// data directory backing `/api/stats`.
 #[derive(Clone)]
 pub(crate) struct DashboardState {
     engine: Arc<QueryEngine>,

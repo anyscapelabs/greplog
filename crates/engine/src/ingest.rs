@@ -5,11 +5,8 @@ use tokio::sync::oneshot;
 use crate::error::EngineError;
 use crate::record::LogRecord;
 
-/// A batch of records plus a responder fired once the batch is fsynced (or
-/// with the error that prevented it).
 #[derive(Debug)]
 pub struct IngestBatch {
-    /// The log records to append to the Write-Ahead Log.
     pub records: Vec<LogRecord>,
     pub responder: oneshot::Sender<Result<(), EngineError>>,
 }

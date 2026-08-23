@@ -3,43 +3,26 @@
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-/// The shared, queryable in-memory log tier: finished batches pushed by the
-/// `MemTable` worker, cloned (reference counts only) by queries.
 pub type LiveBuffer = Arc<RwLock<Vec<arrow::record_batch::RecordBatch>>>;
 
-/// Tuning knobs for the ingest, WAL, and storage pipeline.
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
-    /// Root directory for Hive-partitioned Parquet chunks.
     pub data_dir: PathBuf,
-    /// Path of the Write-Ahead Log file.
     pub wal_path: PathBuf,
-    /// Rows buffered in the `MemTable` before a flush to Parquet.
     pub flush_row_limit: usize,
-    /// Seconds pending rows may stay unflushed before a periodic flush fires.
     pub flush_interval_secs: u64,
-    /// Seconds between background compaction sweeps.
     pub compaction_run_interval_secs: u64,
-    /// Leaf partitions holding more mergeable chunks than this get merged.
     pub max_files_before_compaction: usize,
     /// Size at which a compacted file is sealed and excluded from further
     /// merges; without it every sweep rewrites the previous sweep's output.
     pub compaction_target_bytes: u64,
-    /// Days of Parquet history to keep; `None` keeps data forever.
     pub retention_days: Option<u32>,
-    /// Seconds between background retention sweeps.
     pub retention_run_interval_secs: u64,
-    /// Maximum seconds a query may run before cancellation.
     pub query_timeout_secs: u64,
-    /// Maximum rows a single query may return.
     pub max_query_rows: usize,
-    /// Capacity of the tokio MPSC ingest channels.
     pub mpsc_buffer_size: usize,
-    /// Capacity of the crossbeam record-handoff channel.
     pub crossbeam_buffer_size: usize,
-    /// TCP port for the ingest API (`POST /api/log`).
     pub ingest_port: u16,
-    /// TCP port for the dashboard API and UI.
     pub dashboard_port: u16,
 }
 

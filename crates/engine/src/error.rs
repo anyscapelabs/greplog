@@ -2,50 +2,36 @@
 
 use thiserror::Error;
 
-/// All errors that can be produced by the Greplog engine.
 #[derive(Debug, Error)]
 pub enum EngineError {
-    /// An upstream error from the Apache Arrow runtime.
     #[error("arrow error: {0}")]
     ArrowError(#[from] arrow::error::ArrowError),
 
-    /// An upstream error from the Apache `DataFusion` query engine.
     #[error("datafusion error: {0}")]
     DataFusion(#[from] datafusion::error::DataFusionError),
 
-    /// A poisoned `RwLock` guard on the shared [`LiveBuffer`](crate::config::LiveBuffer).
     #[error("rwlock poisoned")]
     LockError,
 
-    /// The query exceeded the configured execution timeout and was cancelled.
     #[error("query timed out")]
     QueryTimeout,
 
-    /// The statement was rejected because it is not a read-only query.
     #[error("query rejected: {0}")]
     QueryRejected(String),
 
-    /// A parse failure, e.g. malformed JSON, an invalid timestamp, or an
-    /// unrecognized log level.
     #[error("parse error: {0}")]
     ParseError(String),
 
-    /// An I/O error while reading or writing WAL, Parquet, or log files.
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
 
-    /// A binary serialization error from `bincode` while writing or reading
-    /// the Write-Ahead Log.
     #[error("bincode error: {0}")]
     BincodeError(#[from] Box<bincode::ErrorKind>),
 
-    /// An upstream error from the Apache Parquet runtime while flushing or
-    /// reading columnar data.
     #[error("parquet error: {0}")]
     ParquetError(#[from] parquet::errors::ParquetError),
 }
 
-/// Convenience constructor for [`EngineError::ParseError`].
 #[must_use]
 pub fn parse_error(message: impl Into<String>) -> EngineError {
     EngineError::ParseError(message.into())

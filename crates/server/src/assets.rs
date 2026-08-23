@@ -14,7 +14,6 @@ struct Dashboard;
 
 const INDEX: &str = "index.html";
 
-/// Shown when the binary was built without a dashboard bundle.
 const NOT_BUILT_HTML: &str = r#"<!doctype html>
 <meta charset="utf-8">
 <title>Greplog — dashboard not built</title>
@@ -35,8 +34,6 @@ const NOT_BUILT_HTML: &str = r#"<!doctype html>
 </main>
 "#;
 
-/// Serves a dashboard asset, falling back to the SPA entrypoint so client-side
-/// routes resolve through the browser router.
 pub async fn handle_asset(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { INDEX } else { path };
