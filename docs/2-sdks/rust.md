@@ -27,20 +27,24 @@ greplog::info!("User authenticated", user_id = 42);
 greplog::error!("Token generation failed", reason = "Key expired");
 ```
 
-Available levels: `trace!`, `debug!`, `info!`, `warn!`, `error!`, `fatal!`.
+Available macros: `debug!`, `info!`, `warn!`, `error!`, `critical!`.
 
 ## Batching
 
-The SDK uses an MPSC channel to coalesce log records and flush them to `POST /api/log` in batches. Buffered records are flushed:
+Records queue in memory and flush to `POST /api/log`:
 
-- when the batch reaches ~1000 records,
-- on an interval timer,
-- and on a graceful drop of the guard returned by `init`.
+- when the batch fills (100 records by default, tune via [`Config`](https://docs.rs/greplog)),
+- every 500 ms,
+- or immediately from `greplog::flush()`.
+
+Past a 10,000-record cap the oldest records are dropped; `Client::dropped_count()` reports how many.
+
+A flush that fails with `429`/`5xx`/a network error retries once; other rejections drop the batch rather than resend bytes the server refused.
 
 ## Graceful shutdown
 
 ```rust
-let guard = greplog::init("auth-service", "production");
-// ...
-drop(guard); // Flushes any remaining buffered logs
+greplog::flush(); // send whatever is still buffered
 ```
+
+`init*` returns an `Arc<Client>` handle; dropping the process without flushing loses at most one interval's worth of records.

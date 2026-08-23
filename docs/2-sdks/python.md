@@ -25,11 +25,13 @@ greplog.info("Processing order", {"order_id": 9876})
 greplog.error("Database connection lost", {"retry_count": 3})
 ```
 
-Available levels: `trace`, `debug`, `info`, `warn`, `error`, `fatal`.
+Available functions: `debug`, `info`, `warning`, `error`, `critical`.
 
 ## Batching
 
-Records are buffered and flushed to `POST /api/log` in batches (on ~1000 records, an interval flush, or at interpreter exit) so the SDK stays fast and quiet on the network.
+Records are buffered and flushed to `POST /api/log` when the batch fills (100 records), every 500 ms, or at interpreter exit (`atexit`). Past a 10,000-record cap the oldest are dropped (`client.dropped_count()`); a failed flush retries once for `429`/`5xx`/network errors.
+
+Tune via `greplog.init(..., batch_size=100, flush_interval=0.5, max_queue_size=10_000)`.
 
 ## Graceful shutdown
 
