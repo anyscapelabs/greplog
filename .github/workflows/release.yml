@@ -83,6 +83,20 @@ jobs:
         with:
           packages-dir: sdk/python/dist/
 
+  publish-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: crates-io
+    defaults:
+      run:
+        working-directory: sdk/rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo publish --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: \${{ secrets.CARGO_REGISTRY_TOKEN }}
+
   publish-node:
     runs-on: ubuntu-latest
     timeout-minutes: 15
