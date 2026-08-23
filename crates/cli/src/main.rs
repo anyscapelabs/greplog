@@ -8,6 +8,7 @@
 
 mod banner;
 mod cli;
+mod ui;
 
 use std::fs;
 use std::path::Path;
@@ -41,7 +42,12 @@ const EXIT_INTERRUPTED: i32 = 130;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    // Compact, target-less lines: the operator cares about what happened,
+    // not which module said it.
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .compact()
+        .init();
 
     let cli = Cli::parse();
 
@@ -85,21 +91,86 @@ async fn run_start(
 }
 
 fn run_status() {
+    use ui::{bold, dim, human_bytes};
+
     let config = EngineConfig::default();
 
-    let wal_bytes = wal_usage(&config.wal_path);
+    let sealed = greplog_engine::wal::sealed_segments(&config.wal_path)
+        .map_or(0, |segments| segments.len());
     let storage = greplog_server::stats::storage_stats(&config.data_dir);
+    let services = service_breakdown(&config.data_dir);
 
-    println!("Greplog status");
-    println!("  data dir      : {}", config.data_dir.display());
-    println!("  wal           : {} ({wal_bytes} bytes across all segments)", config.wal_path.display());
+    println!("{}", bold("Greplog status"));
+    let row = |label: &str, value: String| println!("  {:<12} {}", dim(label), value);
+    row("data dir", config.data_dir.display().to_string());
+    row(
+        "wal",
+        format!(
+            "{} · {sealed} sealed segment{} · {}",
+            config.wal_path.display(),
+            if sealed == 1 { "" } else { "s" },
+            human_bytes(wal_usage(&config.wal_path))
+        ),
+    );
     match config.retention_days {
-        Some(days) => println!("  retention     : {days} days"),
-        None => println!("  retention     : disabled"),
+        Some(days) => row("retention", format!("{days} days")),
+        None => row("retention", "disabled".to_string()),
     }
-    println!("  partitions    : {}", storage.partitions);
-    println!("  parquet files : {}", storage.chunks);
-    println!("  disk usage    : {} bytes", storage.bytes);
+    row(
+        "storage",
+        format!(
+            "{} partition{} · {} parquet file{} · {}",
+            storage.partitions,
+            if storage.partitions == 1 { "" } else { "s" },
+            storage.chunks,
+            if storage.chunks == 1 { "" } else { "s" },
+            human_bytes(storage.bytes),
+        ),
+    );
+    if services.is_empty() {
+        row("services", dim("(no chunks on disk yet)"));
+    } else {
+        let rendered: Vec<String> = services
+            .iter()
+            .map(|(name, rows)| format!("{name} ({})", bold(&rows.to_string())))
+            .collect();
+        row("services", rendered.join(&dim(" · ")));
+    }
+}
+
+/// Per-service stored row counts by walking `service=` directories; a chunk
+/// whose footer cannot be read contributes its files but zero rows.
+fn service_breakdown(data_dir: &Path) -> Vec<(String, u64)> {
+    let mut totals: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    collect_service_rows(data_dir, &mut totals);
+    let mut merged: Vec<(String, u64)> = totals.into_iter().collect();
+    merged.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    merged
+}
+
+fn collect_service_rows(dir: &Path, totals: &mut std::collections::HashMap<String, u64>) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue };
+        if let Some(service) = name.strip_prefix("service=") {
+            *totals.entry(service.to_string()).or_insert(0) += walk_chunk_rows(&path);
+        } else {
+            collect_service_rows(&path, totals);
+        }
+    }
+}
+
+fn walk_chunk_rows(dir: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(dir) else { return 0 };
+    entries
+        .flatten()
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "parquet"))
+        .map(|entry| greplog_engine::storage::chunk_row_count(&entry.path()).unwrap_or(0))
+        .sum()
 }
 
 /// Total WAL bytes on disk: the active segment plus every sealed one. Only
@@ -178,6 +249,7 @@ async fn run_server(config: EngineConfig) -> Result<(), Box<dyn std::error::Erro
     retention_task.abort();
 
     drain_write_path(wal_handle, memtable_handle).await;
+    println!("  {} write path drained — every acknowledged row is on disk", ui::ok_mark());
 
     server_result.map_err(Into::into)
 }
@@ -254,13 +326,33 @@ async fn drain_write_path(wal_handle: JoinHandle<()>, memtable_handle: JoinHandl
 }
 
 fn print_startup_banner(config: &EngineConfig) {
+    use ui::{bold, dim, link};
+
     banner::print_ascii_banner();
-    println!("  Greplog v{}", env!("CARGO_PKG_VERSION"));
+    let tagline = "Fast, lightweight, zero-data-loss logging engine and dashboard \
+                   for solo developers, startups, and small teams.";
+    println!("  {}", dim(tagline));
     println!();
-    println!("  🚀 Ingest Agent : http://127.0.0.1:{}/api/log", config.ingest_port);
-    println!("  📊 Dashboard UI : http://127.0.0.1:{}", config.dashboard_port);
-    println!("  📚 Documentation: https://docs.greplog.dev");
+
+    let row = |label: &str, value: String| {
+        println!("  {:<12} {}", dim(label), value);
+    };
+    row("Dashboard", link(&format!("http://127.0.0.1:{}", config.dashboard_port)));
+    row(
+        "Ingest",
+        link(&format!("POST http://127.0.0.1:{}/api/log", config.ingest_port)),
+    );
+    match config.retention_days {
+        Some(days) => row(
+            "Storage",
+            format!("{} · {} retention", config.data_dir.display(), bold(&format!("{days} day"))),
+        ),
+        None => row("Storage", format!("{} · retention disabled", config.data_dir.display())),
+    }
     println!();
-    println!("  Ready to receive logs. Press Ctrl+C to gracefully shut down.");
+    println!(
+        "  {} Ready. Ctrl+C to drain and exit.",
+        ui::ok_mark()
+    );
     println!();
 }

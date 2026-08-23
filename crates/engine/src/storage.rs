@@ -14,6 +14,7 @@ use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
 use arrow_ord::cmp::eq;
 use chrono::{DateTime, Utc};
+use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::file::properties::WriterProperties;
@@ -123,6 +124,19 @@ fn strip_service_column(batch: &RecordBatch) -> Result<RecordBatch, EngineError>
         .filter(|&index| index != service_index)
         .collect();
     batch.project(&indices).map_err(EngineError::from)
+}
+
+
+
+/// Rows stored in a Parquet chunk, read from its footer metadata.
+///
+/// `None` when the file cannot be opened or parsed — callers treat that as
+/// "unknown size" rather than zero.
+#[must_use]
+pub fn chunk_row_count(path: &Path) -> Option<u64> {
+    let file = File::open(path).ok()?;
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file).ok()?;
+    Some(u64::try_from(builder.metadata().file_metadata().num_rows()).unwrap_or(0))
 }
 
 #[cfg(test)]
