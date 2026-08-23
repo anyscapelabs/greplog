@@ -38,6 +38,15 @@ pub fn link(text: &str) -> String {
     }
 }
 
+/// The brand tint applied to banner art.
+pub fn brand(text: &str) -> String {
+    if color_enabled() {
+        text.with(Color::Blue).to_string()
+    } else {
+        text.to_string()
+    }
+}
+
 /// Success confirmations.
 pub fn ok_mark() -> String {
     if color_enabled() {

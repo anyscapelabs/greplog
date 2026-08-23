@@ -1,28 +1,22 @@
-//! Terminal wordmark banner.
+//! Terminal banner: the brand icon rendered to half-block art.
 //!
-//! [`print_ascii_banner`] prints a pre-formatted ASCII block logo, centered on
-//! the active terminal window width (falling back to 80 columns when the size
-//! cannot be queried). The banner leads with a single blank line for separation
-//! from earlier output but ends flush, so a caller may follow it immediately
-//! with system information for a tight startup screen.
+//! `banner.txt` is generated from the logo SVG by
+//! `scripts/render_banner.py` — rerun that script when the logo changes,
+//! then commit the result. The runtime stays SVG-free and tints the art
+//! with the brand color only when colors are enabled.
 
-/// Prints the Greplog ASCII block banner, centered on the terminal width.
+/// Rendered brand icon; 46 columns wide.
+const ART: &str = include_str!("banner.txt");
+const ART_WIDTH: usize = 46;
+
+/// Prints the banner centered on the terminal width.
 pub fn print_ascii_banner() {
-    const ART_WIDTH: usize = 59;
-    const ART: [&str; 6] = [
-        " ██████╗ ██████╗ ███████╗██████╗ ██╗      ██████╗  ██████╗ ",
-        "██╔════╝ ██╔══██╗██╔════╝██╔══██╗██║     ██╔═══██╗██╔════╝ ",
-        "██║  ███╗██████╔╝█████╗  ██████╔╝██║     ██║   ██║██║  ███╗",
-        "██║   ██║██╔══██╗██╔══╝  ██╔═══╝ ██║     ██║   ██║██║   ██║",
-        "╚██████╔╝██║  ██║███████╗██║     ███████╗╚██████╔╝╚██████╔╝",
-        " ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚══════╝ ╚═════╝  ╚═════╝ ",
-    ];
-
     let term_width = crossterm::terminal::window_size().map_or(80, |size| usize::from(size.columns));
     let padding = term_width.saturating_sub(ART_WIDTH) / 2;
+    let art = crate::ui::brand(ART);
 
     println!();
-    for line in ART {
+    for line in art.lines().filter(|line| !line.trim().is_empty()) {
         println!("{:width$}{}", "", line, width = padding);
     }
 }
