@@ -17,7 +17,7 @@ Greplog avoids `Mutex` locks in the ingestion hot-path entirely. The architectur
 To provide maximum security and routing efficiency, the single `greplog dev` binary spins up two completely isolated Axum servers running concurrently via `tokio::join!`.
 
 - **Port 5050 (Ingest API):** Exposes only `POST /api/log`. Can be safely exposed to the open internet or internal VPC. Configured to accept larger JSON payload batches (e.g., 5MB limit).
-- **Port 3000 (Dashboard & Admin):** Exposes `POST /api/query`, `GET /api/tail` (SSE), and serves the static Vite frontend via `rust-embed`. Intended to be secured behind a firewall or accessed via localhost/SSH tunnel.
+- **Port 3000 (Dashboard & Admin):** Exposes `POST /api/search` (structured, partition-pruned queries), `POST /api/query` (raw-SQL escape hatch), `GET /api/stats` (disk usage), `GET /api/tail` (SSE), and serves the embedded frontend via `rust-embed`. Intended to be secured behind a firewall or accessed via localhost/SSH tunnel.
 
 ## 3. The Zero-Loss Ingestion Pipeline (The Write Path)
 

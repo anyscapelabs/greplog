@@ -6,7 +6,7 @@ Greplog is configured through CLI flags and environment variables.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--port` | `3000` | Dashboard API port (`/api/query`, `/api/tail`). The ingest API is fixed on `5050`. |
+| `--port` | `3000` | Dashboard port (query/search/stats API, SSE tail, embedded UI). Ingest stays fixed on `5050`. |
 | `--retention-days` | `30` | How long Parquet data is kept before automatic purge |
 
 ### Port overrides

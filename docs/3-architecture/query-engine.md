@@ -9,6 +9,22 @@ Queries run on [Apache DataFusion](https://datafusion.apache.org/), an in-memory
 - **Predicate pushdown**: Apache Parquet stores min/max statistics per page. The engine skips whole pages early in time-range and level filters, reading only the bytes that match.
 - **Parallelism**: queries fan out across CPU cores via DataFusion's execution plan, and the compactor keeps file counts low enough that scans stay cheap.
 
+## Two query paths
+
+The dashboard does **not** send SQL. `POST /api/search` takes a validated
+JSON request (time window, facets, free-text terms, rows-or-aggregate shape)
+that the engine compiles into one pruned query per tier — Hive-partition
+directory pruning on the Parquet side plus row-group pruning on
+`timestamp_us`, merged with the in-memory live tier. Aggregate mode powers
+the Metrics page; a global aggregate (empty `group_by`) produces single-row
+summaries like the error rate.
+
+Raw SQL remains available as an escape hatch through `POST /api/query`
+against the unified `logs` view (live tier `UNION ALL` Parquet tier). Note
+that DataFusion 39 does not push filters through that union, so escape-hatch
+queries scan more than the structured path — prefer `/api/search` for
+dashboard-shaped work.
+
 ## Example queries
 
 ```sql
