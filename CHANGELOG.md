@@ -4,20 +4,39 @@ All notable changes to Greplog are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org).
 
-## [Unreleased]
+## [0.1.0] – 2026-08-26
+
+First public release.
 
 ### Added
+- Ingest API with WAL-backed zero-loss writes (fsync before ack, segment
+  rotation on Parquet confirmation).
+- Dual-tier storage: Arrow MemTable → Snappy Parquet in Hive-partitioned
+  day/service directories; background compactor and retention purger.
+- DataFusion query engine over a unified live + Parquet view; SSE live tail.
 - Structured `POST /api/search`: validated JSON queries compiled into
   partition-pruned per-tier scans, with rows and aggregate modes and a
   global-aggregate path for error-rate cards.
 - `GET /api/stats` returning Parquet disk usage (bytes, partitions, chunks).
-- Python SDK (`sdk/python`): buffered client with batching, retry, queue cap.
-- Rust SDK (`sdk/rust`): buffered client with level macros, batching, retry.
-- Dashboard: Metrics page fully wired (severity breakdown, ingestion by
-  service, service table, error rate, storage); Live Tail page streaming
-  over SSE; checkbox facet filters; refresh via query invalidation.
+- Single-binary dashboard served via rust_embed: Log Explorer with facet
+  filters, Metrics page (severity breakdown, ingestion by service, service
+  table, error rate, storage), and Live Tail streaming over SSE.
+- `greplog uninstall`: removes storage, WAL and the binary in one confirmed
+  step, reporting sizes and warning when an instance is still serving.
+- `--host` flag on `greplog dev` and `greplog start` to choose the bind
+  interface.
+- SDKs: Node.js, Go, Python (buffered client with batching, retry, queue
+  cap), Rust (buffered client with level macros).
 
 ### Changed
+- Both servers bind `127.0.0.1` by default instead of every interface;
+  pass `--host 0.0.0.0` to accept traffic from other machines.
+- Storage moved from working-directory-relative `data/` to a fixed per-user
+  location — `~/.local/share/greplog` (Linux), `~/Library/Application
+  Support/greplog` (macOS), `%APPDATA%\greplog` (Windows) — overridable with
+  `GREPLOG_DATA_DIR`, so every command sees the same data regardless of
+  where it runs. Move an old `data/logs` and `data/wal` into the new
+  location to keep previously ingested logs.
 - Dashboard queries moved off raw SQL passthrough onto `/api/search`.
 - Refresh controls no longer remount pages; refetches happen in place.
 
@@ -36,13 +55,3 @@ adheres to [Semantic Versioning](https://semver.org).
 - The live query buffer is capped under persistent Parquet-write failure;
   shed rows stay WAL-durable and replay on restart.
 - CI builds the dashboard bundle before compiling so binaries embed it.
-
-## [0.1.0] – initial development release
-
-- Ingest API with WAL-backed zero-loss writes (fsync before ack, segment
-  rotation on Parquet confirmation).
-- Dual-tier storage: Arrow MemTable → Snappy Parquet in Hive-partitioned
-  day/service directories; background compactor and retention purger.
-- DataFusion query engine over a unified live + Parquet view; SSE live tail.
-- Single-binary dashboard served via rust_embed.
-- Node.js and Go SDKs.

@@ -42,8 +42,16 @@ greplog start --port 8080 --retention-days 14
 
 ## Uninstall
 
-Remove the binary and its data directory:
+One command removes everything — storage, WAL and the binary itself:
 
 ```bash
-rm -f "$(command -v greplog)" && rm -rf data/logs data/wal
+greplog uninstall
 ```
+
+The uninstaller lists what it found with sizes, warns if a Greplog instance is still serving, and asks for confirmation before deleting. For scripts, skip the prompt:
+
+```bash
+greplog uninstall --yes
+```
+
+Storage resolves to the same location every other command uses — `~/.local/share/greplog` on Linux, `~/Library/Application Support/greplog` on macOS, or `$GREPLOG_DATA_DIR` when set — so the command reports exactly what it sees before touching anything.

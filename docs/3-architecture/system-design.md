@@ -48,7 +48,7 @@ The MemTable Worker drains durable records into Arrow batches staged in the shar
 - For low-traffic deployments that never reach the row threshold, a flush also fires **10 seconds** (`flush_interval_secs`) after the last flush while any rows are pending.
 
 - It compresses the Arrow data using Snappy.
-- It writes a file to the active partition: `data/logs/year=2026/month=08/day=09/service=auth-api/chunk_{nanos}.parquet`.
+- It writes a file to the active partition: `<storage-root>/logs/year=2026/month=08/day=09/service=auth-api/chunk_{nanos}.parquet` (the storage root defaults to the platform per-user data location — e.g. `~/.local/share/greplog` — and is overridden by `GREPLOG_DATA_DIR`).
 - Once the file is on disk, it signals the WAL Worker to confirm the written rows, sealing and reclaiming the corresponding WAL segments.
 
 ### Tier 2: Background Compaction (Interval × File-Count Trigger)
@@ -64,7 +64,7 @@ If Greplog runs for weeks, Tier 1 creates thousands of small files, which slows 
 
 The read path merges historical disk data and live memory data invisibly to the user.
 
-1. **Session Context Initialization:** On startup, Greplog registers the `data/logs/` tree as a `ListingTable` (`parquet_logs`) and the shared live buffer as a live table provider (`live_logs`).
+1. **Session Context Initialization:** On startup, Greplog registers the `logs/` tree under the storage root as a `ListingTable` (`parquet_logs`) and the shared live buffer as a live table provider (`live_logs`).
 2. **The Unified View:** A SQL view `logs` is created once at boot that `UNION ALL`s the two tiers — the Parquet `ListingTable` and the live buffer provider — bridging the schema gap by deriving the `year`/`month`/`day` partition columns from `timestamp_us` on the live side.
 3. **Execution:** When Port 3000 receives a SQL query (e.g., `SELECT count(*) FROM logs WHERE level = 'ERROR'`), it runs against the `logs` view:
    - It scans the Parquet `ListingTable` (Partition pruned, Column pruned).
@@ -97,4 +97,4 @@ If power is lost, Greplog recovers state autonomously:
 
 ### Auto-Retention (TTL)
 
-Because data is strictly partitioned by time directories on disk, deleting old data requires zero CPU or SQL overhead. A background thread walks the tree for `day=` partitions older than the CLI `--retention-days` flag and issues a standard `fs::remove_dir_all()` command to delete each expired day directory (e.g., `rm -rf data/logs/year=2026/month=07/day=01`).
+Because data is strictly partitioned by time directories on disk, deleting old data requires zero CPU or SQL overhead. A background thread walks the tree for `day=` partitions older than the CLI `--retention-days` flag and issues a standard `fs::remove_dir_all()` command to delete each expired day directory (e.g., the whole `logs/year=2026/month=07/day=01`).
