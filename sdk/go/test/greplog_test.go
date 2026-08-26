@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	greplog "greplog/greplog"
+	greplog "github.com/anyscapelabs/greplog/sdk/go/greplog"
 )
 
 // collectServer returns an httptest server that appends every received log record.

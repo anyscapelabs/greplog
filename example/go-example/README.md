@@ -70,12 +70,15 @@ The `go.mod` `replace` directive points at the local SDK so you can edit
 `../../sdk/go` and test changes immediately:
 
 ```go
-require greplog v0.0.0
-replace greplog => ../../sdk/go
+require github.com/anyscapelabs/greplog/sdk/go v0.0.0
+replace github.com/anyscapelabs/greplog/sdk/go => ../../sdk/go
 ```
 
-The SDK package lives at `greplog/greplog`, so it is imported as:
+The example uses a local `replace` for development; in your own app you can
+simply run `go get github.com/anyscapelabs/greplog/sdk/go@latest`. The SDK
+package lives at `github.com/anyscapelabs/greplog/sdk/go/greplog`, so it is
+imported as:
 
 ```go
-import greplog "greplog/greplog"
+import greplog "github.com/anyscapelabs/greplog/sdk/go/greplog"
 ```

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	greplog "greplog/greplog"
+	greplog "github.com/anyscapelabs/greplog/sdk/go/greplog"
 )
 
 func main() {

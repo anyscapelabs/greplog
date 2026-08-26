@@ -2,6 +2,6 @@ module greplog-go-example
 
 go 1.21
 
-require greplog v0.0.0
+require github.com/anyscapelabs/greplog/sdk/go v0.0.0
 
-replace greplog => ../../sdk/go
+replace github.com/anyscapelabs/greplog/sdk/go => ../../sdk/go
