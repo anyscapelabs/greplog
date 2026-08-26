@@ -1,5 +1,5 @@
 // 1. Initialize Greplog FIRST
-import greplog from 'greplog';
+import greplog from 'greplog-sdk';
 
 greplog.init({
   service: 'api-gateway',

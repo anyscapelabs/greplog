@@ -1,11 +1,11 @@
 # Rust SDK
 
-The `greplog` crate is the reference SDK — it uses the same batch-and-flush pipeline as the other SDKs.
+The `greplog-sdk` crate (import name stays `greplog`) is the reference SDK — it uses the same batch-and-flush pipeline as the other SDKs.
 
 ## Add the dependency
 
 ```bash
-cargo add greplog
+cargo add greplog-sdk
 ```
 
 ## Initialize

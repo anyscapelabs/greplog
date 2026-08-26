@@ -44,11 +44,11 @@ Greplog SDKs use zero-friction initialization. Environment and service parameter
 #### Node.js / TypeScript
 
 ```bash
-npm i greplog
+npm i greplog-sdk
 ```
 
 ```typescript
-import greplog from 'greplog';
+import greplog from 'greplog-sdk';
 greplog.init('user-service', 'production'); // Or greplog.init() to read from process.env
 
 // Use standard logging
@@ -59,7 +59,7 @@ greplog.error('Payment failed', { error: 'Card declined' });
 #### Python
 
 ```bash
-pip install greplog
+pip install greplog-sdk
 ```
 
 ```python
@@ -75,7 +75,7 @@ greplog.error("Database connection lost", {"retry_count": 3})
 #### Rust
 
 ```bash
-cargo add greplog
+cargo add greplog-sdk
 ```
 
 ```rust
@@ -87,6 +87,26 @@ info!("User authenticated", user_id = 42);
 error!("Token generation failed", reason = "Key expired");
 ```
 
+#### Go
+
+```bash
+go get github.com/anyscapelabs/greplog/sdk/go@latest
+```
+
+```go
+import (
+    "log/slog"
+    greplog "github.com/anyscapelabs/greplog/sdk/go/greplog"
+)
+
+func main() {
+    cleanup := greplog.MustInit(greplog.Config{Service: "payment-service", Env: "production"})
+    defer cleanup()
+
+    slog.Info("Processing order", "order_id", 9876)
+    slog.Error("Database connection lost", "retry_count", 3)
+}
+```
 
 ## How Greplog Works
 

@@ -1,5 +1,5 @@
 {
-  "name": "greplog",
+  "name": "greplog-sdk",
   "version": "0.1.0",
   "description": "Zero-configuration, batched structured logging SDK for the Greplog ingest engine",
   "license": "MIT",

@@ -1,11 +1,11 @@
 # Python SDK
 
-The `greplog` pip package matches the Node.js SDK's zero-friction initialization.
+The `greplog-sdk` pip package (import name stays `greplog`) matches the Node.js SDK's zero-friction initialization.
 
 ## Install
 
 ```bash
-pip install greplog
+pip install greplog-sdk
 ```
 
 ## Initialize

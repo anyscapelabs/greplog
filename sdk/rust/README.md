@@ -1,10 +1,10 @@
-# greplog (Rust)
+# greplog-sdk (Rust)
 
 Buffered, fire-and-forget logging to a Greplog ingest server.
 
 ```toml
 [dependencies]
-greplog = "0.1"
+greplog-sdk = "0.1"
 ```
 
 ## Quick start

@@ -1,9 +1,9 @@
-# greplog (Python)
+# greplog-sdk (Python)
 
 Buffered, fire-and-forget logging to a Greplog ingest server. Stdlib only.
 
 ```bash
-pip install greplog
+pip install greplog-sdk
 ```
 
 ## Quick start

@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "greplog"
+name = "greplog-sdk"
 version = "0.1.0"
 description = "Greplog Python SDK: buffered logging to a Greplog ingest server."
 readme = "README.md"

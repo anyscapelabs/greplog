@@ -1,10 +1,15 @@
 [package]
-name = "greplog"
+name = "greplog-sdk"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Greplog Rust SDK: buffered logging to a Greplog ingest server."
 repository = "https://github.com/anyscapelabs/greplog"
+
+# Preserve `use greplog::...` when the crate is published as greplog-sdk.
+[lib]
+name = "greplog"
+path = "src/lib.rs"
 
 # Standalone: SDKs version and release independently of the engine workspace.
 [workspace]

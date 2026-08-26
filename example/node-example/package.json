@@ -9,6 +9,6 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "greplog": "file:../../sdk/node"
+    "greplog-sdk": "file:../../sdk/node"
   }
 }

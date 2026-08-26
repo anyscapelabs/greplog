@@ -1,19 +1,20 @@
 # Node.js / TypeScript SDK
 
-The `greplog` npm package (source: [`sdk/node`](../../sdk/node)) gives your app zero-friction logging with client-side batching.
+The `greplog-sdk` npm package (source: [`sdk/node`](../../sdk/node)) gives your app zero-friction logging with client-side batching.
 
 ## Install
 
-The SDK is published as `greplog`; from the repo it can be used directly:
+The SDK is published as `greplog-sdk`; from the repo it can be used directly:
 
 ```bash
-npm i /path/to/greplog/sdk/node
+npm i greplog-sdk
+# or local: npm i /path/to/greplog/sdk/node
 ```
 
 ## Initialize
 
 ```typescript
-import greplog from 'greplog';
+import greplog from 'greplog-sdk';
 
 // All three forms are equivalent:
 greplog.init('payment-service', 'production');

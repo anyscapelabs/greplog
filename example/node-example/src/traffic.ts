@@ -17,7 +17,7 @@
  * Run with `npm run traffic` (Node 24+ runs TypeScript natively).
  */
 
-import greplog from 'greplog'
+import greplog from 'greplog-sdk'
 
 // ---------------------------------------------------------------------------
 // Configuration
