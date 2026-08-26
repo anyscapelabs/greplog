@@ -28,11 +28,14 @@ import (
 )
 
 func main() {
-	cleanup := greplog.Init(greplog.Config{
+	cleanup, err := greplog.Init(greplog.Config{
 		Service: "payment-gateway",
 		Env:     "development",
 		// Endpoint defaults to http://127.0.0.1:5050/api/log
 	})
+	if err != nil {
+		panic(err)
+	}
 	defer cleanup() // flushes pending logs before exit
 
 	slog.Info("Server running", slog.String("port", "4001"))
@@ -40,9 +43,12 @@ func main() {
 ```
 
 `Init` builds a `log/slog.Handler` and calls `slog.SetDefault`, so all standard
-`log/slog` calls route to Greplog automatically. It returns a cleanup function;
-call it (typically via `defer`) to stop the batching worker and flush any
-pending logs before the process exits.
+`log/slog` calls route to Greplog automatically. It returns a cleanup function
+and an error; call the cleanup (typically via `defer`) to stop the batching
+worker and flush any pending logs before the process exits. The error reports
+configuration problems before any log is sent — above all an invalid service
+name: valid names are 1–64 characters of `a-z A-Z 0-9 _ . -` (the name becomes
+a storage directory, so `/` and `..` are not allowed).
 
 Missing configuration values fall back to the environment:
 
@@ -79,7 +85,10 @@ batches:
 ## Graceful shutdown
 
 ```go
-cleanup := greplog.Init(greplog.Config{Service: "payment-gateway"})
+cleanup, err := greplog.Init(greplog.Config{Service: "payment-gateway"})
+if err != nil {
+	panic(err)
+}
 defer cleanup()
 ```
 
@@ -89,7 +98,7 @@ before returning. It is idempotent, so it is safe in signal handlers.
 ## Configuration reference
 
 ```go
-greplog.Init(greplog.Config{
+cleanup, err := greplog.Init(greplog.Config{
 	Service:         "payment-gateway",
 	Env:             "production",
 	Endpoint:        "http://127.0.0.1:5050/api/log",
@@ -97,6 +106,10 @@ greplog.Init(greplog.Config{
 	FlushInterval:   time.Second,
 	ChannelCapacity: 50000,
 })
+if err != nil {
+	panic(err)
+}
+defer cleanup()
 ```
 
 For a full runnable reference, see the

@@ -10,8 +10,9 @@ code required.
 
 ## What this example shows
 
-- **One-line initialization** — `greplog.Init` registers a global `slog`
-  handler.
+- **One-call initialization** — `greplog.Init` registers a global `slog`
+  handler and reports invalid configuration (like a bad service name) before
+  any log is sent.
 - **Zero magic** — the route handlers use only the native `log/slog` API;
   Greplog captures every structured attribute (`slog.String`, `slog.Int`, …).
 - **Graceful shutdown** — `defer cleanup()` drains the asynchronous channel

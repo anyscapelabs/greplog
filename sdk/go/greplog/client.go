@@ -5,6 +5,7 @@ package greplog
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"sync"
@@ -62,10 +63,34 @@ func envDefault(value, key, fallback string) string {
 	return fallback
 }
 
+// ServiceNameMaxLen is the longest accepted service name: the name becomes a
+// `service=<name>` storage partition directory on the server, so it is capped
+// like a filesystem component.
+const ServiceNameMaxLen = 64
+
+// IsValidServiceName mirrors the server's ingest rule exactly. Checking here
+// turns a silent every-record-rejected loop into one loud startup error.
+func IsValidServiceName(service string) bool {
+	if len(service) == 0 || len(service) > ServiceNameMaxLen {
+		return false
+	}
+	for i := 0; i < len(service); i++ {
+		b := service[i]
+		switch {
+		case b >= 'a' && b <= 'z', b >= 'A' && b <= 'Z', b >= '0' && b <= '9':
+		case b == '_' || b == '.' || b == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // NewClient builds a batching client with defaulted configuration. The raw
 // low-level API; most users configure Greplog through NewHandler or Init
-// instead.
-func NewClient(cfg Config) *Client {
+// instead. It fails before starting its worker when the service name would be
+// rejected by the server.
+func NewClient(cfg Config) (*Client, error) {
 	// Apply defaults (with env-var fallbacks for zero-config deploys).
 	cfg.Endpoint = envDefault(cfg.Endpoint, "GREPLOG_URL", "http://127.0.0.1:5050/api/log")
 	cfg.Service = envDefault(cfg.Service, "GREPLOG_SERVICE_NAME", "go-app")
@@ -82,6 +107,11 @@ func NewClient(cfg Config) *Client {
 	if cfg.MaxQueueSize <= 0 {
 		cfg.MaxQueueSize = 10000
 	}
+	if !IsValidServiceName(cfg.Service) {
+		return nil, fmt.Errorf(
+			"greplog: invalid service name %q: use 1 to %d characters of a-z, A-Z, 0-9, '_', '.' or '-'",
+			cfg.Service, ServiceNameMaxLen)
+	}
 
 	c := &Client{
 		config:  cfg,
@@ -95,7 +125,7 @@ func NewClient(cfg Config) *Client {
 	c.wg.Add(1)
 	go c.workerLoop()
 
-	return c
+	return c, nil
 }
 
 // Service returns the effectively configured service name.

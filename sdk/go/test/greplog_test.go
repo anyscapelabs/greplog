@@ -54,10 +54,23 @@ func waitFor(t *testing.T, cond func() bool) {
 	t.Fatal("condition not satisfied within deadline")
 }
 
+// mustHandler builds a handler from configuration known to be valid.
+func mustHandler(t *testing.T, cfg greplog.Config) *greplog.Handler {
+	t.Helper()
+	h, err := greplog.NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler failed: %v", err)
+	}
+	return h
+}
+
 func TestDefaultConfigApplied(t *testing.T) {
 	t.Setenv("GREPLOG_URL", "")
 	t.Setenv("GREPLOG_SERVICE_NAME", "")
-	client := greplog.NewClient(greplog.Config{Service: "svc"})
+	client, err := greplog.NewClient(greplog.Config{Service: "svc"})
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
 	defer client.Close()
 
 	if got := client.Endpoint(); got != "http://127.0.0.1:5050/api/log" {
@@ -74,9 +87,43 @@ func TestDefaultConfigApplied(t *testing.T) {
 	}
 }
 
+// TestRejectsInvalidServiceNames pins the client-side mirror of the server's
+// ingest rule: the service name becomes a storage partition directory, so a
+// traversal like ../evil must fail loudly at init instead of every record
+// being rejected (and dropped) by the server later.
+func TestRejectsInvalidServiceNames(t *testing.T) {
+	t.Setenv("GREPLOG_SERVICE_NAME", "")
+
+	if _, err := greplog.NewClient(greplog.Config{Service: "../evil"}); err == nil {
+		t.Fatal("expected NewClient to reject a path-traversing service name")
+	}
+	cleanup, err := greplog.Init(greplog.Config{Service: "has space"})
+	if err == nil {
+		cleanup()
+		t.Fatal("expected Init to report the invalid service name")
+	}
+	if cleanup != nil {
+		t.Fatal("a failed Init must not return a cleanup function")
+	}
+	if !strings.Contains(err.Error(), "invalid service name") {
+		t.Fatalf("error should name the problem, got %q", err)
+	}
+
+	for _, name := range []string{"auth-api", "payment_worker.2", "A-1_2.b", strings.Repeat("x", 64)} {
+		if !greplog.IsValidServiceName(name) {
+			t.Fatalf("ordinary service name %q must be accepted", name)
+		}
+	}
+	for _, name := range []string{"", "../evil", "..\\windows", "a/b", "has space", "süß", strings.Repeat("x", 65)} {
+		if greplog.IsValidServiceName(name) {
+			t.Fatalf("service name %q must be rejected", name)
+		}
+	}
+}
+
 func TestFlushesOnBatchSize(t *testing.T) {
 	srv, get := collectServer(t)
-	h := greplog.NewHandler(greplog.Config{
+	h := mustHandler(t, greplog.Config{
 		Service:       "billing",
 		Endpoint:      srv.URL,
 		BatchSize:     3,
@@ -96,7 +143,7 @@ func TestFlushesOnBatchSize(t *testing.T) {
 
 func TestFlushesOnInterval(t *testing.T) {
 	srv, get := collectServer(t)
-	h := greplog.NewHandler(greplog.Config{
+	h := mustHandler(t, greplog.Config{
 		Service:       "billing",
 		Endpoint:      srv.URL,
 		BatchSize:     1000,
@@ -113,7 +160,7 @@ func TestFlushesOnInterval(t *testing.T) {
 
 func TestWireSchema(t *testing.T) {
 	srv, get := collectServer(t)
-	h := greplog.NewHandler(greplog.Config{
+	h := mustHandler(t, greplog.Config{
 		Service:       "billing",
 		Endpoint:      srv.URL,
 		BatchSize:     1,
@@ -148,7 +195,7 @@ func TestWireSchema(t *testing.T) {
 
 func TestAttrsAndGroups(t *testing.T) {
 	srv, get := collectServer(t)
-	h := greplog.NewHandler(greplog.Config{
+	h := mustHandler(t, greplog.Config{
 		Service:       "checkout",
 		Endpoint:      srv.URL,
 		BatchSize:     1,
@@ -178,12 +225,15 @@ func TestAttrsAndGroups(t *testing.T) {
 
 func TestGlobalDefaultLogger(t *testing.T) {
 	srv, get := collectServer(t)
-	cleanup := greplog.Init(greplog.Config{
+	cleanup, err := greplog.Init(greplog.Config{
 		Service:       "svc",
 		Endpoint:      srv.URL,
 		BatchSize:     1,
 		FlushInterval: time.Hour,
 	})
+	if err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
 	defer cleanup()
 
 	slog.Info("hello from slog", "k", "v")
@@ -252,7 +302,7 @@ func failThenSucceedServer(t *testing.T, status int, failCount int) (*httptest.S
 // that gets a 500 must be retried, not silently discarded.
 func TestRetriesOn500(t *testing.T) {
 	srv, _, get := failThenSucceedServer(t, http.StatusInternalServerError, 1)
-	h := greplog.NewHandler(greplog.Config{
+	h := mustHandler(t, greplog.Config{
 		Service:       "svc",
 		Endpoint:      srv.URL,
 		BatchSize:     1,
@@ -272,7 +322,7 @@ func TestRetriesOn500(t *testing.T) {
 // same way a 500 is, not treated as a permanent rejection.
 func TestRetriesOn429(t *testing.T) {
 	srv, _, get := failThenSucceedServer(t, http.StatusTooManyRequests, 2)
-	h := greplog.NewHandler(greplog.Config{
+	h := mustHandler(t, greplog.Config{
 		Service:       "svc",
 		Endpoint:      srv.URL,
 		BatchSize:     1,
@@ -293,7 +343,7 @@ func TestRetriesOn429(t *testing.T) {
 // drop it (and count it) rather than retry an identical request forever.
 func TestDropsOnPermanentRejection(t *testing.T) {
 	srv, requestCount, get := failThenSucceedServer(t, http.StatusUnprocessableEntity, 1000)
-	h := greplog.NewHandler(greplog.Config{
+	h := mustHandler(t, greplog.Config{
 		Service:       "svc",
 		Endpoint:      srv.URL,
 		BatchSize:     1,
@@ -320,7 +370,7 @@ func TestDropsOnPermanentRejection(t *testing.T) {
 // the flush interval ticker.
 func TestRetryDoesNotHammerOnEveryEntry(t *testing.T) {
 	srv, requestCount, get := failThenSucceedServer(t, http.StatusServiceUnavailable, 3)
-	h := greplog.NewHandler(greplog.Config{
+	h := mustHandler(t, greplog.Config{
 		Service:       "svc",
 		Endpoint:      srv.URL,
 		BatchSize:     1, // every Info() call alone would exceed the batch size
@@ -356,7 +406,7 @@ func TestFullChannelDropsWithoutBlocking(t *testing.T) {
 	}))
 	defer blocking.Close()
 
-	h := greplog.NewHandler(greplog.Config{
+	h := mustHandler(t, greplog.Config{
 		Service:         "svc",
 		Endpoint:        blocking.URL,
 		BatchSize:       1000,

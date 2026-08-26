@@ -31,6 +31,11 @@ Calling `init` more than once is a no-op. It also auto-instruments the process:
 `console` methods are monkey-patched (original output to stdout/stderr is preserved),
 and `uncaughtException` / `unhandledRejection` are captured as `CRITICAL` records.
 
+The service name must be 1-64 characters of `a-z A-Z 0-9 _ . -` (it becomes a
+storage directory on the server, so `/` and `..` are not allowed). An invalid
+name fails at init with a clear error instead of every record being rejected
+by the server later.
+
 ## Log
 
 ```typescript

@@ -30,7 +30,23 @@ export interface LogRecord {
 }
 
 const DEFAULT_ENDPOINT = process.env.GREPLOG_URL ?? 'http://127.0.0.1:5050'
-const DEFAULT_SERVICE = process.env.GREPLOG_SERVICE_NAME ?? 'node-app'
+
+/** Longest accepted service name: it becomes a storage partition directory. */
+export const SERVICE_NAME_MAX_LEN = 64
+
+/**
+ * Mirrors the server's ingest rule exactly: the service name becomes a
+ * `service=<name>` storage directory, so `/`, `\`, `..`, whitespace and
+ * non-ASCII bytes are rejected before anything is queued. Checking here
+ * turns a silent every-record-rejected loop into one loud startup error.
+ */
+export function isValidServiceName(service: string): boolean {
+  return (
+    service.length >= 1 &&
+    service.length <= SERVICE_NAME_MAX_LEN &&
+    /^[A-Za-z0-9._-]+$/.test(service)
+  )
+}
 
 /**
  * Returns true for HTTP statuses worth retrying: 5xx (server-side failure)
@@ -75,8 +91,17 @@ export class GreplogClient {
 
   constructor(config: GreplogConfig = {}) {
     const base = (config.endpoint ?? DEFAULT_ENDPOINT).replace(/\/+$/, '')
+    // Read at construction, not import time, so late-set env vars still
+    // apply. An empty env value counts as unset, matching the other SDKs.
+    const service = config.service ?? (process.env.GREPLOG_SERVICE_NAME || 'node-app')
+    if (!isValidServiceName(service)) {
+      throw new Error(
+        `greplog: invalid service name ${JSON.stringify(service)}: use 1 to ` +
+          `${SERVICE_NAME_MAX_LEN} characters of a-z, A-Z, 0-9, '_', '.' or '-'`,
+      )
+    }
     this.config = {
-      service: config.service ?? DEFAULT_SERVICE,
+      service,
       env: config.env ?? process.env.GREPLOG_ENV ?? 'development',
       endpoint: `${base}/api/log`,
       batchSize: config.batchSize ?? 100,

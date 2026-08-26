@@ -155,3 +155,27 @@ def test_init_reads_env(monkeypatch, server):
     row = server.requests[0][0]
     assert row["service"] == "env-svc"
     greplog.shutdown()
+
+
+def test_service_name_validation_matches_the_server():
+    for name in ("auth-api", "payment_worker.2", "A-1_2.b", "x" * 64):
+        assert greplog.is_valid_service_name(name)
+    for name in ("", "../evil", "..\\windows", "a/b", "has space", "süß", "x" * 65):
+        assert not greplog.is_valid_service_name(name)
+
+
+def test_constructor_rejects_invalid_service_names_before_spawning_anything():
+    # A rejected constructor must leave nothing behind: no flusher thread, no
+    # atexit hook that would run against a half-built client.
+    threads_before = threading.active_count()
+    with pytest.raises(ValueError, match=r'invalid service name.*\.\./evil'):
+        greplog.GreplogClient(service="../evil")
+    assert threading.active_count() == threads_before
+
+
+def test_init_raises_for_bad_env_config(monkeypatch):
+    monkeypatch.setenv("GREPLOG_SERVICE_NAME", "../from-env")
+    monkeypatch.setattr(greplog, "_client", None)
+    with pytest.raises(ValueError, match="invalid service name"):
+        greplog.init()
+    assert greplog._client is None

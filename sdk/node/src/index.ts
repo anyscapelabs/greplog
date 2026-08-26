@@ -1,4 +1,4 @@
-import { GreplogClient, type GreplogConfig } from './logger.js'
+import { GreplogClient, isValidServiceName, SERVICE_NAME_MAX_LEN, type GreplogConfig } from './logger.js'
 import { instrumentNode } from './instrument.js'
 
 let clientInstance: GreplogClient | null = null
@@ -47,5 +47,5 @@ const greplog = {
 }
 
 export default greplog
-export { GreplogClient }
+export { GreplogClient, isValidServiceName, SERVICE_NAME_MAX_LEN }
 export type { GreplogConfig, LogRecord } from './logger.js'

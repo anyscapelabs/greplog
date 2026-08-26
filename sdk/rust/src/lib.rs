@@ -10,13 +10,30 @@
 //! Records queue in memory and flush to `POST /api/log` on batch size or
 //! interval. A failed flush retries once for 429/5xx/network errors — the
 //! batch was never durably accepted — and the SDK never panics into the
-//! caller's code.
+//! caller's code at runtime. The one deliberate exception is initialization:
+//! [`Client::new`] and [`init`] panic on an invalid service name rather than
+//! let every record be silently rejected by the server.
 
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{json, Value};
 
 const DEFAULT_ENDPOINT: &str = "http://127.0.0.1:5050";
+
+/// Longest accepted service name: it becomes a storage partition directory.
+pub const SERVICE_NAME_MAX_LEN: usize = 64;
+
+/// Mirrors the server's ingest rule exactly: the service name becomes a
+/// `service=<name>` storage directory, so `/`, `\`, `..`, whitespace and
+/// non-ASCII bytes are rejected. Checking here turns a silent
+/// every-record-rejected loop into one loud startup error.
+#[must_use]
+pub fn is_valid_service_name(service: &str) -> bool {
+    (1..=SERVICE_NAME_MAX_LEN).contains(&service.len())
+        && service
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
+}
 
 struct Shared {
     queue: Vec<Value>,
@@ -35,6 +52,11 @@ pub struct Client {
 
 impl Client {
     /// Creates a client and starts its background flusher thread.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `service` would be rejected by the server's ingest rule —
+    /// fail-fast at startup instead of silently losing every record.
     pub fn new(
         service: impl Into<String>,
         endpoint: &str,
@@ -42,9 +64,15 @@ impl Client {
         flush_interval: std::time::Duration,
         max_queue_size: usize,
     ) -> Arc<Self> {
+        let service = service.into();
+        assert!(
+            is_valid_service_name(&service),
+            "greplog: invalid service name {service:?}: use 1 to \
+             {SERVICE_NAME_MAX_LEN} characters of a-z, A-Z, 0-9, '_', '.' or '-'"
+        );
         let (wake_tx, wake_rx) = std::sync::mpsc::channel();
         let client = Arc::new(Self {
-            service: service.into(),
+            service,
             url: format!("{}/api/log", endpoint.trim_end_matches('/')),
             batch_size: batch_size.max(1),
             max_queue_size: max_queue_size.max(1),

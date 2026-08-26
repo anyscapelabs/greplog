@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GreplogClient } from '../src/logger.js'
+import { GreplogClient, isValidServiceName } from '../src/logger.js'
 
 const ENDPOINT = 'http://127.0.0.1:5050/api/log'
 
@@ -183,5 +183,37 @@ describe('GreplogClient', () => {
     const client = new GreplogClient({ service: 'svc', batchSize: 1 })
     expect(() => client.track('INFO', { deep: { nested: 1 } })).not.toThrow()
     await client.flush()
+  })
+})
+describe('service name validation', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('accepts the names the server accepts', () => {
+    expect(isValidServiceName('auth-api')).toBe(true)
+    expect(isValidServiceName('payment_worker.2')).toBe(true)
+    expect(isValidServiceName('A-1_2.b')).toBe(true)
+    expect(isValidServiceName('x'.repeat(64))).toBe(true)
+  })
+
+  it('rejects path traversal and oversized names', () => {
+    for (const name of ['', '../evil', '..\\windows', 'a/b', 'has space', 'süß', 'x'.repeat(65)]) {
+      expect(isValidServiceName(name)).toBe(false)
+    }
+  })
+
+  it('throws at construction with a message naming the rule', () => {
+    expect(() => new GreplogClient({ service: '../evil' })).toThrowError(
+      /invalid service name "\.\.\/evil".*1 to 64 characters/,
+    )
+  })
+
+  it('still validates when the service comes from the environment or the default', () => {
+    vi.stubEnv('GREPLOG_SERVICE_NAME', '../from-env')
+    expect(() => new GreplogClient({})).toThrowError(/invalid service name/)
+    vi.stubEnv('GREPLOG_SERVICE_NAME', '')
+    const fallback = new GreplogClient({})
+    expect(fallback.getService()).toBe('node-app')
   })
 })

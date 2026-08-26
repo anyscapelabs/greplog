@@ -14,6 +14,20 @@ logger = logging.getLogger("greplog")
 
 LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
+# Longest accepted service name: it becomes a storage partition directory.
+SERVICE_NAME_MAX_LEN = 64
+
+
+def is_valid_service_name(service: str) -> bool:
+    """Mirrors the server's ingest rule exactly: the service name becomes a
+    `service=<name>` storage directory, so `/`, `\\`, `..`, whitespace and
+    non-ASCII characters are rejected. Checking here turns a silent
+    every-record-rejected loop into one loud startup error."""
+    return (
+        1 <= len(service) <= SERVICE_NAME_MAX_LEN
+        and all(c.isascii() and (c.isalnum() or c in "_.-") for c in service)
+    )
+
 
 class GreplogClient:
     """Queues records in memory and flushes them to `POST /api/log`.
@@ -32,6 +46,11 @@ class GreplogClient:
         flush_interval: float = 0.5,
         max_queue_size: int = 10_000,
     ) -> None:
+        if not is_valid_service_name(service):
+            raise ValueError(
+                f"greplog: invalid service name {service!r}: use 1 to "
+                f"{SERVICE_NAME_MAX_LEN} characters of a-z, A-Z, 0-9, '_', '.' or '-'"
+            )
         self.service = service
         self.env = env
         self._url = f"{endpoint.rstrip('/')}/api/log"

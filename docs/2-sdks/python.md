@@ -18,6 +18,11 @@ greplog.init("payment-service", "production")  # Or greplog.init() to read from 
 
 `init(service_name, env)` accepts values explicitly, or reads `GREPLOG_SERVICE_NAME`, `GREPLOG_ENV`, and `GREPLOG_URL` from the environment when called with no arguments.
 
+The service name must be 1-64 characters of `a-z A-Z 0-9 _ . -` (it becomes a
+storage directory on the server, so `/` and `..` are not allowed). An invalid
+name fails at init with a clear error instead of every record being rejected
+by the server later.
+
 ## Log
 
 ```python

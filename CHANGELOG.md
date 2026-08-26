@@ -44,7 +44,11 @@ First public release.
 - Ingest rejects service names that could alter the storage layout
   (`service` becomes a `service=<name>` directory, so `/` or `..` in the
   name could write outside the data directory). Valid names are 1–64
-  characters of `a-z A-Z 0-9 _ . -`; offending batches get a 400.
+  characters of `a-z A-Z 0-9 _ . -`; offending batches get a 400. All four
+  SDKs enforce the same rule at init with a clear error — Node throws,
+  Python raises `ValueError`, Go's `Init` now returns `(cleanup, error)`,
+  Rust panics — so a bad name surfaces once at startup instead of every
+  record being silently rejected later.
 - DataFusion 39 mis-prunes when two Hive partition columns are conjuncted;
   searches now emit a single-clause partition filter.
 - Facet picks from the sidebar translate UI names to wire columns

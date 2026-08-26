@@ -13,8 +13,15 @@ var defaultHandler *Handler
 // The returned cleanup function performs a graceful shutdown and must be
 // called from main() (for example in a deferred call after wiring a signal
 // handler for SIGINT/SIGTERM) to flush any pending logs.
-func Init(cfg Config) func() {
-	defaultHandler = NewHandler(cfg)
+//
+// Init reports configuration problems — an invalid service name above all —
+// instead of installing a logger whose every record the server would reject.
+func Init(cfg Config) (func(), error) {
+	handler, err := NewHandler(cfg)
+	if err != nil {
+		return nil, err
+	}
+	defaultHandler = handler
 	logger := slog.New(defaultHandler)
 	slog.SetDefault(logger)
 
@@ -23,5 +30,5 @@ func Init(cfg Config) func() {
 			defaultHandler.Close()
 			defaultHandler = nil
 		}
-	}
+	}, nil
 }

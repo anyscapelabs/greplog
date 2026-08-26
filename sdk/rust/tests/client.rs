@@ -6,7 +6,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use greplog::Client;
+use greplog::{is_valid_service_name, Client};
 
 /// Serves N responses (status configurable per slot), capturing request bodies.
 struct FakeServer {
@@ -170,4 +170,28 @@ fn queue_cap_drops_oldest_records() {
         .map(|row| row["message"].as_str().unwrap())
         .collect();
     assert_eq!(messages, vec!["m3", "m4", "m5", "m6", "m7"]);
+}
+
+#[test]
+#[should_panic(expected = "invalid service name")]
+fn a_path_traversing_service_name_panics_at_init() {
+    // The service name becomes a storage directory server-side; the client
+    // must refuse it loudly instead of queueing records that will all be
+    // rejected later.
+    Client::new("../evil", "http://127.0.0.1:5050", 1, Duration::from_secs(60), 100);
+}
+
+#[test]
+fn service_name_rule_matches_the_server() {
+    assert!(is_valid_service_name("auth-api"));
+    assert!(is_valid_service_name("payment_worker.2"));
+    assert!(is_valid_service_name("A-1_2.b"));
+    let longest = "x".repeat(greplog::SERVICE_NAME_MAX_LEN);
+    assert!(is_valid_service_name(&longest));
+
+    let too_long = "x".repeat(greplog::SERVICE_NAME_MAX_LEN + 1);
+    for bad in ["", "../evil", "..\\windows", "a/b", "has space", "süß"] {
+        assert!(!is_valid_service_name(bad), "{bad:?} must be rejected");
+    }
+    assert!(!is_valid_service_name(&too_long));
 }

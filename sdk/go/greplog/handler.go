@@ -17,10 +17,15 @@ type Handler struct {
 	groups []string
 }
 
-// NewHandler builds a client and returns a slog handler bound to it.
-func NewHandler(cfg Config) *Handler {
-	client := NewClient(cfg)
-	return &Handler{client: client}
+// NewHandler builds a client and returns a slog handler bound to it. It
+// fails before any log call when the configuration would be rejected by the
+// server (e.g. an invalid service name).
+func NewHandler(cfg Config) (*Handler, error) {
+	client, err := NewClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &Handler{client: client}, nil
 }
 
 // Client returns the underlying batching client, for introspection (e.g.
