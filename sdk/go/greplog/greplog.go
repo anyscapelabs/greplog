@@ -32,3 +32,17 @@ func Init(cfg Config) (func(), error) {
 		}
 	}, nil
 }
+
+// MustInit is Init for the common case: it panics on invalid configuration
+// instead of returning an error. A service name the server would reject
+// should stop startup, not be handled — this keeps the wiring to two lines:
+//
+//	cleanup := greplog.MustInit(greplog.Config{Service: "my-service"})
+//	defer cleanup()
+func MustInit(cfg Config) func() {
+	cleanup, err := Init(cfg)
+	if err != nil {
+		panic(err)
+	}
+	return cleanup
+}

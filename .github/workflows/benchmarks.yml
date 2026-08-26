@@ -1,0 +1,78 @@
+name: Official benchmarks
+
+# Reproducible performance numbers on GitHub-hosted hardware. Every run
+# exercises the real production path — WAL fsync-before-ack ingestion and
+# DataFusion queries over flushed Parquet — not the mock-WAL ceiling sweep
+# from ci.yml. Results land in the job summary, an artifact, and (for
+# dispatches on main) benchmarks/results.md.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Monday morning UTC.
+    - cron: "23 3 * * 1"
+
+permissions:
+  contents: write
+
+jobs:
+  e2e:
+    name: Engine end-to-end (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run end-to-end benchmark
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --release -p greplog-engine --test e2e_benchmark \
+            -- --nocapture 2>&1 | tee bench_output.txt
+          test "$(grep -c '^RESULT' bench_output.txt)" -ge 5 || {
+            echo "::error::benchmark produced fewer RESULT lines than expected"
+            exit 1
+          }
+
+      - name: Build report
+        shell: bash
+        run: |
+          {
+            echo "## Greplog official benchmark"
+            echo
+            echo "- **Runner:** GitHub-hosted \`ubuntu-latest\` (x86_64, 4 vCPU, 16 GB RAM)"
+            echo "- **Commit:** \`${GITHUB_SHA::7}\` on \`${GITHUB_REF_NAME}\`"
+            echo "- **Run:** ${{ github.event_name }}, $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo "- **Method:** \`cargo test --release\`, real WAL fsync-before-ack path + DataFusion over Parquet; 100k records, 8 producers, 250-record batches"
+            echo "- **Mock-WAL ceiling sweep:** tracked separately in ci.yml; numbers are not comparable"
+            echo
+            echo '```'
+            grep '^RESULT' bench_output.txt
+            echo '```'
+          } | tee report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            bench_output.txt
+            report.md
+
+      - name: Commit results to benchmarks/results.md
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          {
+            echo "### $(date -u '+%Y-%m-%d') — commit ${GITHUB_SHA::7}"
+            echo
+            grep '^RESULT' bench_output.txt
+            echo
+          } >> results_section.md
+          printf '%s\n\n' "$(cat results_section.md)" >> benchmarks/results.md
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add benchmarks/results.md
+          git commit -m "bench: record official results for ${GITHUB_SHA::7} [skip ci]"
+          git push

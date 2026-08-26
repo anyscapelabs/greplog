@@ -27,6 +27,8 @@ First public release.
   interface.
 - SDKs: Node.js, Go, Python (buffered client with batching, retry, queue
   cap), Rust (buffered client with level macros).
+- Go SDK: `MustInit(cfg)` gives the same two-line wiring as the other SDKs,
+  panicking on invalid configuration instead of returning an error.
 
 ### Changed
 - Both servers bind `127.0.0.1` by default instead of every interface;

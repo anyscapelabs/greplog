@@ -47,3 +47,17 @@ cargo flamegraph --test throughput_benchmark
 ```
 
 Artifacts (flamegraph SVG, metrics JSON) are written to `benchmarks/results/` (git-ignored).
+
+## Official benchmarks
+
+The numbers in this README come from the mock-WAL sweep above, which measures
+the producer pipeline's ceiling rather than durable end-to-end throughput.
+Official, reproducible numbers — real WAL fsync-before-ack ingestion plus
+DataFusion query latency over flushed Parquet — live in
+[`results.md`](results.md), recorded by
+[`.github/workflows/benchmarks.yml`](../.github/workflows/benchmarks.yml)
+(manual dispatch or weekly schedule) on GitHub-hosted `ubuntu-latest`:
+
+```bash
+cargo test -p greplog-engine --test e2e_benchmark --release -- --nocapture
+```

@@ -28,14 +28,11 @@ import (
 )
 
 func main() {
-	cleanup, err := greplog.Init(greplog.Config{
+	cleanup := greplog.MustInit(greplog.Config{
 		Service: "payment-gateway",
 		Env:     "development",
 		// Endpoint defaults to http://127.0.0.1:5050/api/log
 	})
-	if err != nil {
-		panic(err)
-	}
 	defer cleanup() // flushes pending logs before exit
 
 	slog.Info("Server running", slog.String("port", "4001"))
@@ -49,6 +46,14 @@ worker and flush any pending logs before the process exits. The error reports
 configuration problems before any log is sent — above all an invalid service
 name: valid names are 1–64 characters of `a-z A-Z 0-9 _ . -` (the name becomes
 a storage directory, so `/` and `..` are not allowed).
+
+For the common case where invalid configuration should simply stop startup,
+use `MustInit`, which panics on that error instead:
+
+```go
+cleanup := greplog.MustInit(greplog.Config{Service: "payment-gateway"})
+defer cleanup()
+```
 
 Missing configuration values fall back to the environment:
 
@@ -85,10 +90,7 @@ batches:
 ## Graceful shutdown
 
 ```go
-cleanup, err := greplog.Init(greplog.Config{Service: "payment-gateway"})
-if err != nil {
-	panic(err)
-}
+cleanup := greplog.MustInit(greplog.Config{Service: "payment-gateway"})
 defer cleanup()
 ```
 
@@ -98,7 +100,7 @@ before returning. It is idempotent, so it is safe in signal handlers.
 ## Configuration reference
 
 ```go
-cleanup, err := greplog.Init(greplog.Config{
+cleanup := greplog.MustInit(greplog.Config{
 	Service:         "payment-gateway",
 	Env:             "production",
 	Endpoint:        "http://127.0.0.1:5050/api/log",
@@ -106,9 +108,6 @@ cleanup, err := greplog.Init(greplog.Config{
 	FlushInterval:   time.Second,
 	ChannelCapacity: 50000,
 })
-if err != nil {
-	panic(err)
-}
 defer cleanup()
 ```
 

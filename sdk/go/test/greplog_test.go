@@ -109,6 +109,21 @@ func TestRejectsInvalidServiceNames(t *testing.T) {
 		t.Fatalf("error should name the problem, got %q", err)
 	}
 
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("MustInit must panic on an invalid service name")
+			}
+		}()
+		cleanup := greplog.MustInit(greplog.Config{Service: "../evil"})
+		_ = cleanup // unreachable when MustInit panics as required
+	}()
+	ok := greplog.MustInit(greplog.Config{Service: "fine"})
+	if ok == nil {
+		t.Fatal("MustInit must return a cleanup function on success")
+	}
+	ok()
+
 	for _, name := range []string{"auth-api", "payment_worker.2", "A-1_2.b", strings.Repeat("x", 64)} {
 		if !greplog.IsValidServiceName(name) {
 			t.Fatalf("ordinary service name %q must be accepted", name)

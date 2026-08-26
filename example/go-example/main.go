@@ -13,15 +13,14 @@ func main() {
 	// 1. Initialize Greplog as the global slog handler. Every standard
 	//    slog.Info / slog.Error call below is automatically streamed to the
 	//    Greplog backend (POST http://127.0.0.1:5050/api/log by default).
-	cleanup, err := greplog.Init(greplog.Config{
+	// MustInit panics on invalid configuration (e.g. a service name the
+	// server would reject) — startup should not continue half-configured.
+	// Use greplog.Init instead when you want to handle the error yourself.
+	cleanup := greplog.MustInit(greplog.Config{
 		Service: "payment-gateway",
 		Env:     "development",
 		// Endpoint defaults to http://127.0.0.1:5050/api/log
 	})
-	if err != nil {
-		slog.Error("greplog init failed", slog.Any("err", err))
-		return
-	}
 	// 2. Flush any pending asynchronous logs before the process exits.
 	defer cleanup()
 
