@@ -92,9 +92,11 @@ pub async fn start_servers(
         .with_state(dashboard_state);
 
     let ingest_listener =
-        tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.ingest_port)).await?;
+        tokio::net::TcpListener::bind(format!("{}:{}", config.bind_host, config.ingest_port))
+            .await?;
     let dashboard_listener =
-        tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.dashboard_port)).await?;
+        tokio::net::TcpListener::bind(format!("{}:{}", config.bind_host, config.dashboard_port))
+            .await?;
 
     let ingest_shutdown = shutdown.clone();
     let ingest_server = axum::serve(ingest_listener, ingest_router)

@@ -9,11 +9,27 @@ use std::path::PathBuf;
 use greplog_engine::config::EngineConfig;
 
 #[test]
-fn defaults_fall_back_to_the_conventional_layout() {
+fn defaults_live_under_one_platform_storage_root() {
     let config = EngineConfig::default();
 
-    assert_eq!(config.data_dir, PathBuf::from("data/logs"));
-    assert_eq!(config.wal_path, PathBuf::from("data/wal/current.wal"));
+    assert_eq!(config.bind_host, "127.0.0.1");
+    assert!(
+        config.data_dir.ends_with("logs"),
+        "Parquet tree lives under logs/, got {}",
+        config.data_dir.display()
+    );
+    assert!(
+        config
+            .wal_path
+            .ends_with(std::path::Path::new("wal/current.wal")),
+        "active WAL segment lives under wal/, got {}",
+        config.wal_path.display()
+    );
+    assert_eq!(
+        config.data_dir.parent(),
+        config.wal_path.parent().and_then(std::path::Path::parent),
+        "logs/ and wal/ share one storage root"
+    );
     assert_eq!(config.flush_row_limit, 10_000);
     assert!(
         config.mpsc_buffer_size > 0,
@@ -31,13 +47,20 @@ fn defaults_fall_back_to_the_conventional_layout() {
 fn config_is_debug_printable() {
     let config = EngineConfig::default();
     let rendered = format!("{config:?}");
-    assert!(rendered.contains("EngineConfig"), "Debug output must name the struct");
-    assert!(rendered.contains("flush_row_limit"), "Debug output must show the fields");
+    assert!(
+        rendered.contains("EngineConfig"),
+        "Debug output must name the struct"
+    );
+    assert!(
+        rendered.contains("flush_row_limit"),
+        "Debug output must show the fields"
+    );
 }
 
 #[test]
 fn cloned_config_stays_an_independent_copy() {
     let original = EngineConfig {
+        bind_host: String::from("0.0.0.0"),
         data_dir: PathBuf::from("/srv/greplog/chunks"),
         wal_path: PathBuf::from("/srv/greplog/prewrite.wal"),
         flush_row_limit: 512,
@@ -56,6 +79,7 @@ fn cloned_config_stays_an_independent_copy() {
     };
     let clone = original.clone();
 
+    assert_eq!(clone.bind_host, original.bind_host);
     assert_eq!(clone.data_dir, original.data_dir);
     assert_eq!(clone.wal_path, original.wal_path);
     assert_eq!(clone.flush_row_limit, original.flush_row_limit);
@@ -95,7 +119,10 @@ fn partial_overrides_keep_all_other_defaults() {
     assert_eq!(config.flush_row_limit, 2_500);
     assert_eq!(config.data_dir, EngineConfig::default().data_dir);
     assert_eq!(config.wal_path, EngineConfig::default().wal_path);
-    assert_eq!(config.mpsc_buffer_size, EngineConfig::default().mpsc_buffer_size);
+    assert_eq!(
+        config.mpsc_buffer_size,
+        EngineConfig::default().mpsc_buffer_size
+    );
     assert_eq!(
         config.crossbeam_buffer_size,
         EngineConfig::default().crossbeam_buffer_size

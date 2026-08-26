@@ -16,12 +16,18 @@ pub struct Cli {
 pub enum Commands {
     /// Start the system in development mode with defaults tuned for a dev machine.
     Dev {
+        /// Network interface to bind, e.g. 127.0.0.1 (default) or 0.0.0.0.
+        #[arg(long)]
+        host: Option<String>,
         /// Custom dashboard port (overrides `EngineConfig::dashboard_port`).
         #[arg(short, long)]
         port: Option<u16>,
     },
     /// Start the system in production mode.
     Start {
+        /// Network interface to bind, e.g. 127.0.0.1 (default) or 0.0.0.0.
+        #[arg(long)]
+        host: Option<String>,
         /// Custom dashboard port (overrides `EngineConfig::dashboard_port`).
         #[arg(short, long)]
         port: Option<u16>,
@@ -31,4 +37,10 @@ pub enum Commands {
     },
     /// Report WAL and storage status without a running server.
     Status,
+    /// Remove Greplog from this machine: storage, WAL and the binary itself.
+    Uninstall {
+        /// Skip the confirmation prompt (for scripts).
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
 }

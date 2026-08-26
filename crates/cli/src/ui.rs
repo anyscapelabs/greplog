@@ -1,7 +1,7 @@
 //! Terminal styling: color where it helps, plain output everywhere else.
 //!
 //! Every helper degrades to unstyled text when stdout is not a TTY or
-//! `NO_COLOR` is set, matching the convention of ripgrep and friends.
+//! `NO_COLOR` is set, matching tools like ripgrep.
 
 use std::io::IsTerminal;
 
@@ -56,8 +56,18 @@ pub fn ok_mark() -> String {
     }
 }
 
-/// Human-readable byte sizes: one decimal below 10 units, integers above.
-pub fn human_bytes(bytes: u64) -> String {
+/// Warnings that need operator attention.
+pub fn warn_mark() -> String {
+    if color_enabled() {
+        "!".with(Color::Yellow).to_string()
+    } else {
+        "warning".to_string()
+    }
+}
+
+/// Storage byte sizes formatted for terminal output: one decimal below
+/// 10 units, integers above.
+pub fn storage_bytes(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     #[expect(
         clippy::cast_precision_loss,
@@ -98,22 +108,25 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{human_bytes, wrap};
+    use super::{storage_bytes, wrap};
 
     #[test]
     fn wrap_breaks_at_word_boundaries_within_the_budget() {
         let lines = wrap("zero-data-loss logging engine for developers", 16);
         assert!(lines.iter().all(|line| line.chars().count() <= 16));
-        assert_eq!(lines.join(" "), "zero-data-loss logging engine for developers");
+        assert_eq!(
+            lines.join(" "),
+            "zero-data-loss logging engine for developers"
+        );
         assert_eq!(wrap("", 10), Vec::<String>::new());
     }
 
     #[test]
-    fn human_bytes_scales_and_rounds() {
-        assert_eq!(human_bytes(0), "0 B");
-        assert_eq!(human_bytes(512), "512 B");
-        assert_eq!(human_bytes(393_602), "384 KB");
-        assert_eq!(human_bytes(9 * 1024 * 1024), "9.0 MB");
-        assert_eq!(human_bytes(40 * 1024 * 1024 * 1024), "40 GB");
+    fn storage_bytes_scales_and_rounds() {
+        assert_eq!(storage_bytes(0), "0 B");
+        assert_eq!(storage_bytes(512), "512 B");
+        assert_eq!(storage_bytes(393_602), "384 KB");
+        assert_eq!(storage_bytes(9 * 1024 * 1024), "9.0 MB");
+        assert_eq!(storage_bytes(40 * 1024 * 1024 * 1024), "40 GB");
     }
 }

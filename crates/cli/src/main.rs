@@ -9,6 +9,7 @@
 mod banner;
 mod cli;
 mod ui;
+mod uninstall;
 
 use std::fs;
 use std::path::Path;
@@ -52,51 +53,67 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Dev { port } => {
-            if let Err(error) = run_dev(port).await {
+        Commands::Dev { host, port } => {
+            if let Err(error) = run_dev(host, port).await {
                 tracing::error!(?error, "dev server failed");
                 std::process::exit(1);
             }
         }
-        Commands::Start { port, retention_days } => {
-            if let Err(error) = run_start(port, retention_days).await {
+        Commands::Start {
+            host,
+            port,
+            retention_days,
+        } => {
+            if let Err(error) = run_start(host, port, retention_days).await {
                 tracing::error!(?error, "server failed");
                 std::process::exit(1);
             }
         }
         Commands::Status => run_status(),
+        Commands::Uninstall { yes } => {
+            if let Err(error) = uninstall::run(yes) {
+                tracing::error!(?error, "uninstall failed");
+                std::process::exit(1);
+            }
+        }
     }
 }
 
-async fn run_dev(port: Option<u16>) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = EngineConfig::default();
-    if let Some(p) = port {
-        config.dashboard_port = p;
-    }
+async fn run_dev(
+    host: Option<String>,
+    port: Option<u16>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let defaults = EngineConfig::default();
+    let config = EngineConfig {
+        bind_host: host.unwrap_or_else(|| defaults.bind_host.clone()),
+        dashboard_port: port.unwrap_or(defaults.dashboard_port),
+        ..defaults
+    };
     run_server(config).await
 }
 
 async fn run_start(
+    host: Option<String>,
     port: Option<u16>,
     retention_days: Option<u32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = EngineConfig::default();
-    if let Some(p) = port {
-        config.dashboard_port = p;
-    }
-    if let Some(days) = retention_days {
-        config.retention_days = Some(days);
-    }
+    let defaults = EngineConfig::default();
+    let config = EngineConfig {
+        bind_host: host.unwrap_or_else(|| defaults.bind_host.clone()),
+        dashboard_port: port.unwrap_or(defaults.dashboard_port),
+        retention_days: retention_days.or(defaults.retention_days),
+        ..defaults
+    };
     run_server(config).await
 }
 
 fn run_status() {
-    use ui::{bold, dim, human_bytes};
+    use ui::{bold, dim, storage_bytes};
 
     let config = EngineConfig::default();
 
-    let sealed = greplog_engine::wal::sealed_segments(&config.wal_path)
-        .map_or(0, |segments| segments.len());
+    let sealed =
+        greplog_engine::wal::sealed_segments(&config.wal_path).map_or(0, |segments| segments.len());
     let storage = greplog_server::stats::storage_stats(&config.data_dir);
     let services = service_breakdown(&config.data_dir);
 
@@ -109,7 +126,7 @@ fn run_status() {
             "{} · {sealed} sealed segment{} · {}",
             config.wal_path.display(),
             if sealed == 1 { "" } else { "s" },
-            human_bytes(wal_usage(&config.wal_path))
+            storage_bytes(wal_usage(&config.wal_path))
         ),
     );
     match config.retention_days {
@@ -124,7 +141,7 @@ fn run_status() {
             if storage.partitions == 1 { "" } else { "s" },
             storage.chunks,
             if storage.chunks == 1 { "" } else { "s" },
-            human_bytes(storage.bytes),
+            storage_bytes(storage.bytes),
         ),
     );
     if services.is_empty() {
@@ -149,13 +166,17 @@ fn service_breakdown(data_dir: &Path) -> Vec<(String, u64)> {
 }
 
 fn collect_service_rows(dir: &Path, totals: &mut std::collections::HashMap<String, u64>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_dir() {
             continue;
         }
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue };
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
         if let Some(service) = name.strip_prefix("service=") {
             *totals.entry(service.to_string()).or_insert(0) += walk_chunk_rows(&path);
         } else {
@@ -165,7 +186,9 @@ fn collect_service_rows(dir: &Path, totals: &mut std::collections::HashMap<Strin
 }
 
 fn walk_chunk_rows(dir: &Path) -> u64 {
-    let Ok(entries) = fs::read_dir(dir) else { return 0 };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
     entries
         .flatten()
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "parquet"))
@@ -195,10 +218,9 @@ async fn run_server(config: EngineConfig) -> Result<(), Box<dyn std::error::Erro
 
     let (wal_tx, wal_rx) = mpsc::channel::<WalCommand>(config.mpsc_buffer_size);
     let (truncate_tx, truncate_rx) = mpsc::channel::<usize>(config.mpsc_buffer_size);
-    let (handoff_tx, handoff_rx) =
-        crossbeam::channel::bounded::<Vec<greplog_engine::record::LogRecord>>(
-            config.crossbeam_buffer_size,
-        );
+    let (handoff_tx, handoff_rx) = crossbeam::channel::bounded::<
+        Vec<greplog_engine::record::LogRecord>,
+    >(config.crossbeam_buffer_size);
     let (broadcast_tx, _) =
         broadcast::channel::<Vec<greplog_engine::record::LogRecord>>(TAIL_BROADCAST_CAPACITY);
 
@@ -228,14 +250,9 @@ async fn run_server(config: EngineConfig) -> Result<(), Box<dyn std::error::Erro
 
     print_startup_banner(&config);
 
-    let server_result = greplog_server::start_servers(
-        config,
-        wal_tx.clone(),
-        query_engine,
-        broadcast_tx,
-        shutdown,
-    )
-    .await;
+    let server_result =
+        greplog_server::start_servers(config, wal_tx.clone(), query_engine, broadcast_tx, shutdown)
+            .await;
 
     if let Err(error) = &server_result {
         tracing::error!(?error, "server exited with error");
@@ -249,7 +266,10 @@ async fn run_server(config: EngineConfig) -> Result<(), Box<dyn std::error::Erro
     retention_task.abort();
 
     drain_write_path(wal_handle, memtable_handle).await;
-    println!("  {} write path drained — every acknowledged row is on disk", ui::ok_mark());
+    println!(
+        "  {} write path drained — every acknowledged row is on disk",
+        ui::ok_mark()
+    );
 
     server_result.map_err(Into::into)
 }
@@ -281,7 +301,11 @@ fn recover_wal_into(
     if batch.num_rows() == 0 {
         return Ok(());
     }
-    if let Ok(mut buffer) = live_buffer.write() { buffer.push(batch) } else { tracing::error!("live buffer write lock poisoned on WAL replay") }
+    if let Ok(mut buffer) = live_buffer.write() {
+        buffer.push(batch);
+    } else {
+        tracing::error!("live buffer write lock poisoned on WAL replay");
+    }
     Ok(())
 }
 
@@ -325,6 +349,15 @@ async fn drain_write_path(wal_handle: JoinHandle<()>, memtable_handle: JoinHandl
     }
 }
 
+/// The address an operator can actually type: a wildcard bind serves every
+/// interface including loopback, so `127.0.0.1` is always valid there.
+fn display_host(bind_host: &str) -> &str {
+    match bind_host {
+        "" | "0.0.0.0" | "::" => "127.0.0.1",
+        host => host,
+    }
+}
+
 fn print_startup_banner(config: &EngineConfig) {
     use ui::{bold, dim, link, wrap};
 
@@ -336,12 +369,20 @@ fn print_startup_banner(config: &EngineConfig) {
             .into_iter()
             .map(|line| dim(&line))
             .collect();
+        let host = display_host(&config.bind_host);
         lines.push(String::new());
-        lines.push(format!("{:<10} {}", dim("Dashboard"), link(&format!("http://127.0.0.1:{}", config.dashboard_port))));
+        lines.push(format!(
+            "{:<10} {}",
+            dim("Dashboard"),
+            link(&format!("http://{host}:{}", config.dashboard_port))
+        ));
         lines.push(format!(
             "{:<10} {}",
             dim("Ingest"),
-            link(&format!("POST http://127.0.0.1:{}/api/log", config.ingest_port))
+            link(&format!(
+                "POST http://{host}:{}/api/log",
+                config.ingest_port
+            ))
         ));
         match config.retention_days {
             Some(days) => lines.push(format!(
@@ -356,9 +397,16 @@ fn print_startup_banner(config: &EngineConfig) {
                 config.data_dir.display()
             )),
         }
-        lines.push(format!("{:<10} {}", dim("Docs"), link("https://docs.greplog.dev")));
+        lines.push(format!(
+            "{:<10} {}",
+            dim("Docs"),
+            link("https://docs.greplog.dev")
+        ));
         lines.push(String::new());
-        lines.push(format!("  {} Ready. Ctrl+C to drain and exit.", ui::ok_mark()));
+        lines.push(format!(
+            "  {} Ready. Ctrl+C to drain and exit.",
+            ui::ok_mark()
+        ));
         lines
     };
 
@@ -367,8 +415,8 @@ fn print_startup_banner(config: &EngineConfig) {
 
 /// Lays out art and info side by side on wide terminals, stacked otherwise.
 fn compose_screen(art: &[String], info: &[String]) -> String {
-    let term_width = crossterm::terminal::window_size()
-        .map_or(80, |size| usize::from(size.columns));
+    let term_width =
+        crossterm::terminal::window_size().map_or(80, |size| usize::from(size.columns));
     compose_screen_for(art, info, term_width)
 }
 
@@ -418,9 +466,7 @@ mod screen_tests {
     #[test]
     fn wide_terminals_put_info_beside_the_logo() {
         // Real banner lines are uniformly ART_WIDTH wide.
-        let art: Vec<String> = (0..18)
-            .map(|row| format!("art{row:<43}"))
-            .collect();
+        let art: Vec<String> = (0..18).map(|row| format!("art{row:<43}")).collect();
         let info: Vec<String> = (0..8).map(|row| format!("info{row}")).collect();
         let screen = super::compose_screen_for(&art, &info, 140);
 

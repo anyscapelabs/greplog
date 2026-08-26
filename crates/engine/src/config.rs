@@ -5,8 +5,59 @@ use std::sync::{Arc, RwLock};
 
 pub type LiveBuffer = Arc<RwLock<Vec<arrow::record_batch::RecordBatch>>>;
 
+/// Directory holding the `logs/` Parquet tree and the `wal/` directory.
+///
+/// Resolution order: `GREPLOG_DATA_DIR` when set and non-empty, then the
+/// platform per-user data location (`~/.local/share/greplog` on Linux,
+/// `~/Library/Application Support/greplog` on macOS, `%APPDATA%\greplog`
+/// on Windows). A global location means every command sees the same data no
+/// matter which working directory it runs from.
+fn default_storage_root() -> PathBuf {
+    if let Some(dir) = std::env::var_os("GREPLOG_DATA_DIR") {
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
+    platform_data_home().join("greplog")
+}
+
+/// Per-user application-data directory for the current platform; `.`
+/// when neither the platform variable nor `HOME` is set.
+#[cfg(target_os = "macos")]
+fn platform_data_home() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default()
+        .join("Library/Application Support")
+}
+
+/// Per-user application-data directory for the current platform; `.`
+/// when neither the platform variable nor `HOME` is set.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn platform_data_home() -> PathBuf {
+    if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
+        if !xdg.is_empty() {
+            return PathBuf::from(xdg);
+        }
+    }
+    std::env::var_os("HOME")
+        .map(|home| PathBuf::from(home).join(".local/share"))
+        .unwrap_or_default()
+}
+
+/// Per-user application-data directory for the current platform; `.`
+/// when the platform variable is unset.
+#[cfg(target_os = "windows")]
+fn platform_data_home() -> PathBuf {
+    std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_default()
+}
+
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
+    /// Network interface both servers bind (e.g. `127.0.0.1`, `0.0.0.0`).
+    pub bind_host: String,
     pub data_dir: PathBuf,
     pub wal_path: PathBuf,
     pub flush_row_limit: usize,
@@ -32,9 +83,11 @@ impl Default for EngineConfig {
     /// every 30s and sweeping every 5min keeps a partition at roughly a dozen
     /// files while bounding how long an acknowledged row sits only in the WAL.
     fn default() -> Self {
+        let storage_root = default_storage_root();
         Self {
-            data_dir: PathBuf::from("data/logs"),
-            wal_path: PathBuf::from("data/wal/current.wal"),
+            bind_host: String::from("127.0.0.1"),
+            data_dir: storage_root.join("logs"),
+            wal_path: storage_root.join("wal/current.wal"),
             flush_row_limit: 10_000,
             flush_interval_secs: 30,
             compaction_run_interval_secs: 300,
@@ -54,18 +107,31 @@ impl Default for EngineConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::ffi::OsStr;
+    use std::path::{Path, PathBuf};
 
     use super::EngineConfig;
 
     #[test]
-    fn defaults_point_at_the_conventional_layout() {
+    fn defaults_live_under_one_storage_root() {
         let config = EngineConfig::default();
-        assert_eq!(config.data_dir, PathBuf::from("data/logs"));
-        assert_eq!(config.wal_path, PathBuf::from("data/wal/current.wal"));
+        assert_eq!(
+            config.data_dir.file_name(),
+            Some(OsStr::new("logs")),
+            "Parquet tree lives under logs/ inside the storage root"
+        );
+        assert_eq!(
+            config.wal_path.parent().and_then(Path::parent),
+            config.data_dir.parent(),
+            "wal/ sits beside logs/ under the same storage root"
+        );
+        assert_eq!(config.bind_host, "127.0.0.1");
         assert_eq!(config.retention_days, Some(30));
         assert_eq!(config.retention_run_interval_secs, 3600);
-        assert!(config.flush_row_limit > 0, "flush threshold must allow progress");
+        assert!(
+            config.flush_row_limit > 0,
+            "flush threshold must allow progress"
+        );
         assert!(
             config.flush_interval_secs > 0,
             "periodic flush cadence must allow progress"
@@ -94,8 +160,14 @@ mod tests {
             config.max_query_rows > 0,
             "query row cap must allow progress"
         );
-        assert!(config.mpsc_buffer_size > 0, "ingest channel capacity must allow progress");
-        assert!(config.crossbeam_buffer_size > 0, "handoff capacity must allow progress");
+        assert!(
+            config.mpsc_buffer_size > 0,
+            "ingest channel capacity must allow progress"
+        );
+        assert!(
+            config.crossbeam_buffer_size > 0,
+            "handoff capacity must allow progress"
+        );
     }
 
     #[test]
@@ -153,7 +225,10 @@ mod tests {
             ..EngineConfig::default()
         };
         assert_eq!(config.flush_row_limit, 512);
-        assert_eq!(config.data_dir, PathBuf::from("data/logs"));
-        assert_eq!(config.mpsc_buffer_size, EngineConfig::default().mpsc_buffer_size);
+        assert_eq!(config.data_dir, EngineConfig::default().data_dir);
+        assert_eq!(
+            config.mpsc_buffer_size,
+            EngineConfig::default().mpsc_buffer_size
+        );
     }
 }
