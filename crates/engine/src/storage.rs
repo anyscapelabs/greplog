@@ -152,7 +152,10 @@ fn timestamp_micros(batch: &RecordBatch) -> Result<Vec<i64>, EngineError> {
                 value.value(row)
             })
             .collect(),
-        DataType::Int64 => column.as_primitive::<arrow::datatypes::Int64Type>().values().to_vec(),
+        DataType::Int64 => column
+            .as_primitive::<arrow::datatypes::Int64Type>()
+            .values()
+            .to_vec(),
         other => return Err(parse_error(format!("unexpected timestamp type: {other}"))),
     };
     Ok(micros)
@@ -204,8 +207,6 @@ fn strip_service_column(batch: &RecordBatch) -> Result<RecordBatch, EngineError>
         .collect();
     batch.project(&indices).map_err(EngineError::from)
 }
-
-
 
 /// Rows stored in a Parquet chunk, read from its footer metadata.
 ///
@@ -302,13 +303,19 @@ mod tests {
         let chunk = parquet_files(&root);
         assert_eq!(chunk.len(), 2, "one chunk per service must exist");
         for path in &chunk {
-            let relative = path.strip_prefix(&root).expect("chunk under root").to_string_lossy();
+            let relative = path
+                .strip_prefix(&root)
+                .expect("chunk under root")
+                .to_string_lossy();
             assert!(
-                relative.contains("year=") && relative.contains("month=") && relative.contains("day="),
+                relative.contains("year=")
+                    && relative.contains("month=")
+                    && relative.contains("day="),
                 "chunk must be date-partitioned, got {relative}"
             );
             assert!(
-                relative.contains("service=auth-api") || relative.contains("service=payment-worker"),
+                relative.contains("service=auth-api")
+                    || relative.contains("service=payment-worker"),
                 "chunk must be service-partitioned, got {relative}"
             );
         }
@@ -320,7 +327,11 @@ mod tests {
                 .map(|path| row_count(path))
                 .sum::<usize>()
         };
-        assert_eq!(per_service("service=auth-api"), 2, "auth-api rows must round-trip");
+        assert_eq!(
+            per_service("service=auth-api"),
+            2,
+            "auth-api rows must round-trip"
+        );
         assert_eq!(
             per_service("service=payment-worker"),
             1,
@@ -328,7 +339,9 @@ mod tests {
         );
         for path in &chunk {
             assert!(
-                !stored_field_names(path).iter().any(|name| name == "service"),
+                !stored_field_names(path)
+                    .iter()
+                    .any(|name| name == "service"),
                 "service must live only in the folder name"
             );
         }
@@ -365,24 +378,27 @@ mod tests {
             message: "current".into(),
             raw_body: None,
         });
-        flusher.flush(&table.finish().expect("finish memtable")).expect("flush");
+        flusher
+            .flush(&table.finish().expect("finish memtable"))
+            .expect("flush");
 
         let chunks = parquet_files(&root);
         assert_eq!(chunks.len(), 2, "one chunk per day");
-        let late_date = chrono::DateTime::from_timestamp(
-            late_us.div_euclid(1_000_000),
-            0,
-        )
-        .expect("valid timestamp");
+        let late_date = chrono::DateTime::from_timestamp(late_us.div_euclid(1_000_000), 0)
+            .expect("valid timestamp");
         let late_dir = format!("day={:02}", chrono::Datelike::day(&late_date.date_naive()));
-        let late_path = chunks.iter().find(|path| path.to_string_lossy().contains(&late_dir))
+        let late_path = chunks
+            .iter()
+            .find(|path| path.to_string_lossy().contains(&late_dir))
             .expect("late row has its own day partition");
         assert_eq!(row_count(late_path), 1, "only the late row lives there");
 
         let fresh_date = Utc::now().date_naive();
         let fresh_dir = format!("day={:02}", chrono::Datelike::day(&fresh_date));
         assert!(
-            chunks.iter().any(|path| path.to_string_lossy().contains(&fresh_dir)),
+            chunks
+                .iter()
+                .any(|path| path.to_string_lossy().contains(&fresh_dir)),
             "fresh row lands in today's partition"
         );
     }
@@ -396,9 +412,6 @@ mod tests {
         let flusher = ParquetFlusher::new(&config);
 
         let path = flusher.partition_path(2026, 8, 9);
-        assert_eq!(
-            path,
-            PathBuf::from("data/logs/year=2026/month=08/day=09")
-        );
+        assert_eq!(path, PathBuf::from("data/logs/year=2026/month=08/day=09"));
     }
 }

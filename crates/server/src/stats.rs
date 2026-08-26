@@ -67,8 +67,16 @@ mod tests {
         let root = dir.path().join("logs");
         let day = root.join("year=2026").join("month=08").join("day=14");
         fs::create_dir_all(day.join("service=auth-api")).expect("dirs");
-        fs::write(day.join("service=auth-api").join("chunk_1.parquet"), [0u8; 128]).expect("chunk");
-        fs::write(day.join("service=auth-api").join("chunk_1.parquet.part"), [0u8; 5]).expect("part");
+        fs::write(
+            day.join("service=auth-api").join("chunk_1.parquet"),
+            [0u8; 128],
+        )
+        .expect("chunk");
+        fs::write(
+            day.join("service=auth-api").join("chunk_1.parquet.part"),
+            [0u8; 5],
+        )
+        .expect("part");
         fs::create_dir_all(root.join("year=9999")).expect("decoy");
 
         let stats = storage_stats(&root);

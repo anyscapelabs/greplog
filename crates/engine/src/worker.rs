@@ -75,7 +75,14 @@ impl WalState {
         }
 
         let wal = WalWriter::open(&active);
-        Self { wal, active, sealed, confirmed: 0, cumulative, next_seq }
+        Self {
+            wal,
+            active,
+            sealed,
+            confirmed: 0,
+            cumulative,
+            next_seq,
+        }
     }
 
     fn records_written(&mut self, n: usize) {
@@ -176,7 +183,14 @@ pub fn spawn_memtable_worker_with_broadcast(
     broadcast_tx: Option<broadcast::Sender<Vec<LogRecord>>>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
-        run_memtable_loop(&receiver, &truncate_tx, &flusher, &live_buffer, &config, broadcast_tx);
+        run_memtable_loop(
+            &receiver,
+            &truncate_tx,
+            &flusher,
+            &live_buffer,
+            &config,
+            broadcast_tx,
+        );
     })
 }
 
@@ -189,10 +203,18 @@ fn run_wal_loop(
     let mut wal = WalState::open(wal_path.to_path_buf());
     match tokio::runtime::Builder::new_current_thread().build() {
         Ok(runtime) => {
-            runtime.block_on(select_commands(&mut wal, &mut receiver, truncate_rx, memtable_tx));
+            runtime.block_on(select_commands(
+                &mut wal,
+                &mut receiver,
+                truncate_rx,
+                memtable_tx,
+            ));
         }
         Err(error) => {
-            tracing::error!(?error, "failed to build wal worker runtime; falling back to blocking drain");
+            tracing::error!(
+                ?error,
+                "failed to build wal worker runtime; falling back to blocking drain"
+            );
             drain_channel(&mut wal.wal, &mut receiver, memtable_tx);
         }
     }
@@ -318,7 +340,10 @@ fn handle_append_single(
     let _ = batch.responder.send(outcome);
     if durable {
         if let Err(e) = memtable_tx.send(batch.records) {
-            tracing::error!(?e, "handoff channel dropped or full; losing durable records");
+            tracing::error!(
+                ?e,
+                "handoff channel dropped or full; losing durable records"
+            );
         }
     }
 }
@@ -429,7 +454,10 @@ fn flush_live_buffer(
     let concatenated = match arrow::compute::concat_batches(&greplog_schema(), &batches) {
         Ok(concatenated) => concatenated,
         Err(error) => {
-            tracing::error!(?error, "failed to concatenate live batches; returning them to the buffer");
+            tracing::error!(
+                ?error,
+                "failed to concatenate live batches; returning them to the buffer"
+            );
             return_to_live_buffer(live_buffer, batches, live_cap);
             return;
         }
@@ -437,7 +465,11 @@ fn flush_live_buffer(
 
     let rows = concatenated.num_rows();
     if let Err(error) = flusher.flush(&concatenated) {
-        tracing::error!(?error, rows, "failed to write parquet; returning rows to the buffer for retry");
+        tracing::error!(
+            ?error,
+            rows,
+            "failed to write parquet; returning rows to the buffer for retry"
+        );
         return_to_live_buffer(live_buffer, batches, live_cap);
         return;
     }
@@ -452,11 +484,7 @@ fn flush_live_buffer(
 /// The cap bounds memory when Parquet writes keep failing. Rows shed here are
 /// still durable in unconfirmed WAL segments — they replay on restart — so
 /// dropping the *oldest* batches loses nothing acknowledged.
-fn return_to_live_buffer(
-    live_buffer: &LiveBuffer,
-    mut batches: Vec<RecordBatch>,
-    live_cap: usize,
-) {
+fn return_to_live_buffer(live_buffer: &LiveBuffer, mut batches: Vec<RecordBatch>, live_cap: usize) {
     let Ok(mut buffer) = live_buffer.write() else {
         tracing::error!(
             batches = batches.len(),
@@ -534,7 +562,10 @@ mod tests {
 
             let (responder, ack) = oneshot::channel();
             let batch = IngestBatch::new(vec![sample(1)], responder);
-            wal_tx.send(WalCommand::Append(batch)).await.expect("send append");
+            wal_tx
+                .send(WalCommand::Append(batch))
+                .await
+                .expect("send append");
             drop(wal_tx);
             drop(truncate_tx);
 
@@ -564,7 +595,10 @@ mod tests {
                 records: Vec::new(),
                 responder: oneshot::channel().0,
             };
-            wal_tx.send(WalCommand::Append(batch)).await.expect("send append");
+            wal_tx
+                .send(WalCommand::Append(batch))
+                .await
+                .expect("send append");
             drop(wal_tx);
             drop(truncate_tx);
 
@@ -580,10 +614,18 @@ mod tests {
         drop(truncate_rx);
         let flusher = ParquetFlusher::new(&config);
         let (sender, receiver) = crossbeam::channel::bounded(config.crossbeam_buffer_size);
-        let handle = spawn_memtable_worker(receiver, truncate_tx, flusher, LiveBuffer::default(), config);
+        let handle = spawn_memtable_worker(
+            receiver,
+            truncate_tx,
+            flusher,
+            LiveBuffer::default(),
+            config,
+        );
 
         for index in 0..64 {
-            sender.send(vec![sample(index)]).expect("send record stream");
+            sender
+                .send(vec![sample(index)])
+                .expect("send record stream");
         }
         drop(sender);
 
@@ -645,7 +687,10 @@ mod tests {
         let final_rows: usize = live
             .read()
             .map_or(0, |buffer| buffer.iter().map(RecordBatch::num_rows).sum());
-        assert!(final_rows <= 110, "buffer must stay bounded, got {final_rows}");
+        assert!(
+            final_rows <= 110,
+            "buffer must stay bounded, got {final_rows}"
+        );
     }
 
     #[test]
@@ -664,17 +709,24 @@ mod tests {
         drop(truncate_rx);
         let flusher = ParquetFlusher::new(&config);
         let (sender, receiver) = crossbeam::channel::bounded(config.crossbeam_buffer_size);
-        let handle =
-            spawn_memtable_worker(receiver, truncate_tx, flusher, LiveBuffer::default(), config);
+        let handle = spawn_memtable_worker(
+            receiver,
+            truncate_tx,
+            flusher,
+            LiveBuffer::default(),
+            config,
+        );
 
         for index in 0..8 {
-            sender.send(vec![sample(index)]).expect("send record stream");
+            sender
+                .send(vec![sample(index)])
+                .expect("send record stream");
         }
 
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         loop {
-            let has_partition = std::fs::read_dir(dir.path().join("logs"))
-                .is_ok_and(|entries| entries.count() > 0);
+            let has_partition =
+                std::fs::read_dir(dir.path().join("logs")).is_ok_and(|entries| entries.count() > 0);
             if has_partition {
                 break;
             }
@@ -704,21 +756,32 @@ mod tests {
         drop(truncate_rx);
         let flusher = ParquetFlusher::new(&config);
         let (sender, receiver) = crossbeam::channel::bounded(config.crossbeam_buffer_size);
-        let handle = spawn_memtable_worker(receiver, truncate_tx, flusher, LiveBuffer::default(), config);
+        let handle = spawn_memtable_worker(
+            receiver,
+            truncate_tx,
+            flusher,
+            LiveBuffer::default(),
+            config,
+        );
 
         for index in 0..32 {
-            sender.send(vec![sample(index)]).expect("send record stream");
+            sender
+                .send(vec![sample(index)])
+                .expect("send record stream");
         }
         drop(sender);
 
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         loop {
-            let has_partition = std::fs::read_dir(dir.path().join("logs"))
-                .is_ok_and(|entries| entries.count() > 0);
+            let has_partition =
+                std::fs::read_dir(dir.path().join("logs")).is_ok_and(|entries| entries.count() > 0);
             if has_partition {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "parquet must be written");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "parquet must be written"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
 

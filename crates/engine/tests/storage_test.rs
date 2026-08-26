@@ -75,7 +75,11 @@ fn flusher_writes_valid_partitioned_parquet() {
     flusher.flush(&batch).expect("flush parquet");
 
     let chunks = parquet_files(&root);
-    assert_eq!(chunks.len(), 1, "a single chunk must exist under year/month/day");
+    assert_eq!(
+        chunks.len(),
+        1,
+        "a single chunk must exist under year/month/day"
+    );
     let relative = chunks[0]
         .strip_prefix(&root)
         .expect("chunk lives under root")
@@ -88,7 +92,11 @@ fn flusher_writes_valid_partitioned_parquet() {
         relative.contains("service=payment-worker"),
         "chunk must be service-partitioned, got {relative}"
     );
-    assert_eq!(row_count(&chunks[0]), 5, "parquet must round-trip every row");
+    assert_eq!(
+        row_count(&chunks[0]),
+        5,
+        "parquet must round-trip every row"
+    );
 }
 
 #[test]
@@ -115,20 +123,34 @@ fn flush_splits_ten_thousand_logs_by_service() {
     flusher.flush(&batch).expect("flush parquet");
 
     let chunks = parquet_files(&root);
-    let auth_chunks: Vec<&PathBuf> = chunks.iter().filter(|path| {
-        path.to_string_lossy().contains("service=auth-api")
-    }).collect();
-    let payment_chunks: Vec<&PathBuf> = chunks.iter().filter(|path| {
-        path.to_string_lossy().contains("service=payment-worker")
-    }).collect();
+    let auth_chunks: Vec<&PathBuf> = chunks
+        .iter()
+        .filter(|path| path.to_string_lossy().contains("service=auth-api"))
+        .collect();
+    let payment_chunks: Vec<&PathBuf> = chunks
+        .iter()
+        .filter(|path| path.to_string_lossy().contains("service=payment-worker"))
+        .collect();
 
     assert_eq!(auth_chunks.len(), 1, "one auth-api chunk must exist");
-    assert_eq!(payment_chunks.len(), 1, "one payment-worker chunk must exist");
+    assert_eq!(
+        payment_chunks.len(),
+        1,
+        "one payment-worker chunk must exist"
+    );
 
     let auth_rows: usize = auth_chunks.iter().map(|path| row_count(path)).sum();
     let payment_rows: usize = payment_chunks.iter().map(|path| row_count(path)).sum();
-    assert_eq!(auth_rows, total / 2, "auth-api must hold exactly 5,000 rows");
-    assert_eq!(payment_rows, total / 2, "payment-worker must hold exactly 5,000 rows");
+    assert_eq!(
+        auth_rows,
+        total / 2,
+        "auth-api must hold exactly 5,000 rows"
+    );
+    assert_eq!(
+        payment_rows,
+        total / 2,
+        "payment-worker must hold exactly 5,000 rows"
+    );
 }
 
 #[test]
@@ -151,16 +173,22 @@ fn pipeline_persists_parquet_and_truncates_wal() {
 
     let flusher = ParquetFlusher::new(&config);
     let wal_handle = spawn_wal_worker(config.clone(), wal_rx, truncate_rx, handoff_tx);
-    let memtable_handle =
-        spawn_memtable_worker(handoff_rx, truncate_tx, flusher, LiveBuffer::default(), config);
+    let memtable_handle = spawn_memtable_worker(
+        handoff_rx,
+        truncate_tx,
+        flusher,
+        LiveBuffer::default(),
+        config,
+    );
 
     let runtime = tokio::runtime::Runtime::new().expect("build runtime");
     runtime.block_on(async {
         let per_batch = 1_000;
         let limit = EngineConfig::default().flush_row_limit;
         for _ in 0..(limit / per_batch) {
-            let records: Vec<LogRecord> =
-                (0..per_batch).map(|index| sample(index, "payment-worker")).collect();
+            let records: Vec<LogRecord> = (0..per_batch)
+                .map(|index| sample(index, "payment-worker"))
+                .collect();
             let (responder, ack) = oneshot::channel();
             wal_tx
                 .send(WalCommand::Append(IngestBatch::new(records, responder)))
@@ -191,7 +219,9 @@ fn pipeline_persists_parquet_and_truncates_wal() {
 
     drop(wal_tx);
     wal_handle.join().expect("wal worker must exit cleanly");
-    memtable_handle.join().expect("memtable worker must exit cleanly");
+    memtable_handle
+        .join()
+        .expect("memtable worker must exit cleanly");
 
     let chunks = parquet_files(&logs_root);
     assert_eq!(chunks.len(), 1, "all records share a single service");
@@ -202,5 +232,8 @@ fn pipeline_persists_parquet_and_truncates_wal() {
         "all appended records must land in Parquet"
     );
     let wal_len = fs::metadata(&wal_path).expect("wal file must exist").len();
-    assert_eq!(wal_len, 0, "wal must be truncated to zero bytes after the flush");
+    assert_eq!(
+        wal_len, 0,
+        "wal must be truncated to zero bytes after the flush"
+    );
 }

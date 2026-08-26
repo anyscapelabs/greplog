@@ -8,9 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow::array::{
-    Array, ArrayRef, AsArray, PrimitiveBuilder, StringBuilder,
-};
+use arrow::array::{Array, ArrayRef, AsArray, PrimitiveBuilder, StringBuilder};
 use arrow::datatypes::{
     DataType, Field, Int64Type, Schema, SchemaRef, TimeUnit, TimestampMicrosecondType,
 };
@@ -46,6 +44,8 @@ pub enum SearchMode {
     Rows {
         #[serde(default = "default_row_limit")]
         limit: usize,
+        #[serde(default)]
+        offset: usize,
     },
     Aggregate {
         #[serde(default)]
@@ -100,12 +100,23 @@ impl LogSearch {
         }
 
         match &self.mode {
-            SearchMode::Rows { limit } => {
+            SearchMode::Rows { limit, offset } => {
                 if *limit == 0 || *limit > max_rows {
-                    return Err(search_error(format!("limit must be between 1 and {max_rows}")));
+                    return Err(search_error(format!(
+                        "limit must be between 1 and {max_rows}"
+                    )));
+                }
+                if offset.saturating_add(*limit) > max_rows {
+                    return Err(search_error(format!(
+                        "offset + limit must not exceed {max_rows}"
+                    )));
                 }
             }
-            SearchMode::Aggregate { group_by, bucket_secs, metrics } => {
+            SearchMode::Aggregate {
+                group_by,
+                bucket_secs,
+                metrics,
+            } => {
                 if has_duplicates(group_by) {
                     return Err(search_error("group_by dimensions must be unique"));
                 }
@@ -143,14 +154,17 @@ fn search_error(message: impl Into<String>) -> EngineError {
 /// The `(year, month, day)` tuples a window covers, padded by one day on the
 /// left so records flushed under an older day folder stay reachable.
 fn partition_days(now: DateTime<Utc>, time_range_secs: u64) -> Vec<(i32, u32, u32)> {
-    let start = now - chrono::Duration::seconds(i64::try_from(time_range_secs).unwrap_or(i64::MAX))
+    let start = now
+        - chrono::Duration::seconds(i64::try_from(time_range_secs).unwrap_or(i64::MAX))
         - chrono::Duration::days(PARTITION_PAD_DAYS);
     let end = now.date_naive();
     let mut days = Vec::new();
     let mut current = start.date_naive();
     while current <= end {
         days.push((current.year(), current.month(), current.day()));
-        current = current.succ_opt().expect("chrono dates never overflow here");
+        current = current
+            .succ_opt()
+            .expect("chrono dates never overflow here");
     }
     days
 }
@@ -187,11 +201,26 @@ fn partition_predicate(days: &[(i32, u32, u32)]) -> Option<String> {
     if days.len() <= 32 {
         let mut sorted = day_numbers;
         sorted.sort_unstable();
-        Some(render("day", sorted.iter().map(std::string::ToString::to_string).collect()))
+        Some(render(
+            "day",
+            sorted
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
+        ))
     } else if days.len() <= 730 {
-        Some(render("month", months.iter().map(std::string::ToString::to_string).collect()))
+        Some(render(
+            "month",
+            months
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect(),
+        ))
     } else {
-        Some(render("year", years.iter().map(std::string::ToString::to_string).collect()))
+        Some(render(
+            "year",
+            years.iter().map(std::string::ToString::to_string).collect(),
+        ))
     }
 }
 
@@ -202,7 +231,9 @@ fn sql_literal(value: &str) -> String {
 fn timestamp_literal(micros: i64) -> String {
     let moment = chrono::DateTime::from_timestamp(
         micros.div_euclid(1_000_000),
-        u32::try_from(micros.rem_euclid(1_000_000)).unwrap_or(0).saturating_mul(1_000),
+        u32::try_from(micros.rem_euclid(1_000_000))
+            .unwrap_or(0)
+            .saturating_mul(1_000),
     )
     .unwrap_or_else(Utc::now);
     format!("TIMESTAMP '{}'", moment.format("%Y-%m-%dT%H:%M:%S%.6fZ"))
@@ -313,7 +344,9 @@ fn metric_expressions(metrics: &[Metric]) -> Vec<String> {
         .iter()
         .map(|metric| match metric {
             Metric::Count => "COUNT(*) AS count".to_string(),
-            Metric::Errors => "SUM(CASE WHEN level = 'ERROR' THEN 1 ELSE 0 END) AS errors".to_string(),
+            Metric::Errors => {
+                "SUM(CASE WHEN level = 'ERROR' THEN 1 ELSE 0 END) AS errors".to_string()
+            }
             Metric::Warns => "SUM(CASE WHEN level = 'WARN' THEN 1 ELSE 0 END) AS warns".to_string(),
             Metric::LastSeen => "MAX(timestamp_us) AS last_seen".to_string(),
         })
@@ -325,8 +358,8 @@ impl super::query::QueryEngine {
         search.validate(self.max_query_rows)?;
 
         let now = Utc::now();
-        let cutoff_us =
-            now.timestamp_micros() - i64::try_from(search.time_range_secs).unwrap_or(i64::MAX) * 1_000_000;
+        let cutoff_us = now.timestamp_micros()
+            - i64::try_from(search.time_range_secs).unwrap_or(i64::MAX) * 1_000_000;
         let predicate = where_clause(search, cutoff_us);
         let partition_filter = partition_predicate(&partition_days(now, search.time_range_secs));
         let parquet_predicate = match &partition_filter {
@@ -335,23 +368,30 @@ impl super::query::QueryEngine {
         };
 
         match &search.mode {
-            SearchMode::Rows { limit } => {
+            SearchMode::Rows { limit, offset } => {
+                // Fetch limit+offset per tier so global offset is correct after merge.
+                let fetch_limit = offset.saturating_add(*limit);
                 let parquet_sql = format!(
                     "SELECT {ROW_COLUMNS} FROM parquet_logs WHERE {parquet_predicate} \
-                     ORDER BY timestamp_us DESC LIMIT {limit}"
+                     ORDER BY timestamp_us DESC LIMIT {fetch_limit}"
                 );
                 let live_sql = format!(
                     "SELECT {ROW_COLUMNS} FROM live_logs WHERE {predicate} \
-                     ORDER BY timestamp_us DESC LIMIT {limit}"
+                     ORDER BY timestamp_us DESC LIMIT {fetch_limit}"
                 );
                 let (parquet_df, live_df) =
                     tokio::join!(self.ctx.sql(&parquet_sql), self.ctx.sql(&live_sql));
                 merge_rows(
                     [parquet_df?.collect().await?, live_df?.collect().await?].concat(),
                     *limit,
+                    *offset,
                 )
             }
-            SearchMode::Aggregate { group_by, bucket_secs, metrics } => {
+            SearchMode::Aggregate {
+                group_by,
+                bucket_secs,
+                metrics,
+            } => {
                 let mut select = group_expressions(group_by, *bucket_secs);
                 select.extend(metric_expressions(metrics));
                 // An empty group_by is a global aggregate: no GROUP BY clause,
@@ -359,8 +399,9 @@ impl super::query::QueryEngine {
                 let group_clause = if group_by.is_empty() {
                     String::new()
                 } else {
-                    let ordinals: Vec<String> =
-                        (1..=group_by.len()).map(|position| position.to_string()).collect();
+                    let ordinals: Vec<String> = (1..=group_by.len())
+                        .map(|position| position.to_string())
+                        .collect();
                     format!(" GROUP BY {}", ordinals.join(", "))
                 };
 
@@ -406,7 +447,15 @@ struct AggregateRow {
     last_seen: i64,
 }
 
-fn merge_rows(batches: Vec<RecordBatch>, limit: usize) -> Result<Vec<RecordBatch>, EngineError> {
+/// Merges both tiers into one newest-first page: `[offset, offset + limit)`.
+///
+/// Each tier already returned its top `offset + limit` rows, so sorting only
+/// that prefix is enough to serve the requested window.
+fn merge_rows(
+    batches: Vec<RecordBatch>,
+    limit: usize,
+    offset: usize,
+) -> Result<Vec<RecordBatch>, EngineError> {
     let schema = greplog_schema();
     let normalized: Vec<RecordBatch> = batches
         .into_iter()
@@ -422,15 +471,28 @@ fn merge_rows(batches: Vec<RecordBatch>, limit: usize) -> Result<Vec<RecordBatch
         return Ok(Vec::new());
     }
 
+    if offset >= combined.num_rows() {
+        return Ok(Vec::new());
+    }
+
+    let rows_through_page_end = offset.saturating_add(limit).min(combined.num_rows());
     let timestamp_index = schema.index_of("timestamp_us")?;
     let indices = arrow::compute::lexsort_to_indices(
         &[arrow::compute::SortColumn {
             values: combined.column(timestamp_index).clone(),
-            options: Some(arrow::compute::SortOptions { descending: true, nulls_first: false }),
+            options: Some(arrow::compute::SortOptions {
+                descending: true,
+                nulls_first: false,
+            }),
         }],
-        Some(limit),
+        Some(rows_through_page_end),
     )?;
-    Ok(vec![arrow::compute::take_record_batch(&combined, &indices)?])
+    let sorted = arrow::compute::take_record_batch(&combined, &indices)?;
+    if offset == 0 {
+        return Ok(vec![sorted]);
+    }
+    let remaining = sorted.num_rows().saturating_sub(offset);
+    Ok(vec![sorted.slice(offset, remaining.min(limit))])
 }
 
 fn normalize_to_schema(
@@ -515,15 +577,26 @@ fn canonical_column(column: &ArrayRef) -> Result<ArrayRef, EngineError> {
 fn timestamp_value_us(column: &ArrayRef, row: usize) -> i64 {
     match column.data_type() {
         DataType::Timestamp(TimeUnit::Second, _) => {
-            column.as_primitive::<arrow::datatypes::TimestampSecondType>().value(row) * 1_000_000
+            column
+                .as_primitive::<arrow::datatypes::TimestampSecondType>()
+                .value(row)
+                * 1_000_000
         }
         DataType::Timestamp(TimeUnit::Millisecond, _) => {
-            column.as_primitive::<arrow::datatypes::TimestampMillisecondType>().value(row) * 1_000
+            column
+                .as_primitive::<arrow::datatypes::TimestampMillisecondType>()
+                .value(row)
+                * 1_000
         }
         DataType::Timestamp(TimeUnit::Nanosecond, _) => {
-            column.as_primitive::<arrow::datatypes::TimestampNanosecondType>().value(row) / 1_000
+            column
+                .as_primitive::<arrow::datatypes::TimestampNanosecondType>()
+                .value(row)
+                / 1_000
         }
-        _ => column.as_primitive::<arrow::datatypes::TimestampMicrosecondType>().value(row),
+        _ => column
+            .as_primitive::<arrow::datatypes::TimestampMicrosecondType>()
+            .value(row),
     }
 }
 
@@ -531,8 +604,12 @@ fn group_key(columns: &[ArrayRef], row: usize) -> Result<Vec<KeyPart>, EngineErr
     columns
         .iter()
         .map(|column| match column.data_type() {
-            DataType::Int64 => Ok(KeyPart::Micros(column.as_primitive::<Int64Type>().value(row))),
-            _ => Ok(KeyPart::Text(column.as_string::<i32>().value(row).to_string())),
+            DataType::Int64 => Ok(KeyPart::Micros(
+                column.as_primitive::<Int64Type>().value(row),
+            )),
+            _ => Ok(KeyPart::Text(
+                column.as_string::<i32>().value(row).to_string(),
+            )),
         })
         .collect()
 }
@@ -559,7 +636,11 @@ fn build_aggregate_batch(
                         KeyPart::Text(_) => 0,
                     });
                 }
-                fields.push(Field::new("bucket", DataType::Timestamp(TimeUnit::Microsecond, None), false));
+                fields.push(Field::new(
+                    "bucket",
+                    DataType::Timestamp(TimeUnit::Microsecond, None),
+                    false,
+                ));
                 columns.push(Arc::new(builder.finish()));
             }
             GroupDimension::Level | GroupDimension::Service => {
@@ -601,7 +682,8 @@ fn build_aggregate_batch(
         columns.push(Arc::new(builder.finish()));
     }
 
-    let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), columns).map_err(EngineError::from)?;
+    let batch =
+        RecordBatch::try_new(Arc::new(Schema::new(fields)), columns).map_err(EngineError::from)?;
     Ok(vec![batch])
 }
 
@@ -626,13 +708,38 @@ mod tests {
         assert_eq!(
             partition_days(fixed_now(), 30 * 86_400),
             vec![
-                (2026, 2, 12), (2026, 2, 13), (2026, 2, 14), (2026, 2, 15), (2026, 2, 16),
-                (2026, 2, 17), (2026, 2, 18), (2026, 2, 19), (2026, 2, 20), (2026, 2, 21),
-                (2026, 2, 22), (2026, 2, 23), (2026, 2, 24), (2026, 2, 25), (2026, 2, 26),
-                (2026, 2, 27), (2026, 2, 28),
-                (2026, 3, 1), (2026, 3, 2), (2026, 3, 3), (2026, 3, 4), (2026, 3, 5),
-                (2026, 3, 6), (2026, 3, 7), (2026, 3, 8), (2026, 3, 9), (2026, 3, 10),
-                (2026, 3, 11), (2026, 3, 12), (2026, 3, 13), (2026, 3, 14), (2026, 3, 15),
+                (2026, 2, 12),
+                (2026, 2, 13),
+                (2026, 2, 14),
+                (2026, 2, 15),
+                (2026, 2, 16),
+                (2026, 2, 17),
+                (2026, 2, 18),
+                (2026, 2, 19),
+                (2026, 2, 20),
+                (2026, 2, 21),
+                (2026, 2, 22),
+                (2026, 2, 23),
+                (2026, 2, 24),
+                (2026, 2, 25),
+                (2026, 2, 26),
+                (2026, 2, 27),
+                (2026, 2, 28),
+                (2026, 3, 1),
+                (2026, 3, 2),
+                (2026, 3, 3),
+                (2026, 3, 4),
+                (2026, 3, 5),
+                (2026, 3, 6),
+                (2026, 3, 7),
+                (2026, 3, 8),
+                (2026, 3, 9),
+                (2026, 3, 10),
+                (2026, 3, 11),
+                (2026, 3, 12),
+                (2026, 3, 13),
+                (2026, 3, 14),
+                (2026, 3, 15),
             ]
         );
     }
@@ -655,7 +762,10 @@ mod tests {
     #[test]
     fn split_terms_honours_quoted_phrases() {
         assert_eq!(split_terms("payment failed"), vec!["payment", "failed"]);
-        assert_eq!(split_terms("\"payment failed\" retry"), vec!["payment failed", "retry"]);
+        assert_eq!(
+            split_terms("\"payment failed\" retry"),
+            vec!["payment failed", "retry"]
+        );
         assert_eq!(split_terms(""), Vec::<String>::new());
     }
 
@@ -665,7 +775,10 @@ mod tests {
             term_condition("level:error").as_deref(),
             Some("level = 'ERROR'")
         );
-        assert_eq!(term_condition("service='auth-api'").as_deref(), Some("service = 'auth-api'"));
+        assert_eq!(
+            term_condition("service='auth-api'").as_deref(),
+            Some("service = 'auth-api'")
+        );
         assert_eq!(
             term_condition("message:\"it's broken\"").as_deref(),
             Some("message ILIKE '%it''s broken%'")
@@ -687,11 +800,17 @@ mod tests {
             time_range_secs: 3600,
             facets: HashMap::new(),
             search: None,
-            mode: SearchMode::Rows { limit: 500 },
+            mode: SearchMode::Rows {
+                limit: 500,
+                offset: 0,
+            },
         };
         assert!(base.validate(10_000).is_ok());
 
-        let zero_window = LogSearch { time_range_secs: 0, ..base.clone() };
+        let zero_window = LogSearch {
+            time_range_secs: 0,
+            ..base.clone()
+        };
         assert!(zero_window.validate(10_000).is_err());
 
         let mut bad_facet = base.clone();
@@ -699,7 +818,10 @@ mod tests {
         assert!(bad_facet.validate(10_000).is_err());
 
         let oversized = LogSearch {
-            mode: SearchMode::Rows { limit: 10_001 },
+            mode: SearchMode::Rows {
+                limit: 10_001,
+                offset: 0,
+            },
             ..base.clone()
         };
         assert!(oversized.validate(10_000).is_err());

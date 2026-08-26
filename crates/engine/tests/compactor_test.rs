@@ -92,11 +92,17 @@ fn compact_partition_merges_small_chunks_without_data_loss() {
     };
     let flusher = ParquetFlusher::new(&config);
     for _ in 0..CHUNKS {
-        flusher.flush(&batch_of(ROWS_PER_CHUNK)).expect("flush chunk");
+        flusher
+            .flush(&batch_of(ROWS_PER_CHUNK))
+            .expect("flush chunk");
     }
 
     let leaves = leaf_dirs(&root);
-    assert_eq!(leaves.len(), 1, "all chunks must land in one service partition");
+    assert_eq!(
+        leaves.len(),
+        1,
+        "all chunks must land in one service partition"
+    );
     let partition = &leaves[0];
     assert_eq!(
         parquet_files(partition).len(),
@@ -119,7 +125,11 @@ fn compact_partition_merges_small_chunks_without_data_loss() {
         .expect("compact partition");
 
     let merged = parquet_files(partition);
-    assert_eq!(merged.len(), 1, "partition must hold exactly one merged file");
+    assert_eq!(
+        merged.len(),
+        1,
+        "partition must hold exactly one merged file"
+    );
     let name = merged[0]
         .file_name()
         .and_then(|file_name| file_name.to_str())
@@ -146,7 +156,9 @@ fn scanner_ignores_partitions_below_the_merge_threshold() {
     };
     let flusher = ParquetFlusher::new(&config);
     for _ in 0..3 {
-        flusher.flush(&batch_of(ROWS_PER_CHUNK)).expect("flush chunk");
+        flusher
+            .flush(&batch_of(ROWS_PER_CHUNK))
+            .expect("flush chunk");
     }
 
     let compactor = Compactor::new(config);

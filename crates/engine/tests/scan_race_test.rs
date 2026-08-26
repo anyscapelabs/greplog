@@ -43,7 +43,9 @@ fn record(index: usize, message: &str) -> LogRecord {
 
 fn flush_flusher(config: &EngineConfig, mut table: MemTable) {
     let batch = table.finish().expect("finish memtable");
-    ParquetFlusher::new(config).flush(&batch).expect("flush parquet");
+    ParquetFlusher::new(config)
+        .flush(&batch)
+        .expect("flush parquet");
 }
 
 /// The listing table must completely ignore a leftover `.parquet.part` file,
@@ -78,7 +80,8 @@ async fn trailing_part_files_are_never_scanned() {
             .expect("partition dir exists for partial file"),
     )
     .expect("create service dir");
-    std::fs::write(&partial, b"PAR1not really a complete parquet file").expect("write partial file");
+    std::fs::write(&partial, b"PAR1not really a complete parquet file")
+        .expect("write partial file");
 
     let batches = engine
         .execute_sql("SELECT count(*) FROM logs WHERE message ILIKE '%failed%'")
@@ -158,8 +161,5 @@ async fn concurrent_flushes_never_break_scans() {
         }
     };
 
-    tokio::join!(
-        scanner(Arc::clone(&engine)),
-        scanner(Arc::clone(&engine))
-    );
+    tokio::join!(scanner(Arc::clone(&engine)), scanner(Arc::clone(&engine)));
 }

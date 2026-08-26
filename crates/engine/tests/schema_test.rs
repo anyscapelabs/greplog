@@ -13,7 +13,11 @@ fn schema_has_canonical_field_order_and_types() {
     let schema: Arc<Schema> = greplog_schema();
 
     let expected = [
-        ("timestamp_us", DataType::Timestamp(TimeUnit::Microsecond, None), false),
+        (
+            "timestamp_us",
+            DataType::Timestamp(TimeUnit::Microsecond, None),
+            false,
+        ),
         ("trace_id", DataType::Utf8, true),
         (
             "level",
@@ -39,7 +43,11 @@ fn schema_has_canonical_field_order_and_types() {
     for (index, (name, data_type, nullable)) in expected.iter().enumerate() {
         let field: &Field = schema.field(index);
         assert_eq!(field.name(), name, "field {index} must be named {name}");
-        assert_eq!(field.data_type(), data_type, "field {name} must have the intended type");
+        assert_eq!(
+            field.data_type(),
+            data_type,
+            "field {name} must have the intended type"
+        );
         assert_eq!(
             field.is_nullable(),
             *nullable,
@@ -68,7 +76,11 @@ fn level_and_service_are_dictionary_encoded() {
 #[test]
 fn schema_matches_log_record_wire_fields() {
     let schema = greplog_schema();
-    let names: Vec<&str> = schema.fields().iter().map(|field| field.name().as_str()).collect();
+    let names: Vec<&str> = schema
+        .fields()
+        .iter()
+        .map(|field| field.name().as_str())
+        .collect();
 
     let sample: LogRecord = serde_json::from_value(serde_json::json!({
         "timestamp_us": 1,

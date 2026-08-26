@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, oneshot};
 use greplog_engine::config::EngineConfig;
 use greplog_engine::ingest::{IngestBatch, WalCommand};
 use greplog_engine::record::LogRecord;
-use greplog_engine::wal::{replay_all, record_count, sealed_segments};
+use greplog_engine::wal::{record_count, replay_all, sealed_segments};
 use greplog_engine::worker::spawn_wal_worker;
 
 fn sample(trace: &str, level: &str) -> LogRecord {
@@ -32,8 +32,12 @@ fn sample(trace: &str, level: &str) -> LogRecord {
 /// needs: the append sender, the confirmation sender, and the active WAL path.
 fn harness(
     dir: &tempfile::TempDir,
-) -> (mpsc::Sender<WalCommand>, mpsc::Sender<usize>, std::path::PathBuf, std::thread::JoinHandle<()>)
-{
+) -> (
+    mpsc::Sender<WalCommand>,
+    mpsc::Sender<usize>,
+    std::path::PathBuf,
+    std::thread::JoinHandle<()>,
+) {
     let wal_path = dir.path().join("current.wal");
     let config = Arc::new(EngineConfig {
         wal_path: wal_path.clone(),
@@ -121,14 +125,21 @@ async fn fully_confirmed_segments_are_reclaimed() {
     let dir = tempdir().expect("create temp dir");
     let (wal_tx, truncate_tx, wal_path, handle) = harness(&dir);
 
-    append_and_wait(&wal_tx, vec![sample("a", "INFO")]).await.expect("append a");
-    append_and_wait(&wal_tx, vec![sample("b", "ERROR")]).await.expect("append b");
+    append_and_wait(&wal_tx, vec![sample("a", "INFO")])
+        .await
+        .expect("append a");
+    append_and_wait(&wal_tx, vec![sample("b", "ERROR")])
+        .await
+        .expect("append b");
     truncate_tx.send(2).await.expect("confirm both records");
 
     tokio::time::sleep(Duration::from_millis(400)).await;
 
     let segments = sealed_segments(&wal_path).expect("list sealed segments");
-    assert!(segments.is_empty(), "fully confirmed segments must be reclaimed");
+    assert!(
+        segments.is_empty(),
+        "fully confirmed segments must be reclaimed"
+    );
     assert_eq!(
         record_count(&wal_path).expect("count active"),
         0,

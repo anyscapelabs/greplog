@@ -58,8 +58,14 @@ async fn wal_worker_persists_batch_and_acknowledges() {
         crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
     let handle = spawn_wal_worker(config, receiver, truncate_rx, handoff_tx);
 
-    let records = vec![sample("a", "INFO"), sample("b", "WARN"), sample("c", "ERROR")];
-    let outcome = send_and_await(&sender, records).await.expect("channel must accept the batch");
+    let records = vec![
+        sample("a", "INFO"),
+        sample("b", "WARN"),
+        sample("c", "ERROR"),
+    ];
+    let outcome = send_and_await(&sender, records)
+        .await
+        .expect("channel must accept the batch");
     assert!(outcome.is_ok(), "wal append must succeed");
 
     let metadata = std::fs::metadata(&wal_path).expect("wal file must exist on disk");
@@ -87,15 +93,26 @@ async fn wal_worker_orders_batches_and_grows_file() {
         crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
     let handle = spawn_wal_worker(config, receiver, truncate_rx, handoff_tx);
 
-    let outcome = send_and_await(&sender, vec![sample("first", "INFO")]).await.expect("first batch must be accepted");
+    let outcome = send_and_await(&sender, vec![sample("first", "INFO")])
+        .await
+        .expect("first batch must be accepted");
     assert!(outcome.is_ok(), "first batch must append cleanly");
-    let size_after_first = std::fs::metadata(&wal_path).expect("wal file must exist").len();
+    let size_after_first = std::fs::metadata(&wal_path)
+        .expect("wal file must exist")
+        .len();
     assert!(size_after_first > 0);
 
-    let outcome = send_and_await(&sender, vec![sample("second", "ERROR")]).await.expect("second batch must be accepted");
+    let outcome = send_and_await(&sender, vec![sample("second", "ERROR")])
+        .await
+        .expect("second batch must be accepted");
     assert!(outcome.is_ok(), "second batch must append cleanly");
-    let size_after_second = std::fs::metadata(&wal_path).expect("wal file must exist").len();
-    assert!(size_after_second > size_after_first, "wal file must grow with each batch");
+    let size_after_second = std::fs::metadata(&wal_path)
+        .expect("wal file must exist")
+        .len();
+    assert!(
+        size_after_second > size_after_first,
+        "wal file must grow with each batch"
+    );
 
     drop(sender);
     drop(truncate_tx);
@@ -119,8 +136,13 @@ async fn wal_worker_reports_failure_when_wal_cannot_be_opened() {
         crossbeam::channel::bounded::<Vec<LogRecord>>(config.crossbeam_buffer_size);
     let handle = spawn_wal_worker(config, receiver, truncate_rx, handoff_tx);
 
-    let outcome = send_and_await(&sender, vec![sample("a", "INFO")]).await.expect("channel must accept the batch");
-    assert!(outcome.is_err(), "an unopenable wal must surface as an error");
+    let outcome = send_and_await(&sender, vec![sample("a", "INFO")])
+        .await
+        .expect("channel must accept the batch");
+    assert!(
+        outcome.is_err(),
+        "an unopenable wal must surface as an error"
+    );
 
     drop(sender);
     drop(truncate_tx);

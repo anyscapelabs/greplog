@@ -10,8 +10,8 @@
 //! Run from the workspace root:
 //! `cargo test --release -p greplog-engine --test throughput_benchmark -- --nocapture`
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use greplog_engine::config::EngineConfig;
@@ -41,7 +41,11 @@ fn make_record(job_id: usize, idx: usize) -> LogRecord {
     LogRecord {
         timestamp_us: 1_700_000_000_000_000 + i64::try_from(idx).unwrap_or(0),
         trace_id: Some(format!("job_{job_id}_{idx}")),
-        level: if idx.is_multiple_of(10) { "ERROR".into() } else { "INFO".into() },
+        level: if idx.is_multiple_of(10) {
+            "ERROR".into()
+        } else {
+            "INFO".into()
+        },
         service: if job_id.is_multiple_of(2) {
             "payment-worker".into()
         } else {
@@ -82,11 +86,13 @@ async fn producer_task(
 ) {
     let mut idx = 0usize;
     while !stop.load(Ordering::Relaxed) {
-        let records: Vec<LogRecord> = (0..CHUNK).map(|_| {
-            let record = make_record(id, idx);
-            idx += 1;
-            record
-        }).collect();
+        let records: Vec<LogRecord> = (0..CHUNK)
+            .map(|_| {
+                let record = make_record(id, idx);
+                idx += 1;
+                record
+            })
+            .collect();
         let (responder, ack) = tokio::sync::oneshot::channel();
         let batch = IngestBatch::new(records, responder);
         if wal_tx.send(WalCommand::Append(batch)).await.is_err() {
@@ -138,9 +144,7 @@ async fn measure(logs_per_sec: usize) -> Rung {
 
 #[tokio::test]
 async fn run_throughput_ceiling_sweep() {
-    println!(
-        "\nproducers | logs/sec      | per-producer | vs 1-producer"
-    );
+    println!("\nproducers | logs/sec      | per-producer | vs 1-producer");
     println!("{:-<64}", "");
 
     let mut results = Vec::new();
@@ -158,10 +162,7 @@ async fn run_throughput_ceiling_sweep() {
         results.push(rung);
     }
 
-    let mut sorted: Vec<f64> = results
-        .iter()
-        .map(|rung| rung.logs_per_sec)
-        .collect();
+    let mut sorted: Vec<f64> = results.iter().map(|rung| rung.logs_per_sec).collect();
     sorted.sort_by(f64::total_cmp);
     let ceiling_median = sorted[sorted.len() / 2];
     let floor = ceiling_median * 0.97;

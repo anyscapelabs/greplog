@@ -45,10 +45,13 @@ mod tests {
         assert_eq!(batch.records.len(), 2);
         assert_eq!(batch.records[0].level, "INFO");
         assert_eq!(batch.records[1].level, "ERROR");
-        assert!(matches!(
-            ack.try_recv(),
-            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
-        ), "ack must stay pending until the worker fires it");
+        assert!(
+            matches!(
+                ack.try_recv(),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+            ),
+            "ack must stay pending until the worker fires it"
+        );
     }
 
     #[test]

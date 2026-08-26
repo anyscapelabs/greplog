@@ -57,7 +57,11 @@ fn memtable_produces_expected_batch_shape() {
 
     let batch = table.finish().expect("finish memtable");
     assert_eq!(batch.num_rows(), 5, "5 appended records must yield 5 rows");
-    assert_eq!(batch.num_columns(), 6, "the canonical schema declares 6 columns");
+    assert_eq!(
+        batch.num_columns(),
+        6,
+        "the canonical schema declares 6 columns"
+    );
 }
 
 #[test]
@@ -67,7 +71,11 @@ fn pipeline_of_15000_logs_acks_all_and_triggers_flush() {
     };
     let writer = tracing_subscriber::fmt::writer::BoxMakeWriter::new({
         let buffer = captured.buffer.clone();
-        move || -> Box<dyn Write + Send + 'static> { Box::new(Capture { buffer: buffer.clone() }) }
+        move || -> Box<dyn Write + Send + 'static> {
+            Box::new(Capture {
+                buffer: buffer.clone(),
+            })
+        }
     });
     let subscriber = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
@@ -91,8 +99,13 @@ fn pipeline_of_15000_logs_acks_all_and_triggers_flush() {
 
     let flusher = ParquetFlusher::new(&config);
     let wal_handle = spawn_wal_worker(config.clone(), ingest_rx, truncate_rx, handoff_tx);
-    let memtable_handle =
-        spawn_memtable_worker(handoff_rx, truncate_tx, flusher, LiveBuffer::default(), config);
+    let memtable_handle = spawn_memtable_worker(
+        handoff_rx,
+        truncate_tx,
+        flusher,
+        LiveBuffer::default(),
+        config,
+    );
 
     let runtime = tokio::runtime::Runtime::new().expect("build runtime");
     runtime.block_on(async {
@@ -100,13 +113,11 @@ fn pipeline_of_15000_logs_acks_all_and_triggers_flush() {
         let total = limit + 5_000;
         let per_batch = 1_000;
         for _ in 0..(total / per_batch) {
-            let records: Vec<LogRecord> = (0..per_batch).map(|index| sample(index, "INFO")).collect();
+            let records: Vec<LogRecord> =
+                (0..per_batch).map(|index| sample(index, "INFO")).collect();
             let (responder, ack) = oneshot::channel();
             let command = WalCommand::Append(IngestBatch::new(records, responder));
-            ingest_tx
-                .send(command)
-                .await
-                .expect("enqueue ingest batch");
+            ingest_tx.send(command).await.expect("enqueue ingest batch");
 
             let outcome = tokio::time::timeout(Duration::from_secs(10), ack)
                 .await
@@ -118,7 +129,9 @@ fn pipeline_of_15000_logs_acks_all_and_triggers_flush() {
     });
 
     wal_handle.join().expect("wal worker must exit cleanly");
-    memtable_handle.join().expect("memtable worker must exit cleanly");
+    memtable_handle
+        .join()
+        .expect("memtable worker must exit cleanly");
 
     let output = captured.buffer.lock().expect("capture buffer");
     assert!(

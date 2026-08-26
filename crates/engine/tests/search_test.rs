@@ -40,7 +40,9 @@ fn seed_disk(config: &EngineConfig, count: usize, spread_days: i64) {
         };
         table.append_record(&sample(age, index, level, "auth-api"));
     }
-    flusher.flush(&table.finish().expect("finish memtable")).expect("flush");
+    flusher
+        .flush(&table.finish().expect("finish memtable"))
+        .expect("flush");
 }
 
 async fn engine_with(config: &EngineConfig, live_rows: &[LogRecord]) -> QueryEngine {
@@ -50,18 +52,27 @@ async fn engine_with(config: &EngineConfig, live_rows: &[LogRecord]) -> QueryEng
             table.append_record(record);
         }
         let buffer: LiveBuffer = LiveBuffer::default();
-        buffer.write().expect("lock").push(table.finish().expect("finish"));
+        buffer
+            .write()
+            .expect("lock")
+            .push(table.finish().expect("finish"));
         return QueryEngine::new(config, buffer).await.expect("engine");
     }
-    QueryEngine::new(config, LiveBuffer::default()).await.expect("engine")
+    QueryEngine::new(config, LiveBuffer::default())
+        .await
+        .expect("engine")
 }
 
 fn rows_search(time_range_secs: u64, limit: usize) -> LogSearch {
+    rows_search_offset(time_range_secs, limit, 0)
+}
+
+fn rows_search_offset(time_range_secs: u64, limit: usize, offset: usize) -> LogSearch {
     LogSearch {
         time_range_secs,
         facets: HashMap::new(),
         search: None,
-        mode: SearchMode::Rows { limit },
+        mode: SearchMode::Rows { limit, offset },
     }
 }
 
@@ -81,22 +92,42 @@ async fn rows_mode_merges_both_tiers_newest_first() {
     ];
     let engine = engine_with(&config, &live).await;
 
-    let batches = engine.search(&rows_search(90 * 86_400, 500)).await.expect("search");
+    let batches = engine
+        .search(&rows_search(90 * 86_400, 500))
+        .await
+        .expect("search");
     let timestamps = collected_timestamps(&batches);
     assert_eq!(timestamps.len(), 202, "disk rows plus both live rows");
-    assert!(timestamps.windows(2).all(|pair| pair[0] >= pair[1]), "newest first");
+    assert!(
+        timestamps.windows(2).all(|pair| pair[0] >= pair[1]),
+        "newest first"
+    );
 
     let services = collected_strings(&batches, "service");
     assert!(services.contains(&"payment-worker".to_string()));
     assert!(services.contains(&"auth-api".to_string()));
 
-    let limited = engine.search(&rows_search(90 * 86_400, 50)).await.expect("limited search");
-    assert_eq!(collected_timestamps(&limited).len(), 50, "limit applies after merge");
+    let limited = engine
+        .search(&rows_search(90 * 86_400, 50))
+        .await
+        .expect("limited search");
+    assert_eq!(
+        collected_timestamps(&limited).len(),
+        50,
+        "limit applies after merge"
+    );
 
     // A window that excludes everything on disk still finds recent live rows.
-    let recent_only = engine.search(&rows_search(3_600, 500)).await.expect("recent search");
+    let recent_only = engine
+        .search(&rows_search(3_600, 500))
+        .await
+        .expect("recent search");
     let timestamps = collected_timestamps(&recent_only);
-    assert_eq!(timestamps.len(), 1, "only the fresh live row falls inside 1 hour");
+    assert_eq!(
+        timestamps.len(),
+        1,
+        "only the fresh live row falls inside 1 hour"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -124,7 +155,11 @@ async fn aggregate_mode_sums_across_tiers_and_groups() {
         })
         .await
         .expect("aggregate search");
-    assert_eq!(metric_ints(&total, "count"), vec![201], "disk 200 plus live 1, merged into one key");
+    assert_eq!(
+        metric_ints(&total, "count"),
+        vec![201],
+        "disk 200 plus live 1, merged into one key"
+    );
 
     // Level facet narrows to ERROR rows: 50 on disk (every fourth) + 1 live.
     let mut facets = HashMap::new();
@@ -165,7 +200,10 @@ async fn aggregate_mode_sums_across_tiers_and_groups() {
         .expect("last_seen search");
     let seen = metric_ints(&last_seen, "last_seen");
     let all = collected_timestamps(
-        &engine.search(&rows_search(90 * 86_400, 500)).await.expect("rows"),
+        &engine
+            .search(&rows_search(90 * 86_400, 500))
+            .await
+            .expect("rows"),
     );
     assert_eq!(
         seen.iter().max(),
@@ -173,7 +211,10 @@ async fn aggregate_mode_sums_across_tiers_and_groups() {
         "the newest row's level reports the global last_seen"
     );
     for value in &seen {
-        assert!(*value <= all.first().copied().unwrap_or(0), "no level exceeds the global newest");
+        assert!(
+            *value <= all.first().copied().unwrap_or(0),
+            "no level exceeds the global newest"
+        );
     }
 }
 
@@ -191,7 +232,9 @@ async fn bucket_grouping_returns_time_ordered_buckets() {
         let age = i64::try_from(index).unwrap() * 60; // spread over two hours
         table.append_record(&sample(age, index, "INFO", "auth-api"));
     }
-    flusher.flush(&table.finish().expect("finish")).expect("flush");
+    flusher
+        .flush(&table.finish().expect("finish"))
+        .expect("flush");
 
     let engine = engine_with(&config, &[]).await;
     let histogram = engine
@@ -215,7 +258,10 @@ async fn bucket_grouping_returns_time_ordered_buckets() {
         .expect("bucket column is timestamps");
     let bucket_values = buckets.values();
     assert!(bucket_values.len() >= 12, "two hours binned at ten minutes");
-    assert!(bucket_values.windows(2).all(|pair| pair[0] < pair[1]), "buckets ascend");
+    assert!(
+        bucket_values.windows(2).all(|pair| pair[0] < pair[1]),
+        "buckets ascend"
+    );
     assert!(
         bucket_values.iter().all(|value| value % 600_000_000 == 0),
         "bins align to epoch like date_bin does"
@@ -242,7 +288,9 @@ async fn free_text_and_service_facets_filter_rows() {
         }
         table.append_record(&record);
     }
-    flusher.flush(&table.finish().expect("finish")).expect("flush");
+    flusher
+        .flush(&table.finish().expect("finish"))
+        .expect("flush");
 
     let engine = engine_with(&config, &[]).await;
 
@@ -251,7 +299,10 @@ async fn free_text_and_service_facets_filter_rows() {
             time_range_secs: 86_400,
             facets: HashMap::new(),
             search: Some("unicorn".to_string()),
-            mode: SearchMode::Rows { limit: 100 },
+            mode: SearchMode::Rows {
+                limit: 100,
+                offset: 0,
+            },
         })
         .await
         .expect("free-text search");
@@ -266,11 +317,63 @@ async fn free_text_and_service_facets_filter_rows() {
             time_range_secs: 86_400,
             facets,
             search: None,
-            mode: SearchMode::Rows { limit: 100 },
+            mode: SearchMode::Rows {
+                limit: 100,
+                offset: 0,
+            },
         })
         .await
         .expect("facet search");
     assert_eq!(collected_strings(&faceted, "service").len(), 4);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn offset_pagination_returns_disjoint_newest_first_pages() {
+    let dir = tempdir().expect("tmp");
+    let config = EngineConfig {
+        data_dir: dir.path().join("logs"),
+        ..EngineConfig::default()
+    };
+    seed_disk(&config, 250, 3);
+    let engine = engine_with(&config, &[]).await;
+
+    // Concatenating page 0, 1, 2 must reproduce the unpaginated result:
+    // same rows, same newest-first order, no gaps or overlaps.
+    let all = collected_timestamps(
+        &engine
+            .search(&rows_search(90 * 86_400, 500))
+            .await
+            .expect("unpaged search"),
+    );
+    assert_eq!(all.len(), 250);
+
+    let mut paged: Vec<i64> = Vec::new();
+    for offset in [0, 100, 200] {
+        let timestamps = collected_timestamps(
+            &engine
+                .search(&rows_search_offset(90 * 86_400, 100, offset))
+                .await
+                .expect("paged search"),
+        );
+        assert!(
+            timestamps.windows(2).all(|pair| pair[0] > pair[1]),
+            "page strictly newest first"
+        );
+        paged.extend(timestamps);
+    }
+    assert_eq!(
+        paged.len(),
+        all.len(),
+        "every row appears exactly once across pages"
+    );
+    assert_eq!(paged, all, "pages concatenate to the unpaged ordering");
+
+    // An offset past the end of the window is an empty page, not an error.
+    let past_end = engine
+        .search(&rows_search_offset(90 * 86_400, 100, 300))
+        .await
+        .expect("offset past end");
+    assert_eq!(collected_timestamps(&past_end).len(), 0);
 }
 
 #[tokio::test]
@@ -287,9 +390,15 @@ async fn invalid_requests_are_rejected_not_executed() {
         time_range_secs: 3600,
         facets: HashMap::new(),
         search: None,
-        mode: SearchMode::Rows { limit: 101 },
+        mode: SearchMode::Rows {
+            limit: 101,
+            offset: 0,
+        },
     };
-    let error = engine.search(&oversized_limit).await.expect_err("must reject");
+    let error = engine
+        .search(&oversized_limit)
+        .await
+        .expect_err("must reject");
     assert!(
         matches!(error, greplog_engine::error::EngineError::QueryRejected(_)),
         "expected rejection, got: {error}"
@@ -297,9 +406,14 @@ async fn invalid_requests_are_rejected_not_executed() {
 
     let bad_facet = LogSearch {
         time_range_secs: 3600,
-        facets: [("trace_id".to_string(), "x".to_string())].into_iter().collect(),
+        facets: [("trace_id".to_string(), "x".to_string())]
+            .into_iter()
+            .collect(),
         search: None,
-        mode: SearchMode::Rows { limit: 10 },
+        mode: SearchMode::Rows {
+            limit: 10,
+            offset: 0,
+        },
     };
     assert!(engine.search(&bad_facet).await.is_err());
 
@@ -342,13 +456,23 @@ async fn global_aggregate_folds_both_tiers_into_one_row() {
         .expect("global aggregate");
 
     assert_eq!(metric_ints(&totals, "count"), vec![41]);
-    assert_eq!(metric_ints(&totals, "errors"), vec![11], "10 disk ERROR rows plus 1 live");
+    assert_eq!(
+        metric_ints(&totals, "errors"),
+        vec![11],
+        "10 disk ERROR rows plus 1 live"
+    );
 }
 
 fn collected_timestamps(batches: &[arrow::record_batch::RecordBatch]) -> Vec<i64> {
     batches
         .iter()
-        .flat_map(|batch| int_values(batch.column_by_name("timestamp_us").expect("timestamp column")))
+        .flat_map(|batch| {
+            int_values(
+                batch
+                    .column_by_name("timestamp_us")
+                    .expect("timestamp column"),
+            )
+        })
         .collect()
 }
 

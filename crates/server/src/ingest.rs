@@ -11,9 +11,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::error::ApiError;
 
 fn internal_error(message: impl Into<String>) -> ApiError {
-    ApiError::Engine(EngineError::IoError(std::io::Error::other(
-        message.into(),
-    )))
+    ApiError::Engine(EngineError::IoError(std::io::Error::other(message.into())))
 }
 
 /// Handles `POST /api/log`: forwards the batch to the WAL worker and awaits

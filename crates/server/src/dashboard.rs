@@ -21,7 +21,9 @@ use crate::error::ApiError;
 use crate::shutdown::Shutdown;
 
 fn internal_error(message: impl std::fmt::Display) -> ApiError {
-    ApiError::Engine(EngineError::IoError(std::io::Error::other(message.to_string())))
+    ApiError::Engine(EngineError::IoError(std::io::Error::other(
+        message.to_string(),
+    )))
 }
 
 /// Encodes row batches on the blocking pool (CPU-bound, result-proportional).
@@ -51,7 +53,9 @@ pub async fn handle_search(
     encoded_rows(batches).await
 }
 
-pub async fn handle_stats(State(data_dir): State<std::path::PathBuf>) -> Result<Response, ApiError> {
+pub async fn handle_stats(
+    State(data_dir): State<std::path::PathBuf>,
+) -> Result<Response, ApiError> {
     let snapshot = tokio::task::spawn_blocking(move || crate::stats::storage_stats(&data_dir))
         .await
         .map_err(internal_error)?;
@@ -73,7 +77,10 @@ pub async fn handle_query(
     State(engine): State<Arc<QueryEngine>>,
     Json(req): Json<QueryRequest>,
 ) -> Result<Response, ApiError> {
-    let batches = engine.execute_sql(&req.sql).await.map_err(ApiError::Engine)?;
+    let batches = engine
+        .execute_sql(&req.sql)
+        .await
+        .map_err(ApiError::Engine)?;
     encoded_rows(batches).await
 }
 
@@ -126,9 +133,8 @@ pub async fn handle_tail(
         }
     };
 
-    Sse::new(stream).keep_alive(
-        KeepAlive::new().interval(Duration::from_secs(TAIL_KEEP_ALIVE_SECS)),
-    )
+    Sse::new(stream)
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(TAIL_KEEP_ALIVE_SECS)))
 }
 
 fn logs_event(batch: &[LogRecord]) -> Event {
@@ -142,9 +148,7 @@ fn logs_event(batch: &[LogRecord]) -> Event {
 }
 
 fn gap_event(skipped: u64) -> Event {
-    Event::default()
-        .event("gap")
-        .data(skipped.to_string())
+    Event::default().event("gap").data(skipped.to_string())
 }
 
 #[cfg(test)]

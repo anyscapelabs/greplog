@@ -103,7 +103,11 @@ fn walk_for_day_partitions(
 
 fn day_partition_date(dir: &Path) -> Option<NaiveDate> {
     let day = dir.file_name()?.to_str()?.strip_prefix("day=")?;
-    let month = dir.parent()?.file_name()?.to_str()?.strip_prefix("month=")?;
+    let month = dir
+        .parent()?
+        .file_name()?
+        .to_str()?
+        .strip_prefix("month=")?;
     let year = dir
         .parent()?
         .parent()?
@@ -120,10 +124,10 @@ fn day_partition_date(dir: &Path) -> Option<NaiveDate> {
 mod tests {
     use std::fs;
 
+    use super::{day_partition_date, Retention};
+    use crate::config::EngineConfig;
     use chrono::{Datelike, NaiveDate, Utc};
     use tempfile::tempdir;
-    use super::{Retention, day_partition_date};
-    use crate::config::EngineConfig;
 
     fn make_partition(root: &std::path::Path, date: NaiveDate) -> std::path::PathBuf {
         let path = root
@@ -169,7 +173,11 @@ mod tests {
         let expired = retention
             .find_expired_partitions()
             .expect("scan for expired partitions");
-        assert_eq!(expired, vec![old_path], "only the 40-day-old partition expires");
+        assert_eq!(
+            expired,
+            vec![old_path],
+            "only the 40-day-old partition expires"
+        );
     }
 
     #[test]
@@ -188,7 +196,10 @@ mod tests {
         let expired = retention.find_expired_partitions().expect("scan");
         assert!(expired.is_empty(), "None retention must purge nothing");
         assert_eq!(retention.purge_expired().expect("purge"), 0);
-        assert!(root.exists(), "data_dir must survive a disabled retention sweep");
+        assert!(
+            root.exists(),
+            "data_dir must survive a disabled retention sweep"
+        );
     }
 
     #[test]

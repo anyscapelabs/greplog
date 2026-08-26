@@ -17,8 +17,10 @@ const SEALED_PREFIX: &str = "sealed-";
 
 #[must_use]
 pub fn sealed_path(wal_path: &Path, seq: u64) -> PathBuf {
-    let name = wal_path
-        .file_name().map_or_else(|| "current.wal".to_string(), |name| name.to_string_lossy().into_owned());
+    let name = wal_path.file_name().map_or_else(
+        || "current.wal".to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
     let directory = wal_path.parent().unwrap_or_else(|| Path::new("."));
     directory.join(format!("{SEALED_PREFIX}{seq:06}-{name}"))
 }
@@ -66,10 +68,7 @@ impl WalWriter {
 
     #[must_use]
     pub fn bytes_written(&self) -> u64 {
-        self.writer
-            .get_ref()
-            .metadata()
-            .map_or(0, |m| m.len())
+        self.writer.get_ref().metadata().map_or(0, |m| m.len())
     }
 
     /// Replays the WAL file at `path`, returning all recovered records.
@@ -202,8 +201,12 @@ mod tests {
         let path = dir.path().join("current.wal");
         let mut wal = WalWriter::open(&path).expect("open wal");
 
-        wal.append_batch(&[record("a", "ERROR"), record("b", "WARN"), record("c", "INFO")])
-            .expect("append batch");
+        wal.append_batch(&[
+            record("a", "ERROR"),
+            record("b", "WARN"),
+            record("c", "INFO"),
+        ])
+        .expect("append batch");
 
         let size = std::fs::metadata(&path).expect("stat wal").len();
         assert!(size > 0, "wal file must contain bytes");
@@ -215,8 +218,10 @@ mod tests {
         let path = dir.path().join("current.wal");
         {
             let mut wal = WalWriter::open(&path).expect("open wal");
-            wal.append_batch(&[record("a", "INFO")]).expect("first append");
-            wal.append_batch(&[record("b", "WARN"), record("c", "ERROR")]).expect("second append");
+            wal.append_batch(&[record("a", "INFO")])
+                .expect("first append");
+            wal.append_batch(&[record("b", "WARN"), record("c", "ERROR")])
+                .expect("second append");
         }
 
         let file = std::fs::File::open(&path).expect("open wal for read");
@@ -225,7 +230,10 @@ mod tests {
         while let Ok(parsed) = bincode::deserialize_from::<_, LogRecord>(&mut reader) {
             seen.push(parsed.trace_id.expect("trace id must be present"));
         }
-        assert_eq!(seen, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        assert_eq!(
+            seen,
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
     }
 
     #[test]
@@ -242,7 +250,8 @@ mod tests {
         let path = dir.path().join("current.wal");
         {
             let mut wal = WalWriter::open(&path).expect("open wal");
-            wal.append_batch(&[record("a", "INFO"), record("b", "WARN")]).expect("append");
+            wal.append_batch(&[record("a", "INFO"), record("b", "WARN")])
+                .expect("append");
             wal.append_batch(&[record("c", "ERROR")]).expect("append");
         }
         assert_eq!(record_count(&path).expect("count"), 3);
@@ -259,8 +268,12 @@ mod tests {
         let path = dir.path().join("current.wal");
         {
             let mut wal = WalWriter::open(&path).expect("open wal");
-            wal.append_batch(&[record("a", "INFO"), record("b", "WARN"), record("c", "ERROR")])
-                .expect("append");
+            wal.append_batch(&[
+                record("a", "INFO"),
+                record("b", "WARN"),
+                record("c", "ERROR"),
+            ])
+            .expect("append");
         }
 
         // Truncate into the middle of the last record: a clean crash tail.
@@ -282,8 +295,8 @@ mod tests {
             clippy::cast_possible_truncation,
             reason = "a single test record is far below usize::MAX"
         )]
-        let first_record_len = bincode::serialized_size(&record("a", "INFO")).expect("size")
-            as usize;
+        let first_record_len =
+            bincode::serialized_size(&record("a", "INFO")).expect("size") as usize;
         let mut corrupted = full.clone();
         corrupted[first_record_len - 2] = 0xFF;
         fs::write(&path, &corrupted).expect("write corrupted wal");
@@ -304,17 +317,20 @@ mod tests {
 
         {
             let mut wal = WalWriter::open(&first).expect("open sealed 1");
-            wal.append_batch(&[record("s1-a", "INFO"), record("s1-b", "WARN")]).expect("append");
+            wal.append_batch(&[record("s1-a", "INFO"), record("s1-b", "WARN")])
+                .expect("append");
             wal.sync_data().expect("sync");
         }
         {
             let mut wal = WalWriter::open(&second).expect("open sealed 2");
-            wal.append_batch(&[record("s2-a", "ERROR")]).expect("append");
+            wal.append_batch(&[record("s2-a", "ERROR")])
+                .expect("append");
             wal.sync_data().expect("sync");
         }
         {
             let mut wal = WalWriter::open(&active).expect("open active");
-            wal.append_batch(&[record("cur-a", "INFO"), record("cur-b", "DEBUG")]).expect("append");
+            wal.append_batch(&[record("cur-a", "INFO"), record("cur-b", "DEBUG")])
+                .expect("append");
             wal.sync_data().expect("sync");
         }
 
@@ -330,7 +346,11 @@ mod tests {
         );
 
         let listed = sealed_segments(&active).expect("list sealed");
-        assert_eq!(listed, vec![first, second], "sealed segments must be ordered by sequence");
+        assert_eq!(
+            listed,
+            vec![first, second],
+            "sealed segments must be ordered by sequence"
+        );
     }
 
     #[test]

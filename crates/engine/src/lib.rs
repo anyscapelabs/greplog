@@ -20,8 +20,8 @@ pub mod storage;
 pub mod wal;
 pub mod worker;
 
-pub use config::EngineConfig;
 pub use compactor::Compactor;
+pub use config::EngineConfig;
 pub use error::EngineError;
 pub use ingest::{IngestBatch, WalCommand};
 pub use memtable::MemTable;

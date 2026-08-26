@@ -86,7 +86,10 @@ async fn query_endpoint_rejects_non_select_statements() {
         ("COPY logs TO '/tmp/leak'", "read-only SELECT"),
         ("INSERT INTO logs VALUES (1)", "read-only SELECT"),
         ("DELETE FROM logs", "read-only SELECT"),
-        ("SET datafusion.execution.batch_size = 100", "read-only SELECT"),
+        (
+            "SET datafusion.execution.batch_size = 100",
+            "read-only SELECT",
+        ),
         ("SHOW TABLES", "read-only SELECT"),
     ] {
         let (status, body) = post_query(&app, sql).await;
@@ -102,11 +105,8 @@ async fn query_endpoint_rejects_non_select_statements() {
     }
 
     // `CREATE EXTERNAL TABLE` is refused too.
-    let (status, body) = post_query(
-        &app,
-        "CREATE EXTERNAL TABLE hacked (a INT) LOCATION '/etc'",
-    )
-    .await;
+    let (status, body) =
+        post_query(&app, "CREATE EXTERNAL TABLE hacked (a INT) LOCATION '/etc'").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["code"], "query_rejected");
 }

@@ -44,7 +44,9 @@ mod tests {
 
     #[test]
     fn variant_messages_are_descriptive() {
-        assert!(EngineError::ParseError("bad".to_string()).to_string().contains("parse error"));
+        assert!(EngineError::ParseError("bad".to_string())
+            .to_string()
+            .contains("parse error"));
 
         let io = EngineError::IoError(std::io::Error::other("boom"));
         assert!(io.to_string().contains("io error"));
@@ -59,13 +61,14 @@ mod tests {
         let bincode = EngineError::BincodeError(Box::new(ErrorKind::Custom("nope".to_string())));
         assert!(bincode.to_string().contains("bincode error"));
 
-        assert!(EngineError::LockError.to_string().contains("rwlock poisoned"));
+        assert!(EngineError::LockError
+            .to_string()
+            .contains("rwlock poisoned"));
     }
 
     #[test]
     fn from_conversions_cover_underlying_errors() {
-        let io: EngineError =
-            std::io::Error::new(std::io::ErrorKind::NotFound, "missing").into();
+        let io: EngineError = std::io::Error::new(std::io::ErrorKind::NotFound, "missing").into();
         assert!(matches!(io, EngineError::IoError(_)));
 
         let bincode: EngineError = Box::new(ErrorKind::SizeLimit).into();

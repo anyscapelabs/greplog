@@ -19,7 +19,11 @@ impl LogRecord {
     /// Creates a record with the current wall-clock time; ingestion paths set
     /// the exact call-site timestamp instead.
     #[must_use]
-    pub fn new(level: impl Into<String>, service: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(
+        level: impl Into<String>,
+        service: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             timestamp_us: Utc::now().timestamp_micros(),
             trace_id: None,
@@ -33,7 +37,10 @@ impl LogRecord {
     pub fn timestamp(&self) -> Result<DateTime<Utc>, EngineError> {
         let seconds = self.timestamp_us.div_euclid(1_000_000);
         let micros = u32::try_from(self.timestamp_us.rem_euclid(1_000_000)).map_err(|_| {
-            EngineError::ParseError(format!("timestamp_us {:#} cannot fit in a u32", self.timestamp_us))
+            EngineError::ParseError(format!(
+                "timestamp_us {:#} cannot fit in a u32",
+                self.timestamp_us
+            ))
         })?;
         DateTime::from_timestamp(seconds, micros.saturating_mul(1_000)).ok_or_else(|| {
             EngineError::ParseError(format!(
@@ -63,10 +70,14 @@ mod tests {
         let parsed: LogRecord = serde_json::from_str(SAMPLE).expect("sample must deserialize");
         let reserialized = serde_json::to_string(&parsed).expect("record must serialize");
 
-        let reparsed: LogRecord = serde_json::from_str(&reserialized).expect("must deserialize again");
+        let reparsed: LogRecord =
+            serde_json::from_str(&reserialized).expect("must deserialize again");
         assert_eq!(parsed, reparsed);
         assert_eq!(parsed.trace_id.as_deref(), Some("job_abc"));
-        assert_eq!(parsed.raw_body.as_deref(), Some(r#"{"order_id":9876,"reason":"card_declined"}"#));
+        assert_eq!(
+            parsed.raw_body.as_deref(),
+            Some(r#"{"order_id":9876,"reason":"card_declined"}"#)
+        );
     }
 
     #[test]
@@ -78,7 +89,8 @@ mod tests {
             "message": "signed in"
         });
 
-        let record: LogRecord = serde_json::from_value(json).expect("must deserialize without optionals");
+        let record: LogRecord =
+            serde_json::from_value(json).expect("must deserialize without optionals");
         assert_eq!(record.trace_id, None);
         assert_eq!(record.raw_body, None);
     }
@@ -102,7 +114,7 @@ mod tests {
     #[test]
     fn timestamp_round_trips_to_utc() {
         let json = json!({
-"timestamp_us": 1_723_000_000_123_456_i64,
+        "timestamp_us": 1_723_000_000_123_456_i64,
             "level": "INFO",
             "service": "auth-api",
             "message": "ok"

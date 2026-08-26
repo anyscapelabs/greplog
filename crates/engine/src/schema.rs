@@ -14,7 +14,11 @@ pub const SERVICE_COLUMN: &str = "service";
 #[must_use]
 pub fn greplog_schema() -> Arc<Schema> {
     Arc::new(Schema::new(vec![
-        Field::new("timestamp_us", DataType::Timestamp(TimeUnit::Microsecond, None), false),
+        Field::new(
+            "timestamp_us",
+            DataType::Timestamp(TimeUnit::Microsecond, None),
+            false,
+        ),
         Field::new("trace_id", DataType::Utf8, true),
         Field::new(
             "level",

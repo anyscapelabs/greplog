@@ -60,11 +60,7 @@ impl Compactor {
         Ok(partitions)
     }
 
-    fn walk_for_partitions(
-        &self,
-        dir: &Path,
-        out: &mut Vec<PathBuf>,
-    ) -> Result<(), EngineError> {
+    fn walk_for_partitions(&self, dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), EngineError> {
         let entries = match fs::read_dir(dir) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -126,7 +122,11 @@ impl Compactor {
         for path in superseded {
             if rolling_back {
                 let restored = path.with_extension("");
-                tracing::warn!(?path, ?restored, "restoring a superseded chunk after an interrupted compaction");
+                tracing::warn!(
+                    ?path,
+                    ?restored,
+                    "restoring a superseded chunk after an interrupted compaction"
+                );
                 fs::rename(&path, &restored)?;
             } else {
                 fs::remove_file(&path)?;
@@ -196,7 +196,9 @@ impl Compactor {
                 .await;
                 match outcome {
                     Ok(Ok(())) => tracing::info!("compacted partition {partition:?}"),
-                    Ok(Err(error)) => tracing::error!(?error, "compaction failed for {partition:?}"),
+                    Ok(Err(error)) => {
+                        tracing::error!(?error, "compaction failed for {partition:?}");
+                    }
                     Err(error) => tracing::error!(?error, "compaction worker joined with an error"),
                 }
             }
@@ -293,12 +295,14 @@ fn sort_by_first_timestamp(files: &mut [PathBuf]) {
         .iter()
         .map(|path| (min_timestamp(path), path.clone()))
         .collect();
-    keyed.sort_by(|(left_ts, left_path), (right_ts, right_path)| match (left_ts, right_ts) {
-        (Some(left), Some(right)) => left.cmp(right).then_with(|| left_path.cmp(right_path)),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => left_path.cmp(right_path),
-    });
+    keyed.sort_by(
+        |(left_ts, left_path), (right_ts, right_path)| match (left_ts, right_ts) {
+            (Some(left), Some(right)) => left.cmp(right).then_with(|| left_path.cmp(right_path)),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => left_path.cmp(right_path),
+        },
+    );
     for (slot, (_, path)) in files.iter_mut().zip(keyed) {
         *slot = path;
     }
@@ -306,7 +310,10 @@ fn sort_by_first_timestamp(files: &mut [PathBuf]) {
 
 fn min_timestamp(path: &Path) -> Option<i64> {
     let file = File::open(path).ok()?;
-    let metadata = ParquetRecordBatchReaderBuilder::try_new(file).ok()?.metadata().clone();
+    let metadata = ParquetRecordBatchReaderBuilder::try_new(file)
+        .ok()?
+        .metadata()
+        .clone();
     let column = metadata
         .file_metadata()
         .schema_descr()

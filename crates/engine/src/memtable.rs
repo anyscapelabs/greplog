@@ -20,7 +20,9 @@ use crate::schema::greplog_schema;
 /// Bounded set of severity levels stored in the `level` dictionary; anything
 /// else degrades to `UNKNOWN`, so a malformed client can never overflow the
 /// dictionary key space.
-const LEVELS: &[&str] = &["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "CRITICAL", "UNKNOWN"];
+const LEVELS: &[&str] = &[
+    "TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "CRITICAL", "UNKNOWN",
+];
 
 #[must_use]
 pub fn normalize_level(level: &str) -> &'static str {
@@ -49,8 +51,16 @@ impl MemTable {
         Self {
             timestamps: TimestampMicrosecondBuilder::with_capacity(capacity),
             trace_ids: StringBuilder::with_capacity(capacity, varchar_capacity),
-            levels: StringDictionaryBuilder::with_capacity(capacity, varchar_capacity, varchar_capacity),
-            services: StringDictionaryBuilder::with_capacity(capacity, varchar_capacity, varchar_capacity),
+            levels: StringDictionaryBuilder::with_capacity(
+                capacity,
+                varchar_capacity,
+                varchar_capacity,
+            ),
+            services: StringDictionaryBuilder::with_capacity(
+                capacity,
+                varchar_capacity,
+                varchar_capacity,
+            ),
             messages: StringBuilder::with_capacity(capacity, varchar_capacity),
             raw_bodies: StringBuilder::with_capacity(capacity, varchar_capacity),
         }
@@ -156,8 +166,14 @@ mod tests {
             table.append_record(&sample(index, &format!("level_{index}")));
         }
 
-        let batch = table.finish().expect("finish must never fail on many levels");
-        assert_eq!(batch.num_rows(), 300, "every row must survive regardless of level");
+        let batch = table
+            .finish()
+            .expect("finish must never fail on many levels");
+        assert_eq!(
+            batch.num_rows(),
+            300,
+            "every row must survive regardless of level"
+        );
     }
 
     #[test]

@@ -8,7 +8,9 @@ use arrow::array::RecordBatch;
 use arrow::datatypes::{DataType, SchemaRef};
 use async_trait::async_trait;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::datasource::listing::{ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl};
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
 use datafusion::datasource::{MemTable, TableProvider};
 use datafusion::error::DataFusionError;
 use datafusion::execution::session_state::SessionState;
@@ -140,7 +142,9 @@ struct RuntimeDropGuard {
 
 impl RuntimeDropGuard {
     fn new(runtime: Runtime) -> Self {
-        Self { inner: Some(runtime) }
+        Self {
+            inner: Some(runtime),
+        }
     }
 
     fn as_runtime(&self) -> &Runtime {
@@ -182,10 +186,7 @@ fn validate_read_only_query(sql: &str) -> Result<(), EngineError> {
 /// arrives after startup is visible without a restart. An explicit file schema
 /// (data fields only; partition columns are merged in by [`ListingTable`])
 /// keeps the table well-typed even before any Parquet file exists.
-fn register_parquet_table(
-    ctx: &SessionContext,
-    config: &EngineConfig,
-) -> Result<(), EngineError> {
+fn register_parquet_table(ctx: &SessionContext, config: &EngineConfig) -> Result<(), EngineError> {
     std::fs::create_dir_all(&config.data_dir)?;
     let partition_cols = vec![
         (String::from("year"), DataType::Int32),
@@ -317,6 +318,9 @@ mod tests {
                 drop(guard);
             });
         }));
-        assert!(result.is_ok(), "dropping the runtime in an async context must not panic");
+        assert!(
+            result.is_ok(),
+            "dropping the runtime in an async context must not panic"
+        );
     }
 }
