@@ -21,6 +21,8 @@ jobs:
       matrix:
         include:
           - { name: linux-x86_64, os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { name: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { name: macos-x86_64, os: macos-13, target: x86_64-apple-darwin }
           - { name: macos-arm64, os: macos-14, target: aarch64-apple-darwin }
     steps:
       - uses: actions/checkout@v4
@@ -115,3 +117,24 @@ jobs:
       - run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-go:
+    # Go has no registry push: consumers fetch the module straight from this
+    # repository. A module living in sdk/go/ is versioned by a tag of the form
+    # sdk/go/vX.Y.Z, so each release tag gets a companion tag pushed here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Push the Go module tag (sdk/go/<release tag>)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --tags origin "refs/tags/sdk/go/${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "tag sdk/go/${GITHUB_REF_NAME} already exists; skipping"
+            exit 0
+          fi
+          git tag "sdk/go/${GITHUB_REF_NAME}"
+          git push origin "sdk/go/${GITHUB_REF_NAME}"
