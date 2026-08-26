@@ -5,6 +5,25 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::EngineError;
 
+/// Longest accepted service name: it becomes one Hive partition directory,
+/// so it is capped like a filesystem component.
+pub const SERVICE_NAME_MAX_LEN: usize = 64;
+
+/// True when `name` is safe to turn into a `service=<name>` partition path:
+/// 1–64 characters of ASCII letters, digits, `_`, `.` or `-`.
+///
+/// The ingest boundary rejects everything else. A name containing `/` would
+/// nest directories outside the service layout, and one containing `..`
+/// could escape the data directory entirely, so path safety — not style —
+/// is what this check guards.
+#[must_use]
+pub fn is_valid_service_name(name: &str) -> bool {
+    (1..=SERVICE_NAME_MAX_LEN).contains(&name.len())
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LogRecord {
     pub timestamp_us: i64,
@@ -53,7 +72,7 @@ impl LogRecord {
 
 #[cfg(test)]
 mod tests {
-    use super::LogRecord;
+    use super::{is_valid_service_name, LogRecord};
     use serde_json::json;
 
     const SAMPLE: &str = r#"{
@@ -131,5 +150,30 @@ mod tests {
         assert!(record.trace_id.is_none());
         assert!(record.raw_body.is_none());
         assert!(record.timestamp_us > 0);
+    }
+
+    #[test]
+    fn ordinary_service_names_are_accepted() {
+        assert!(is_valid_service_name("auth-api"));
+        assert!(is_valid_service_name("payment_worker.2"));
+        assert!(is_valid_service_name("a"));
+        assert!(is_valid_service_name("A-1_2.b"));
+        assert!(is_valid_service_name(&"x".repeat(64)));
+    }
+
+    #[test]
+    fn path_traversing_and_oversized_service_names_are_rejected() {
+        // The traversal attempts that motivated the check.
+        assert!(!is_valid_service_name("../evil"));
+        assert!(!is_valid_service_name("../../../../etc"));
+        assert!(!is_valid_service_name("..\\windows"));
+        assert!(!is_valid_service_name("a/b"));
+
+        // Empty, oversized, and non-path-safe characters.
+        assert!(!is_valid_service_name(""));
+        assert!(!is_valid_service_name(&"x".repeat(65)));
+        assert!(!is_valid_service_name("has space"));
+        assert!(!is_valid_service_name("süß"));
+        assert!(!is_valid_service_name("line\nbreak"));
     }
 }

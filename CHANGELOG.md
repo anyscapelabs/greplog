@@ -41,6 +41,10 @@ First public release.
 - Refresh controls no longer remount pages; refetches happen in place.
 
 ### Fixed
+- Ingest rejects service names that could alter the storage layout
+  (`service` becomes a `service=<name>` directory, so `/` or `..` in the
+  name could write outside the data directory). Valid names are 1–64
+  characters of `a-z A-Z 0-9 _ . -`; offending batches get a 400.
 - DataFusion 39 mis-prunes when two Hive partition columns are conjuncted;
   searches now emit a single-clause partition filter.
 - Facet picks from the sidebar translate UI names to wire columns

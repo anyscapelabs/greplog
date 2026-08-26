@@ -358,6 +358,14 @@ fn display_host(bind_host: &str) -> &str {
     }
 }
 
+/// True when the bind exposes Greplog to this machine only. Anything else —
+/// `0.0.0.0`, a LAN address — makes ingest, dashboard and SQL query endpoints
+/// reachable from other machines with no authentication, which the startup
+/// banner must say out loud at the point of use.
+fn bind_is_loopback(bind_host: &str) -> bool {
+    matches!(bind_host, "" | "127.0.0.1" | "::1") || bind_host.eq_ignore_ascii_case("localhost")
+}
+
 fn print_startup_banner(config: &EngineConfig) {
     use ui::{bold, dim, link, wrap};
 
@@ -396,6 +404,14 @@ fn print_startup_banner(config: &EngineConfig) {
                 dim("Storage"),
                 config.data_dir.display()
             )),
+        }
+        if !bind_is_loopback(&config.bind_host) {
+            lines.push(format!(
+                "{:<10} bound to {} — other machines can send logs, read stored \
+                 data and run queries; nothing requires authentication",
+                ui::warn_mark(),
+                config.bind_host
+            ));
         }
         lines.push(format!(
             "{:<10} {}",
@@ -492,5 +508,19 @@ mod screen_tests {
         let screen = super::compose_screen_for(&art, &info, 70);
         assert!(screen.lines().any(|line| line == "art0"), "stacked art");
         assert!(screen.lines().any(|line| line == "  info0"), "stacked info");
+    }
+
+    #[test]
+    fn only_loopback_binds_count_as_private() {
+        use super::bind_is_loopback;
+        assert!(bind_is_loopback("127.0.0.1"));
+        assert!(bind_is_loopback("::1"));
+        assert!(bind_is_loopback("localhost"));
+        assert!(bind_is_loopback("LocalHost"));
+        assert!(bind_is_loopback(""));
+        // Everything routable from outside must trigger the banner warning.
+        assert!(!bind_is_loopback("0.0.0.0"));
+        assert!(!bind_is_loopback("::"));
+        assert!(!bind_is_loopback("192.168.1.7"));
     }
 }
