@@ -54,6 +54,7 @@ interface RowsSearch {
   facets: SearchFacets
   search?: string
   limit: number
+  offset?: number
 }
 
 interface AggregateSearch {
@@ -130,16 +131,20 @@ export interface StorageStats {
   chunks: number
 }
 
+export const ROWS_PAGE_SIZE = 500
+
 export const logApi = {
-  fetchLogs: async (filters: QueryFilters): Promise<QueryRow[]> => {
+  fetchLogs: async (filters: QueryFilters, offset = 0): Promise<QueryRow[]> => {
     validateFilters(filters)
+    if (!Number.isFinite(offset) || offset < 0) throw new Error('offset must be >= 0')
 
     return postSearch({
       type: 'rows',
       time_range_secs: filters.timeRangeSecs,
       facets: toWireFacets(filters.facets),
       search: filters.search || undefined,
-      limit: 500,
+      limit: ROWS_PAGE_SIZE,
+      offset,
     })
   },
 

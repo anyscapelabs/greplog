@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { LuPause, LuPlay, LuTrash2 } from 'react-icons/lu'
+import { LuChevronRight } from 'react-icons/lu'
+import { RiDeleteBinLine, RiPauseLine, RiPlayLine } from 'react-icons/ri'
+import { LogDetailsViewer, parseRawBody } from '../components/logs/LogsList'
 import type { QueryRow } from '../api/logs'
+import { severityStyle } from '../utils/severity'
 
 /** Newest entries kept in memory; older ones fall off the top. */
 const MAX_TAIL_ENTRIES = 500
@@ -14,6 +17,7 @@ interface LogEntry {
   level: string
   service: string
   message: string
+  details: Record<string, unknown>
 }
 
 interface GapEntry {
@@ -23,15 +27,6 @@ interface GapEntry {
 }
 
 type TailEntry = LogEntry | GapEntry
-
-const LEVEL_STYLES: Record<string, string> = {
-  DEBUG: 'text-zinc-500',
-  INFO: 'text-sky-400',
-  WARN: 'text-amber-400',
-  ERROR: 'text-red-400',
-  FATAL: 'text-red-400',
-  CRITICAL: 'text-red-400',
-}
 
 const CONNECTION_STYLES: Record<Connection, { dot: string; label: string }> = {
   connecting: { dot: 'bg-amber-400', label: 'connecting…' },
@@ -60,8 +55,23 @@ function LiveTail() {
   const [entries, setEntries] = useState<TailEntry[]>([])
   const [connection, setConnection] = useState<Connection>('connecting')
   const [paused, setPaused] = useState(false)
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
   const pausedRef = useRef(paused)
   const nextIdRef = useRef(1)
+
+  const toggleExpand = (id: number) => {
+    setExpandedIds((previous) => {
+      const next = new Set(previous)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const clearEntries = () => {
+    setEntries([])
+    setExpandedIds(new Set())
+  }
 
   useEffect(() => {
     pausedRef.current = paused
@@ -92,6 +102,7 @@ function LiveTail() {
           level: String(row.level ?? '').toUpperCase(),
           service: String(row.service ?? '-'),
           message: String(row.message ?? ''),
+          details: parseRawBody(row.raw_body),
         }))
         return [...incoming.reverse(), ...previous].slice(0, MAX_TAIL_ENTRIES)
       })
@@ -117,26 +128,31 @@ function LiveTail() {
   return (
     <main className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-950 px-3 py-1.5">
-        <div className="flex items-center gap-2 text-sm text-zinc-300">
-          <span className={`h-2 w-2 rounded-full ${status.dot}`} />
-          <span className="text-xs uppercase tracking-wide text-zinc-500">{status.label}</span>
-          <span className="ml-2 text-xs text-zinc-500">{entries.length} buffered</span>
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-zinc-300">
+            <span className="font-medium text-zinc-100">{entries.length}</span> Logs
+          </p>
+          <div className="h-4 w-px bg-zinc-700" />
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 rounded-full ${status.dot}`} />
+            <span className="text-xs uppercase tracking-wide text-zinc-500">{status.label}</span>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setPaused((value) => !value)}
-            className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+            className="flex cursor-pointer items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-1 text-sm font-medium text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
           >
-            {paused ? <LuPlay className="h-3.5 w-3.5" /> : <LuPause className="h-3.5 w-3.5" />}
+            {paused ? <RiPlayLine className="h-4 w-4" /> : <RiPauseLine className="h-4 w-4" />}
             {paused ? 'Resume' : 'Pause'}
           </button>
           <button
             type="button"
-            onClick={() => setEntries([])}
-            className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+            onClick={clearEntries}
+            className="flex cursor-pointer items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-1 text-sm font-medium text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
           >
-            <LuTrash2 className="h-3.5 w-3.5" />
+            <RiDeleteBinLine className="h-4 w-4" />
             Clear
           </button>
         </div>
@@ -148,26 +164,45 @@ function LiveTail() {
             Waiting for logs…
           </div>
         ) : (
-          entries.map((entry) =>
-            entry.kind === 'gap' ? (
-              <div key={entry.id} className="border-b border-amber-900/50 bg-amber-950/20 px-3 py-1 text-xs text-amber-400">
-                … {entry.skipped} batch{entry.skipped === 1 ? '' : 'es'} dropped while the tail lagged …
+          entries.map((entry) => {
+            if (entry.kind === 'gap') {
+              return (
+                <div key={entry.id} className="border-b border-amber-900/50 bg-amber-950/20 px-3 py-1 text-xs text-amber-400">
+                  … {entry.skipped} batch{entry.skipped === 1 ? '' : 'es'} dropped while the tail lagged …
+                </div>
+              )
+            }
+
+            const isExpanded = expandedIds.has(entry.id)
+            return (
+              <div key={entry.id} className="border-b border-zinc-800">
+                <div className="flex items-center gap-3 px-3 py-1.5 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(entry.id)}
+                    className="cursor-pointer rounded p-0.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+                  >
+                    <LuChevronRight
+                      className={`h-4 w-4 transition-transform ${
+                        isExpanded ? 'rotate-90' : ''
+                      }`}
+                    />
+                  </button>
+                  <span className="w-20 shrink-0 font-mono text-xs text-zinc-500">
+                    {formatTimestamp(entry.timestampUs)}
+                  </span>
+                  <span className={`w-16 shrink-0 truncate font-mono text-xs font-medium ${severityStyle(entry.level).text}`}>
+                    {entry.level}
+                  </span>
+                  <span className="mr-2 shrink-0 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
+                    {entry.service}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-zinc-300">{entry.message}</span>
+                </div>
+                {isExpanded && <LogDetailsViewer data={entry.details} />}
               </div>
-            ) : (
-              <div key={entry.id} className="flex items-center gap-3 border-b border-zinc-800 px-3 py-1.5 text-sm">
-                <span className="w-20 shrink-0 font-mono text-xs text-zinc-500">
-                  {formatTimestamp(entry.timestampUs)}
-                </span>
-                <span className={`w-10 shrink-0 font-mono text-xs font-medium ${LEVEL_STYLES[entry.level] ?? 'text-zinc-400'}`}>
-                  {entry.level}
-                </span>
-                <span className="mr-2 shrink-0 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
-                  {entry.service}
-                </span>
-                <span className="min-w-0 flex-1 truncate font-mono text-zinc-300">{entry.message}</span>
-              </div>
-            ),
-          )
+            )
+          })
         )}
       </div>
     </main>

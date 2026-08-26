@@ -2,13 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { FaInfoCircle } from 'react-icons/fa'
 import { BsWindowFullscreen } from 'react-icons/bs'
-import { LuChevronRight, LuInfo } from 'react-icons/lu'
+import { LuChevronLeft, LuChevronRight, LuInfo, LuRefreshCw } from 'react-icons/lu'
 import { RiMore2Fill } from 'react-icons/ri'
 import Tooltip from '../Tooltip'
-import EmptyIcon from '../icons/EmptyIcon'
+import EmptyState from '../EmptyState'
+import Spinner from '../Spinner'
 import { RANGE_SECONDS } from './Timeline'
 import type { TimeRange } from '../Header'
 import type { QueryRow } from '../../api/logs'
+import { normalizeLevel, severityStyle } from '../../utils/severity'
 
 const RANGE_TO_LABEL: Record<TimeRange, string> = {
   '15m': '15 minutes',
@@ -26,6 +28,13 @@ interface LogsListProps {
   range: TimeRange
   shift: number
   logs?: QueryRow[]
+  /** True while the query is in flight and no rows are on screen yet. */
+  isLoading?: boolean
+  /** Zero-based page index; page N starts at row N * pageSize. */
+  page: number
+  pageSize: number
+  onPageChange: (page: number) => void
+  onRefresh: () => void
 }
 
 interface LogPayload {
@@ -110,22 +119,13 @@ function JsonNode({ label, value, defaultOpen, isRoot = false }: any) {
   )
 }
 
-type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
-
 interface LogRow {
   id: number
   timestamp: string
-  level: LogLevel
+  level: string
   service: string
   message: string
   details: Record<string, unknown>
-}
-
-const LEVEL_STYLES: Record<LogLevel, string> = {
-  DEBUG: 'text-zinc-500',
-  INFO: 'text-sky-400',
-  WARN: 'text-amber-400',
-  ERROR: 'text-red-400',
 }
 
 const MONTHS = [
@@ -163,7 +163,8 @@ function formatRowTimestamp(timestampUs: unknown): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${String(date.getMilliseconds()).padStart(3, '0')}`
 }
 
-function parseRawBody(rawBody: unknown): Record<string, unknown> {
+/** Parses a record's raw JSON body into an object tree for the details view. */
+export function parseRawBody(rawBody: unknown): Record<string, unknown> {
   if (typeof rawBody !== 'string') return {}
   try {
     const parsed: unknown = JSON.parse(rawBody)
@@ -175,13 +176,41 @@ function parseRawBody(rawBody: unknown): Record<string, unknown> {
   }
 }
 
-const LOG_LEVELS: LogLevel[] = ['DEBUG', 'INFO', 'WARN', 'ERROR']
+const CSV_COLUMNS = ['timestamp_us', 'trace_id', 'level', 'service', 'message', 'raw_body']
+
+/** Quotes a CSV cell when it contains separators, quotes or newlines. */
+function escapeCsvCell(value: unknown): string {
+  const cell = String(value ?? '')
+  if (cell.includes('"') || cell.includes(',') || cell.includes('\n')) {
+    return `"${cell.replace(/"/g, '""')}"`
+  }
+  return cell
+}
+
+function downloadLogs(logs: QueryRow[], extension: 'csv' | 'json', mimeType: string) {
+  const content =
+    extension === 'csv'
+      ? [CSV_COLUMNS.join(','), ...logs.map((row) => CSV_COLUMNS.map((column) => escapeCsvCell(row[column])).join(','))].join('\n')
+      : JSON.stringify(logs, null, 2)
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `greplog-logs-${Date.now()}.${extension}`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
 
 function LogsList({
   onToggleFullscreen,
   range,
   shift,
   logs,
+  isLoading = false,
+  page,
+  pageSize,
+  onPageChange,
+  onRefresh,
 }: LogsListProps) {
   const [actionsOpen, setActionsOpen] = useState(false)
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
@@ -191,9 +220,7 @@ function LogsList({
       (logs ?? []).map((row, index) => ({
         id: index + 1,
         timestamp: formatRowTimestamp(row.timestamp_us),
-        level: LOG_LEVELS.includes(row.level as LogLevel)
-          ? (row.level as LogLevel)
-          : 'INFO',
+        level: normalizeLevel(row.level),
         service: String(row.service ?? '-'),
         message: String(row.message ?? ''),
         details: parseRawBody(row.raw_body),
@@ -223,6 +250,28 @@ function LogsList({
       else next.add(id)
       return next
     })
+  }
+
+  const hasPreviousPage = page > 0
+  // A short page means the window is exhausted; only a full page can have a successor.
+  const mightHaveNextPage = (logs?.length ?? 0) >= pageSize
+  const goToPreviousPage = () => {
+    if (hasPreviousPage) onPageChange(page - 1)
+  }
+  const goToNextPage = () => {
+    if (mightHaveNextPage) onPageChange(page + 1)
+  }
+  const refreshFromMenu = () => {
+    onRefresh()
+    setActionsOpen(false)
+  }
+  const exportCsvFromMenu = () => {
+    if (logs && logs.length > 0) downloadLogs(logs, 'csv', 'text/csv;charset=utf-8')
+    setActionsOpen(false)
+  }
+  const exportJsonFromMenu = () => {
+    if (logs && logs.length > 0) downloadLogs(logs, 'json', 'application/json;charset=utf-8')
+    setActionsOpen(false)
   }
 
   return (
@@ -260,18 +309,37 @@ function LogsList({
                   className="fixed inset-0 z-10"
                   onClick={() => setActionsOpen(false)}
                 />
-                <ul className="absolute right-0 top-full z-20 mt-1 w-40 rounded-md border border-zinc-700 bg-zinc-900 py-1 text-sm shadow-lg">
-                  {['Export CSV', 'Export JSON', 'Refresh'].map((action) => (
-                    <li key={action}>
-                      <button
-                        type="button"
-                        onClick={() => setActionsOpen(false)}
-                        className="flex w-full cursor-pointer items-center px-3 py-1.5 text-left text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
-                      >
-                        {action}
-                      </button>
-                    </li>
-                  ))}
+                <ul className="absolute right-0 top-full z-20 mt-1 w-44 rounded-md border border-zinc-700 bg-zinc-900 py-1 text-sm shadow-lg">
+                  <li>
+                    <button
+                      type="button"
+                      disabled={!logs || logs.length === 0}
+                      onClick={exportCsvFromMenu}
+                      className="flex w-full cursor-pointer items-center px-3 py-1.5 text-left text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Export CSV
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      disabled={!logs || logs.length === 0}
+                      onClick={exportJsonFromMenu}
+                      className="flex w-full cursor-pointer items-center px-3 py-1.5 text-left text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Export JSON
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      onClick={refreshFromMenu}
+                      className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+                    >
+                      <LuRefreshCw className="h-3.5 w-3.5" />
+                      Refresh
+                    </button>
+                  </li>
                 </ul>
               </>
             )}
@@ -280,18 +348,21 @@ function LogsList({
       </div>
       <div ref={parentRef} className="min-h-0 flex-1 overflow-y-auto">
         {rows.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-            <EmptyIcon className="h-14 w-14 text-zinc-600" />
-            <div>
-              <p className="text-base font-medium text-zinc-100">No logs found</p>
-              <p className="mt-1 text-sm font-medium text-zinc-400">
-                There are no logs matching your current filters in the last{' '}
-                <span className="text-zinc-300">{RANGE_TO_LABEL[range]}</span>.
-              </p>
-              <p className="mt-1 text-sm font-medium text-zinc-400">
-                Try clearing your search or expanding the time range.{' '}
-              </p>
-            </div>
+          <div className="flex h-full items-center justify-center">
+            {isLoading ? (
+              <Spinner className="h-6 w-6" />
+            ) : (
+              <EmptyState
+                title="No logs found"
+                description={
+                  <>
+                    There are no logs matching your current filters in the last{' '}
+                    <span className="text-zinc-300">{RANGE_TO_LABEL[range]}</span>. Try
+                    clearing your search or expanding the time range.
+                  </>
+                }
+              />
+            )}
           </div>
         ) : (
         <div
@@ -327,7 +398,7 @@ function LogsList({
                   <span className="w-6 shrink-0" />
                   <span className="flex w-8 shrink-0 items-center">
                     <FaInfoCircle
-                      className={`h-3.5 w-3.5 ${LEVEL_STYLES[log.level]}`}
+                      className={`h-3.5 w-3.5 ${severityStyle(log.level).text}`}
                     />
                   </span>
                   <span className="mr-2 shrink-0 rounded-md border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-xs text-zinc-300">
@@ -344,18 +415,45 @@ function LogsList({
         </div>
         )}
       </div>
-      <footer className="flex shrink-0 items-center gap-2 border-t border-zinc-800 px-3 py-1.5 text-xs text-zinc-400 z-10 bg-zinc-950">
-        <LuInfo className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-        <span className="min-w-0 truncate">
-          Showing logs from{' '}
-          <span className="font-medium text-zinc-200">
-            {formatFooterDate(rangeStart)}
-          </span>{' '}
-          to{' '}
-          <span className="font-medium text-zinc-200">
-            {formatFooterDate(rangeEnd)}
+      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-400 z-10">
+        <div className="flex min-w-0 items-center gap-2">
+          <LuInfo className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+          <span className="min-w-0 truncate">
+            Showing logs from{' '}
+            <span className="font-medium text-zinc-200">
+              {formatFooterDate(rangeStart)}
+            </span>{' '}
+            to{' '}
+            <span className="font-medium text-zinc-200">
+              {formatFooterDate(rangeEnd)}
+            </span>
           </span>
-        </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span>
+            Page <span className="font-medium text-zinc-300">{page + 1}</span>
+          </span>
+          <button
+            type="button"
+            onClick={goToPreviousPage}
+            disabled={!hasPreviousPage}
+            aria-label="Previous page"
+            className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 px-2 text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <LuChevronLeft className="h-3.5 w-3.5" />
+            Prev
+          </button>
+          <button
+            type="button"
+            onClick={goToNextPage}
+            disabled={!mightHaveNextPage}
+            aria-label="Next page"
+            className="inline-flex h-7 cursor-pointer items-center justify-center rounded-md border border-zinc-700 bg-zinc-900 px-2 text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Next
+            <LuChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </footer>
     </div>
   )

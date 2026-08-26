@@ -26,14 +26,14 @@ function getErrorMessage(error: unknown): string {
   return 'Unknown error'
 }
 
-export function useLogExplorer(filters: QueryFilters | null, range: TimeRange) {
+export function useLogExplorer(filters: QueryFilters | null, range: TimeRange, offset = 0) {
   const logsQuery = useQuery({
-    queryKey: ['logs', filters],
+    queryKey: ['logs', filters, offset],
     placeholderData: keepPreviousData,
     queryFn: () => {
       if (!filters) throw new Error('Query filters are required')
 
-      return logApi.fetchLogs(filters)
+      return logApi.fetchLogs(filters, offset)
     },
     enabled: filters !== null,
   })
@@ -192,9 +192,8 @@ export function useStorage() {
     queryFn: () => logApi.fetchStorage(),
   })
 
-  const bytes = storageQuery.data?.bytes
   return {
-    valueGb: bytes === undefined ? null : bytes / 1e9,
+    bytes: storageQuery.data?.bytes ?? null,
     isLoading: storageQuery.isLoading,
     isError: storageQuery.isError,
     errorMessage: storageQuery.isError ? getErrorMessage(storageQuery.error) : undefined,

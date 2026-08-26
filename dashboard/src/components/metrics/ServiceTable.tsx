@@ -1,5 +1,7 @@
 import { IoInformationCircleOutline } from 'react-icons/io5'
 import Tooltip from '../Tooltip'
+import EmptyState from '../EmptyState'
+import Spinner from '../Spinner'
 import { RANGE_SECONDS } from '../logs/Timeline'
 import { useServiceTable } from '../../hooks/useLogs'
 import type { QueryFilters } from '../../api/logs'
@@ -81,7 +83,7 @@ function getLatencyBackground(ms: number): string {
 }
 
 export default function ServiceTable({ range, filters }: Props) {
-  const { data, isError, error } = useServiceTable(filters)
+  const { data, isLoading, isError, error } = useServiceTable(filters)
 
   if (isError) {
     return (
@@ -131,7 +133,14 @@ export default function ServiceTable({ range, filters }: Props) {
         {header}
 
         <div className="flex min-h-[160px] items-center justify-center rounded-b-lg border-t border-zinc-800 p-8">
-          <p className="text-center text-sm text-zinc-500">No data</p>
+          {isLoading ? (
+            <Spinner />
+          ) : (
+            <EmptyState
+              title="No services found"
+              description="Services appear here once they emit logs in the selected time window."
+            />
+          )}
         </div>
       </div>
     )

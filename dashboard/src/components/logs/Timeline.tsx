@@ -7,8 +7,10 @@ import {
 } from 'react-icons/lu'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
+import EmptyState from '../EmptyState'
 import type { TimeRange } from '../Header'
 import type { QueryRow } from '../../api/logs'
+import { severityStyle } from '../../utils/severity'
 
 const MIN_TIMELINE_HEIGHT = 160
 const DEFAULT_TIMELINE_HEIGHT = 200
@@ -72,18 +74,6 @@ function parseBucketSeconds(bucket: unknown): number | null {
   return Math.floor(ms / 1000)
 }
 
-const DEFAULT_BAR_COLOR = { fill: 'rgba(138, 180, 248, 0.5)', stroke: '#8ab4f8' }
-
-const SEVERITY_BAR_COLORS: Record<
-  string,
-  { fill: string; stroke: string }
-> = {
-  DEBUG: { fill: 'rgba(161, 161, 170, 0.6)', stroke: '#a1a1aa' },
-  INFO: { fill: 'rgba(56, 189, 248, 0.6)', stroke: '#38bdf8' },
-  WARN: { fill: 'rgba(251, 191, 36, 0.6)', stroke: '#fbbf24' },
-  ERROR: { fill: 'rgba(248, 113, 113, 0.6)', stroke: '#f87171' },
-}
-
 interface DragState {
   start: number
   base: number
@@ -124,10 +114,7 @@ function Timeline({
   const config = HISTOGRAM_CONFIG[range]
   const bars = config?.bars ?? 60
   const spacing = config?.spacing ?? RANGE_SECONDS[range] / bars
-  const barColors = useMemo(
-    () => (severity ? SEVERITY_BAR_COLORS[severity] ?? DEFAULT_BAR_COLOR : DEFAULT_BAR_COLOR),
-    [severity],
-  )
+  const barColors = useMemo(() => severityStyle(severity), [severity])
   const histogramData: [number[], number[]] = useMemo(() => {
     const end = Math.floor(Date.now() / 1000) - shift
     const start = end - RANGE_SECONDS[range]
@@ -154,6 +141,10 @@ function Timeline({
 
   const rangeEnd = Math.floor(Date.now() / 1000) - shift
   const rangeStart = rangeEnd - RANGE_SECONDS[range]
+
+  // An empty histogram means zero rows came back for the whole window — show
+  // the shared empty state instead of an axis-only plot.
+  const isEmptyWindow = Array.isArray(histogram) && histogram.length === 0
 
   const ticks: number[] = useMemo(() => {
     if (!labelInterval) return []
@@ -230,7 +221,9 @@ function Timeline({
         chartRef.current = null
       }
     }
-  }, [histogramData, barColors])
+    // `collapsed`/`fullscreen` must be deps: they unmount the chart container,
+    // and uPlot stays bound to the detached node unless rebuilt on remount.
+  }, [histogramData, barColors, collapsed, fullscreen])
 
   useEffect(() => {
     const frame = chartFrameRef.current
@@ -293,7 +286,16 @@ function Timeline({
           )}
         </button>
       </div>
-      {!collapsed && !fullscreen && (
+      {!collapsed && !fullscreen &&
+        (isEmptyWindow ? (
+          <div style={{ height }} className="flex items-center justify-center">
+            <EmptyState
+              size="sm"
+              title="No data"
+              description="No logs matched in this time range."
+            />
+          </div>
+        ) : (
         <div style={{ height }} className="relative flex flex-col">
           <div className="flex flex-1">
             <div className="flex w-10 shrink-0 flex-col items-center justify-center">
@@ -358,7 +360,7 @@ function Timeline({
             className="absolute inset-x-0 bottom-0 h-1.5 cursor-row-resize bg-transparent transition-colors hover:bg-zinc-700"
           />
         </div>
-      )}
+        ))}
     </section>
   )
 }

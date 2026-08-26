@@ -3,28 +3,18 @@ import { IoInformationCircleOutline } from 'react-icons/io5'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import Tooltip from '../Tooltip'
+import EmptyState from '../EmptyState'
+import Spinner from '../Spinner'
 import { binIntervalSeconds, RANGE_SECONDS } from '../logs/Timeline'
 import { useSeverityBreakdown } from '../../hooks/useLogs'
 import type { QueryFilters } from '../../api/logs'
 import type { TimeRange } from '../Header'
+import { normalizeLevel, SEVERITY_ORDER, severityStyle } from '../../utils/severity'
 
 type Props = {
   range: TimeRange
   filters?: QueryFilters
   shift?: number
-}
-
-type Level = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
-
-const LEVEL_COLOR: Record<Level, string> = {
-  DEBUG: '#a1a1aa',
-  INFO: '#38bdf8',
-  WARN: '#fbbf24',
-  ERROR: '#f87171',
-}
-
-function isLevel(value: string): value is Level {
-  return value === 'DEBUG' || value === 'INFO' || value === 'WARN' || value === 'ERROR'
 }
 
 function parseBucketSeconds(bucket: unknown): number | null {
@@ -52,10 +42,10 @@ function formatTickLabel(timestampSeconds: number, binSeconds: number): string {
   return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}`
 }
 
-function buildSeries(label: Level): uPlot.Series {
+function buildSeries(label: string): uPlot.Series {
   return {
     label,
-    stroke: LEVEL_COLOR[label],
+    stroke: severityStyle(label).stroke,
     width: 1.5,
     points: { show: false },
     spanGaps: true,
@@ -89,55 +79,69 @@ export default function SeverityBreakdown({ range, filters, shift = 0 }: Props) 
 
   const binSeconds = binIntervalSeconds(range)
 
-  const chartData: [number[], number[], number[], number[], number[]] = useMemo(() => {
+  // Every severity present in the window — canonical ones in fixed order so
+  // series stay comparable across fetches, then custom levels alphabetically.
+  const levels = useMemo(() => {
+    const present = new Set<string>()
+    for (const row of data ?? []) {
+      const level = normalizeLevel((row as Record<string, unknown>).level)
+      if (level) present.add(level)
+    }
+
+    const canonical = SEVERITY_ORDER.filter((severityLevel) => present.has(severityLevel))
+    const customLevels = [...present]
+      .filter((level) => !SEVERITY_ORDER.includes(level))
+      .sort()
+    return [...canonical, ...customLevels]
+  }, [data])
+
+  const chartData = useMemo(() => {
     const nowSeconds = Math.floor(Date.now() / 1000) - shift
     const rangeSeconds = RANGE_SECONDS[range]
 
-    if (!rangeSeconds) return [[], [], [], [], []]
+    if (!rangeSeconds) return levels.map(() => [] as number[])
 
     const start = nowSeconds - rangeSeconds
     const firstBucket = Math.ceil(start / binSeconds) * binSeconds
     const lastBucket = Math.floor(nowSeconds / binSeconds) * binSeconds
 
-    const countsByBucket = new Map<number, Map<Level, number>>()
+    const countsByBucket = new Map<number, Map<string, number>>()
 
     for (const row of data ?? []) {
       const bucket = parseBucketSeconds((row as Record<string, unknown>).bucket)
       if (bucket === null) continue
 
-      const rawLevel = String((row as Record<string, unknown>).level ?? '').toUpperCase()
-      if (!isLevel(rawLevel)) continue
+      const level = normalizeLevel((row as Record<string, unknown>).level)
+      if (!level) continue
 
       const count = Number((row as Record<string, unknown>).count) || 0
 
       if (!countsByBucket.has(bucket)) countsByBucket.set(bucket, new Map())
-      countsByBucket.get(bucket)!.set(rawLevel, count)
+      countsByBucket.get(bucket)!.set(level, count)
     }
 
     const times: number[] = []
-    const debug: number[] = []
-    const info: number[] = []
-    const warn: number[] = []
-    const errors: number[] = []
+    const countsByLevel: number[][] = levels.map(() => [])
 
     for (let t = firstBucket; t <= lastBucket; t += binSeconds) {
       const bucketCounts = countsByBucket.get(t)
       times.push(t)
-      debug.push(bucketCounts?.get('DEBUG') ?? 0)
-      info.push(bucketCounts?.get('INFO') ?? 0)
-      warn.push(bucketCounts?.get('WARN') ?? 0)
-      errors.push(bucketCounts?.get('ERROR') ?? 0)
+      levels.forEach((level, index) => {
+        countsByLevel[index].push(bucketCounts?.get(level) ?? 0)
+      })
     }
 
-    return [times, debug, info, warn, errors]
-  }, [data, range, binSeconds, shift])
+    return [times, ...countsByLevel]
+  }, [data, range, binSeconds, shift, levels])
 
   const hasData = chartData.slice(1).some((series) => series.some((value) => value > 0))
 
   useEffect(() => {
     const frame = chartFrameRef.current
     const target = chartTargetRef.current
-    if (!frame || !target) return
+    // Nothing to plot: leave the canvas empty so the empty-state overlay
+    // replaces the chart instead of floating over orphan axes.
+    if (!frame || !target || !hasData) return
 
     const legendHeight = 28
     const plotHeight = Math.max(120, frame.clientHeight - legendHeight)
@@ -168,7 +172,7 @@ export default function SeverityBreakdown({ range, filters, shift = 0 }: Props) 
           size: 40,
         },
       ],
-      series: [{}, buildSeries('DEBUG'), buildSeries('INFO'), buildSeries('WARN'), buildSeries('ERROR')],
+      series: [{}, ...levels.map(buildSeries)],
     }
 
     chartRef.current = new uPlot(options, chartData as unknown as uPlot.AlignedData, target)
@@ -191,7 +195,7 @@ export default function SeverityBreakdown({ range, filters, shift = 0 }: Props) 
         chartRef.current = null
       }
     }
-  }, [chartData, binSeconds])
+  }, [chartData, levels, binSeconds, hasData])
 
   if (isError) {
     return (
@@ -209,22 +213,31 @@ export default function SeverityBreakdown({ range, filters, shift = 0 }: Props) 
 
         <Tooltip
           side="bottom-start"
-          content="Distribution of log levels (DEBUG, INFO, WARN, ERROR) over the selected time range. Each line shows count per bucket."
+          content="Distribution of log levels over the selected time range. Each line shows count per bucket."
         >
           <span className="cursor-pointer rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300">
             <IoInformationCircleOutline className="h-4 w-4" />
           </span>
         </Tooltip>
 
-        {isLoading && <span className="ml-2 text-[10px] text-zinc-500">loading…</span>}
       </div>
 
       <div ref={chartFrameRef} className="relative min-h-0 flex-1 overflow-hidden px-2 pb-2">
         <div ref={chartTargetRef} className="h-full w-full overflow-hidden" />
 
+        {isLoading && !hasData && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Spinner />
+          </div>
+        )}
+
         {!isLoading && !hasData && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="text-sm text-zinc-500">No data</span>
+            <EmptyState
+              size="sm"
+              title="No data"
+              description="No logs matched in this time range."
+            />
           </div>
         )}
       </div>

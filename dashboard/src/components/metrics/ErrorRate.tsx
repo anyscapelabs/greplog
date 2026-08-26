@@ -1,5 +1,6 @@
 import { IoInformationCircleOutline } from 'react-icons/io5'
 import Tooltip from '../Tooltip'
+import Spinner from '../Spinner'
 
 type Props = {
   value?: number | null
@@ -33,8 +34,6 @@ export default function ErrorRate({ value = null, isLoading = false, isError = f
             <IoInformationCircleOutline className="h-4 w-4" />
           </span>
         </Tooltip>
-
-        {isLoading && <span className="ml-auto text-xs text-zinc-500">loading…</span>}
       </div>
 
       <div className="flex flex-1 items-center justify-center overflow-hidden rounded-b-lg bg-[#dc2626] p-4">
@@ -47,7 +46,7 @@ export default function ErrorRate({ value = null, isLoading = false, isError = f
           </>
         )}
 
-        {isLoading && <span className="font-mono text-sm text-white/70">loading…</span>}
+        {isLoading && !hasData && <Spinner tone="light" className="h-8 w-8" />}
       </div>
     </div>
   )

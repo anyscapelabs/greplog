@@ -3,6 +3,8 @@ import { IoInformationCircleOutline } from 'react-icons/io5'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import Tooltip from '../Tooltip'
+import EmptyState from '../EmptyState'
+import Spinner from '../Spinner'
 import { binIntervalSeconds, RANGE_SECONDS } from '../logs/Timeline'
 import { useIngestionByService } from '../../hooks/useLogs'
 import type { QueryFilters } from '../../api/logs'
@@ -223,13 +225,26 @@ export default function IngestionByService({ range, filters, shift = 0 }: Props)
           </span>
         </Tooltip>
 
-        {isLoading && <span className="ml-2 text-[10px] text-zinc-500">loading…</span>}
-
-        {!isLoading && services.length === 0 && <span className="ml-2 text-[10px] text-zinc-500">no data</span>}
       </div>
 
-      <div ref={chartFrameRef} className="min-h-0 flex-1 overflow-hidden px-2 pb-2">
+      <div ref={chartFrameRef} className="relative min-h-0 flex-1 overflow-hidden px-2 pb-2">
         <div ref={chartTargetRef} className="h-full w-full overflow-hidden" />
+
+        {isLoading && services.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Spinner />
+          </div>
+        )}
+
+        {!isLoading && services.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <EmptyState
+              size="sm"
+              title="No data"
+              description="No services emitted logs in this time range."
+            />
+          </div>
+        )}
       </div>
     </div>
   )

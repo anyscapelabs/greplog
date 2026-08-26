@@ -30,7 +30,7 @@ function Metrics({ range }: MetricsProps) {
   )
 
   const { facets } = useLogExplorer(filters, range)
-  const { data: ingestion, isLoading } = useIngestion(range)
+  const { data: ingestion } = useIngestion(range)
   const errorRate = useErrorRate(filters)
   const storage = useStorage()
 
@@ -76,7 +76,7 @@ function Metrics({ range }: MetricsProps) {
               errorMessage={errorRate.errorMessage}
             />
             <Storage
-              valueGb={storage.valueGb}
+              bytes={storage.bytes}
               isLoading={storage.isLoading}
               isError={storage.isError}
               errorMessage={storage.errorMessage}
@@ -89,9 +89,6 @@ function Metrics({ range }: MetricsProps) {
         <div className="p-3 pt-0">
           <ServiceTable range={range} filters={filters} />
         </div>
-        {isLoading && (
-          <p className="px-3 py-1 text-xs text-zinc-500">loading…</p>
-        )}
       </main>
     </div>
   )

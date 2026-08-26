@@ -1,14 +1,16 @@
 import { IoInformationCircleOutline } from 'react-icons/io5'
 import Tooltip from '../Tooltip'
+import Spinner from '../Spinner'
+import { humanByteSize } from '../../utils/format'
 
 type Props = {
-  valueGb?: number | null
+  bytes?: number | null
   isLoading?: boolean
   isError?: boolean
   errorMessage?: string
 }
 
-export default function Storage({ valueGb = null, isLoading = false, isError = false, errorMessage }: Props) {
+export default function Storage({ bytes = null, isLoading = false, isError = false, errorMessage }: Props) {
   if (isError) {
     return (
       <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-red-800 bg-red-950/20 p-4">
@@ -18,7 +20,8 @@ export default function Storage({ valueGb = null, isLoading = false, isError = f
     )
   }
 
-  const hasData = valueGb !== null && Number.isFinite(valueGb)
+  const hasData = bytes !== null && Number.isFinite(bytes)
+  const size = hasData ? humanByteSize(bytes) : null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-zinc-800">
@@ -33,21 +36,19 @@ export default function Storage({ valueGb = null, isLoading = false, isError = f
             <IoInformationCircleOutline className="h-4 w-4" />
           </span>
         </Tooltip>
-
-        {isLoading && <span className="ml-auto text-xs text-zinc-500">loading…</span>}
       </div>
 
       <div className="flex flex-1 items-center justify-center gap-1.5 overflow-hidden rounded-b-lg bg-[#16a34a] p-4">
         {!hasData && !isLoading && <span className="text-sm font-medium text-white/90">No data</span>}
 
-        {hasData && (
+        {hasData && size && (
           <>
-            <span className="font-mono text-8xl font-bold tracking-tight text-white">{valueGb!.toFixed(1)}</span>
-            <span className="pb-1 font-mono text-sm font-medium text-white/90">GB</span>
+            <span className="font-mono text-8xl font-bold tracking-tight text-white">{size.value}</span>
+            <span className="pb-1 font-mono text-sm font-medium text-white/90">{size.unit}</span>
           </>
         )}
 
-        {isLoading && <span className="font-mono text-sm text-white/70">loading…</span>}
+        {isLoading && !hasData && <Spinner tone="light" className="h-8 w-8" />}
       </div>
     </div>
   )

@@ -6,7 +6,7 @@ import FiltersSidebar from '../components/logs/FiltersSidebar'
 import LogsList from '../components/logs/LogsList'
 import Timeline from '../components/logs/Timeline'
 import { useLogExplorer } from '../hooks/useLogs'
-import { extractSeverity } from '../api/logs'
+import { ROWS_PAGE_SIZE, extractSeverity } from '../api/logs'
 import { RANGE_SECONDS } from '../components/logs/Timeline'
 import type { TimeRange } from '../components/Header'
 
@@ -86,14 +86,7 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
   const [selectedFacets, setSelectedFacets] = useState<Record<string, string>>(
     {},
   )
-
-  useEffect(() => {
-    setTimelineShift(0)
-  }, [range])
-
-  const handleRunQuery = () => {
-    setActiveSearchQuery(draftSearchQuery)
-  }
+  const [page, setPage] = useState(0)
 
   // Wire-named view of everything currently filtering the page: sidebar picks
   // plus the service dropdown. Drives both the chip bar and sidebar highlights.
@@ -101,6 +94,20 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
     () => buildActiveFacets(selectedFacets, selectedService),
     [selectedFacets, selectedService],
   )
+
+  useEffect(() => {
+    setTimelineShift(0)
+  }, [range])
+
+  // Reset pagination whenever filters change
+  useEffect(() => {
+    setPage(0)
+  }, [range, activeSearchQuery, effectiveFacets])
+
+  const handleRunQuery = () => {
+    setActiveSearchQuery(draftSearchQuery)
+    setPage(0)
+  }
 
   const queryFilters = useMemo(() => {
     const timeRangeSecs = resolveTimeRangeSecs(range)
@@ -114,10 +121,12 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
   }, [range, activeSearchQuery, effectiveFacets])
 
   const isFiltersValid = queryFilters !== null
+  const offset = page * ROWS_PAGE_SIZE
 
-  const { logs, histogram, facets, isLoading, isError, errorMessage } = useLogExplorer(
+  const { logs, histogram, facets, isLoading, isError, errorMessage, refetchLogs } = useLogExplorer(
     queryFilters,
     range,
+    offset,
   )
 
   const discoveredServices = useMemo(() => getDiscoveredServices(facets as { service?: unknown }[] | undefined), [facets])
@@ -190,11 +199,6 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
           Failed to load logs: {errorMessage ?? 'Unknown error'}. Try adjusting filters or refreshing.
         </div>
       )}
-      {isLoading && !isError && (
-        <div className="mx-3 mt-3 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs text-zinc-400">
-          Loading logs…
-        </div>
-      )}
       <div className="flex min-h-0 flex-1">
         {!isLogsFullscreen && (
           <FiltersSidebar
@@ -220,6 +224,11 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
             range={range}
             shift={timelineShift}
             logs={logs}
+            isLoading={isLoading && !isError}
+            page={page}
+            pageSize={ROWS_PAGE_SIZE}
+            onPageChange={setPage}
+            onRefresh={() => refetchLogs()}
           />
         </main>
       </div>
