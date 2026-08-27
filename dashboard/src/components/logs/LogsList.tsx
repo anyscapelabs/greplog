@@ -163,14 +163,14 @@ function ExpandedPanel({
         <button
           type="button"
           onClick={() => setTab('details')}
-          className={`rounded px-2 py-1 text-xs font-medium ${tab === 'details' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}
+          className={`rounded px-2 py-1 text-sm font-medium ${tab === 'details' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}
         >
           Details
         </button>
         <button
           type="button"
           onClick={() => setTab('tracing')}
-          className={`rounded px-2 py-1 text-xs font-medium ${tab === 'tracing' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}
+          className={`rounded px-2 py-1 text-sm font-medium ${tab === 'tracing' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}
         >
           Tracing
         </button>
