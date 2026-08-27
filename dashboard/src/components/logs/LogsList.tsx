@@ -9,8 +9,10 @@ import EmptyState from '../EmptyState'
 import Spinner from '../Spinner'
 import { RANGE_SECONDS } from './Timeline'
 import type { TimeRange } from '../Header'
-import type { QueryRow } from '../../api/logs'
+import type { QueryFilters, QueryRow } from '../../api/logs'
 import { normalizeLevel, severityStyle } from '../../utils/severity'
+import { formatDuration } from '../../utils/format'
+import { useTrace } from '../../hooks/useLogs'
 
 const RANGE_TO_LABEL: Record<TimeRange, string> = {
   '15m': '15 minutes',
@@ -28,13 +30,12 @@ interface LogsListProps {
   range: TimeRange
   shift: number
   logs?: QueryRow[]
-  /** True while the query is in flight and no rows are on screen yet. */
   isLoading?: boolean
-  /** Zero-based page index; page N starts at row N * pageSize. */
   page: number
   pageSize: number
   onPageChange: (page: number) => void
   onRefresh: () => void
+  filters?: QueryFilters | null
 }
 
 interface LogPayload {
@@ -120,12 +121,138 @@ function JsonNode({ label, value, defaultOpen, isRoot = false }: any) {
 }
 
 interface LogRow {
-  id: number
   timestamp: string
   level: string
   service: string
   message: string
   details: Record<string, unknown>
+  traceId: string | null
+  spanId: string | null
+  parentSpanId: string | null
+  durationMs: number | null
+  timestampUs: unknown
+}
+
+function parseDurationMs(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
+  if (typeof value === 'string') {
+    const n = Number(value)
+    if (Number.isFinite(n) && n >= 0) return n
+  }
+  return null
+}
+
+function ExpandedPanel({
+  log,
+  filters,
+}: {
+  log: LogRow
+  filters?: QueryFilters | null
+}) {
+  const [tab, setTab] = useState<'details' | 'tracing'>('details')
+  const traceId = log.traceId
+  const { data: traceRows, isLoading, isError } = useTrace(
+    filters ?? null,
+    tab === 'tracing' ? traceId : null,
+  )
+
+  return (
+    <div className="border-b border-[#262626] bg-[#111111]">
+      <div className="flex items-center gap-1 border-b border-[#262626] px-2 py-1">
+        <button
+          type="button"
+          onClick={() => setTab('details')}
+          className={`rounded px-2 py-1 text-xs font-medium ${tab === 'details' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}
+        >
+          Details
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('tracing')}
+          className={`rounded px-2 py-1 text-xs font-medium ${tab === 'tracing' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}
+        >
+          Tracing
+        </button>
+        {traceId && <span className="ml-2 truncate font-mono text-[11px] text-zinc-500">{traceId}</span>}
+      </div>
+      {tab === 'details' ? (
+        <LogDetailsViewer data={log.details} />
+      ) : (
+        <TracingView traceId={traceId} rows={traceRows} isLoading={isLoading} isError={isError} />
+      )}
+    </div>
+  )
+}
+
+function TracingView({
+  traceId,
+  rows,
+  isLoading,
+  isError,
+}: {
+  traceId: string | null
+  rows?: QueryRow[]
+  isLoading: boolean
+  isError: boolean
+}) {
+  if (!traceId) return <div className="p-4 text-xs text-zinc-500">No trace attached to this log.</div>
+  if (isLoading) return <div className="flex p-4 justify-center"><Spinner className="h-5 w-5" /></div>
+  if (isError) return <div className="p-4 text-xs text-red-400">Failed to load trace.</div>
+  if (!rows || rows.length === 0) return <div className="p-4 text-xs text-zinc-500">No spans found for this trace in the current time range.</div>
+
+  const sorted = [...rows].sort((a, b) => {
+    const ta = typeof a.timestamp_us === 'number' ? a.timestamp_us as number : 0
+    const tb = typeof b.timestamp_us === 'number' ? b.timestamp_us as number : 0
+    return ta - tb
+  })
+  const parentMap = new Map<string, number>()
+  for (const r of sorted) {
+    const sid = String(r.span_id ?? '')
+    if (sid) parentMap.set(sid, 0)
+  }
+  const depthOf = (spanId: string | null, parentId: string | null, memo = new Map<string, number>()): number => {
+    if (!spanId) return 0
+    if (memo.has(spanId)) return memo.get(spanId)!
+    if (!parentId || !parentMap.has(parentId)) {
+      memo.set(spanId, 0)
+      return 0
+    }
+    const d = 1 + depthOf(parentId, sorted.find(s => String(s.span_id) === parentId)?.parent_span_id as string | null ?? null, memo)
+    memo.set(spanId, d)
+    return d
+  }
+  const maxDuration = Math.max(...sorted.map(r => parseDurationMs(r.duration_ms) ?? 0), 1)
+
+  return (
+    <div className="p-3 font-mono text-xs">
+      <div className="mb-2 text-[11px] text-zinc-500">showing spans within the current time range — trace may be truncated</div>
+      <div className="space-y-1">
+        {sorted.map((r, i) => {
+          const sid = String(r.span_id ?? '')
+          const pid = r.parent_span_id != null ? String(r.parent_span_id) : null
+          const depth = depthOf(sid, pid)
+          const dur = parseDurationMs(r.duration_ms)
+          const width = dur != null ? Math.max(4, (dur / maxDuration) * 100) : 0
+          return (
+            <div key={i} className="flex items-center gap-2 rounded bg-zinc-900/50 px-2 py-1.5" style={{ marginLeft: depth * 16 }}>
+              <span className="w-20 shrink-0 text-zinc-500">{formatRowTimestamp(r.timestamp_us)}</span>
+              <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">{String(r.service ?? '')}</span>
+              <span className="min-w-0 flex-1 truncate text-zinc-200">{String(r.message ?? '')}</span>
+              <span className="shrink-0 text-zinc-500">{sid || '—'}</span>
+              {dur != null && (
+                <div className="flex w-24 shrink-0 items-center gap-1">
+                  <div className="h-1.5 flex-1 rounded bg-zinc-800">
+                    <div className="h-1.5 rounded bg-[#a06bff]" style={{ width: `${width}%` }} />
+                  </div>
+                  <span className="w-14 text-right text-zinc-400">{formatDuration(dur)}</span>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 const MONTHS = [
@@ -176,7 +303,7 @@ export function parseRawBody(rawBody: unknown): Record<string, unknown> {
   }
 }
 
-const CSV_COLUMNS = ['timestamp_us', 'trace_id', 'level', 'service', 'message', 'raw_body']
+const CSV_COLUMNS = ['timestamp_us', 'trace_id', 'span_id', 'parent_span_id', 'duration_ms', 'level', 'service', 'message', 'raw_body']
 
 /** Quotes a CSV cell when it contains separators, quotes or newlines. */
 function escapeCsvCell(value: unknown): string {
@@ -211,22 +338,32 @@ function LogsList({
   pageSize,
   onPageChange,
   onRefresh,
+  filters,
 }: LogsListProps) {
   const [actionsOpen, setActionsOpen] = useState(false)
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
   const parentRef = useRef<HTMLDivElement>(null)
   const rows: LogRow[] = useMemo(
     () =>
-      (logs ?? []).map((row, index) => ({
-        id: index + 1,
+      (logs ?? []).map((row) => ({
         timestamp: formatRowTimestamp(row.timestamp_us),
+        timestampUs: row.timestamp_us,
         level: normalizeLevel(row.level),
         service: String(row.service ?? '-'),
         message: String(row.message ?? ''),
         details: parseRawBody(row.raw_body),
+        traceId: row.trace_id != null ? String(row.trace_id) : null,
+        spanId: row.span_id != null ? String(row.span_id) : null,
+        parentSpanId: row.parent_span_id != null ? String(row.parent_span_id) : null,
+        durationMs: parseDurationMs(row.duration_ms),
       })),
     [logs],
   )
+  const maxDurationMs = useMemo(() => {
+    let max = 0
+    for (const r of rows) if (r.durationMs != null && r.durationMs > max) max = r.durationMs
+    return max
+  }, [rows])
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
@@ -371,10 +508,10 @@ function LogsList({
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const log = rows[virtualRow.index]
-            const isExpanded = expandedIds.has(log.id)
+            const isExpanded = expandedIds.has(virtualRow.index)
             return (
               <div
-                key={log.id}
+                key={virtualRow.index}
                 data-index={virtualRow.index}
                 ref={virtualizer.measureElement}
                 className="absolute left-0 top-0 w-full border-b border-zinc-800 text-sm"
@@ -383,7 +520,7 @@ function LogsList({
                 <div className="flex items-center gap-3 px-3 py-1.5">
                   <button
                     type="button"
-                    onClick={() => toggleExpand(log.id)}
+                    onClick={() => toggleExpand(virtualRow.index)}
                     className="cursor-pointer rounded p-0.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
                   >
                     <LuChevronRight
@@ -407,8 +544,19 @@ function LogsList({
                   <span className="min-w-0 flex-1 truncate font-mono text-zinc-300">
                     {log.message}
                   </span>
+                  {log.durationMs != null && (
+                    <div className="flex w-28 shrink-0 items-center gap-1.5">
+                      <div className="h-1.5 flex-1 rounded bg-zinc-800">
+                        <div
+                          className="h-1.5 rounded bg-[#a06bff]"
+                          style={{ width: `${maxDurationMs ? Math.max(4, (log.durationMs / maxDurationMs) * 100) : 0}%` }}
+                        />
+                      </div>
+                      <span className="w-12 text-right font-mono text-[11px] text-zinc-400">{formatDuration(log.durationMs)}</span>
+                    </div>
+                  )}
                 </div>
-                {isExpanded && <LogDetailsViewer data={log.details} />}
+                {isExpanded && <ExpandedPanel log={log} filters={filters} />}
               </div>
             )
           })}

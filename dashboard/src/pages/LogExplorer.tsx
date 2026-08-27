@@ -229,6 +229,7 @@ function LogExplorer({ range, liveTailActive: _liveTailActive = false }: LogExpl
             pageSize={ROWS_PAGE_SIZE}
             onPageChange={setPage}
             onRefresh={() => refetchLogs()}
+            filters={queryFilters}
           />
         </main>
       </div>
