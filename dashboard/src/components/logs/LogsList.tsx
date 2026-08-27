@@ -121,6 +121,7 @@ function JsonNode({ label, value, defaultOpen, isRoot = false }: any) {
 }
 
 interface LogRow {
+  id: number
   timestamp: string
   level: string
   service: string
@@ -173,7 +174,6 @@ function ExpandedPanel({
         >
           Tracing
         </button>
-        {traceId && <span className="ml-2 truncate font-mono text-[11px] text-zinc-500">{traceId}</span>}
       </div>
       {tab === 'details' ? (
         <LogDetailsViewer data={log.details} />
@@ -345,7 +345,8 @@ function LogsList({
   const parentRef = useRef<HTMLDivElement>(null)
   const rows: LogRow[] = useMemo(
     () =>
-      (logs ?? []).map((row) => ({
+      (logs ?? []).map((row, index) => ({
+        id: index + 1,
         timestamp: formatRowTimestamp(row.timestamp_us),
         timestampUs: row.timestamp_us,
         level: normalizeLevel(row.level),
@@ -508,10 +509,10 @@ function LogsList({
         >
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const log = rows[virtualRow.index]
-            const isExpanded = expandedIds.has(virtualRow.index)
+            const isExpanded = expandedIds.has(log.id)
             return (
               <div
-                key={virtualRow.index}
+                key={log.id}
                 data-index={virtualRow.index}
                 ref={virtualizer.measureElement}
                 className="absolute left-0 top-0 w-full border-b border-zinc-800 text-sm"
@@ -520,7 +521,7 @@ function LogsList({
                 <div className="flex items-center gap-3 px-3 py-1.5">
                   <button
                     type="button"
-                    onClick={() => toggleExpand(virtualRow.index)}
+                    onClick={() => toggleExpand(log.id)}
                     className="cursor-pointer rounded p-0.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
                   >
                     <LuChevronRight
