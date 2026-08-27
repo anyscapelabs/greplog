@@ -409,7 +409,7 @@ async fn invalid_requests_are_rejected_not_executed() {
 
     let bad_facet = LogSearch {
         time_range_secs: 3600,
-        facets: [("trace_id".to_string(), "x".to_string())]
+        facets: [("unknown_field".to_string(), "x".to_string())]
             .into_iter()
             .collect(),
         search: None,
@@ -419,6 +419,18 @@ async fn invalid_requests_are_rejected_not_executed() {
         },
     };
     assert!(engine.search(&bad_facet).await.is_err());
+    let trace_facet = LogSearch {
+        time_range_secs: 3600,
+        facets: [("trace_id".to_string(), "job_abc".to_string())]
+            .into_iter()
+            .collect(),
+        search: None,
+        mode: SearchMode::Rows {
+            limit: 10,
+            offset: 0,
+        },
+    };
+    assert!(engine.search(&trace_facet).await.is_ok());
 
     let zero_bucket = LogSearch {
         time_range_secs: 3600,

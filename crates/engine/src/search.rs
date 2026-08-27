@@ -21,7 +21,8 @@ use crate::memtable::normalize_level;
 use crate::schema::greplog_schema;
 
 const BUCKET_ORIGIN: &str = "TIMESTAMP '1970-01-01T00:00:00Z'";
-const ROW_COLUMNS: &str = "timestamp_us, trace_id, level, service, message, raw_body";
+const ROW_COLUMNS: &str =
+    "timestamp_us, trace_id, span_id, parent_span_id, duration_ms, level, service, message, raw_body";
 
 /// Partition enumeration pads one extra day on the left so a record flushed
 /// just after midnight under yesterday's folder is never pruned away.
@@ -89,9 +90,12 @@ impl LogSearch {
         }
 
         for facet in self.facets.keys() {
-            if !matches!(facet.as_str(), "level" | "service") {
+            if !matches!(
+                facet.as_str(),
+                "level" | "service" | "trace_id" | "span_id" | "parent_span_id"
+            ) {
                 return Err(search_error(format!(
-                    "unknown facet column '{facet}', expected 'level' or 'service'"
+                    "unknown facet column '{facet}', expected 'level', 'service', 'trace_id', 'span_id' or 'parent_span_id'"
                 )));
             }
             if self.facets[facet].trim().is_empty() {
@@ -290,6 +294,9 @@ fn term_condition(term: &str) -> Option<String> {
                 }
                 "level" => format!("level = {}", sql_literal(normalize_level(value))),
                 "service" => format!("service = {}", sql_literal(value)),
+                "trace_id" => format!("trace_id = {}", sql_literal(value)),
+                "span_id" => format!("span_id = {}", sql_literal(value)),
+                "parent_span_id" => format!("parent_span_id = {}", sql_literal(value)),
                 _ => return None,
             });
         }
@@ -315,6 +322,15 @@ fn where_clause(search: &LogSearch, cutoff_us: i64) -> String {
     }
     if let Some(service) = search.facets.get("service") {
         parts.push(format!("service = {}", sql_literal(service)));
+    }
+    if let Some(trace_id) = search.facets.get("trace_id") {
+        parts.push(format!("trace_id = {}", sql_literal(trace_id)));
+    }
+    if let Some(span_id) = search.facets.get("span_id") {
+        parts.push(format!("span_id = {}", sql_literal(span_id)));
+    }
+    if let Some(parent_span_id) = search.facets.get("parent_span_id") {
+        parts.push(format!("parent_span_id = {}", sql_literal(parent_span_id)));
     }
 
     for term in search.search.iter().flat_map(|query| split_terms(query)) {
@@ -499,16 +515,39 @@ fn normalize_to_schema(
     batch: &RecordBatch,
     schema: &SchemaRef,
 ) -> Result<RecordBatch, EngineError> {
+    if batch.schema().fields().len() == schema.fields().len()
+        && batch
+            .schema()
+            .fields()
+            .iter()
+            .zip(schema.fields().iter())
+            .all(|(a, b)| a.name() == b.name())
+    {
+        let columns: Vec<ArrayRef> = schema
+            .fields()
+            .iter()
+            .enumerate()
+            .map(|(index, field)| {
+                let column = batch.column(index);
+                if column.data_type() == field.data_type() {
+                    return Ok(Arc::clone(column));
+                }
+                arrow::compute::cast(column, field.data_type()).map_err(EngineError::from)
+            })
+            .collect::<Result<_, _>>()?;
+        return RecordBatch::try_new(Arc::clone(schema), columns).map_err(EngineError::from);
+    }
     let columns: Vec<ArrayRef> = schema
         .fields()
         .iter()
-        .enumerate()
-        .map(|(index, field)| {
-            let column = batch.column(index);
-            if column.data_type() == field.data_type() {
-                return Ok(Arc::clone(column));
+        .map(|field| {
+            if let Some(column) = batch.column_by_name(field.name()) {
+                if column.data_type() == field.data_type() {
+                    return Ok(Arc::clone(column));
+                }
+                return arrow::compute::cast(column, field.data_type()).map_err(EngineError::from);
             }
-            arrow::compute::cast(column, field.data_type()).map_err(EngineError::from)
+            Ok(arrow::array::new_null_array(field.data_type(), batch.num_rows()))
         })
         .collect::<Result<_, _>>()?;
     RecordBatch::try_new(Arc::clone(schema), columns).map_err(EngineError::from)
@@ -814,8 +853,11 @@ mod tests {
         assert!(zero_window.validate(10_000).is_err());
 
         let mut bad_facet = base.clone();
-        bad_facet.facets.insert("trace_id".into(), "abc".into());
+        bad_facet.facets.insert("unknown_field".into(), "abc".into());
         assert!(bad_facet.validate(10_000).is_err());
+        let mut trace_facet = base.clone();
+        trace_facet.facets.insert("trace_id".into(), "abc".into());
+        assert!(trace_facet.validate(10_000).is_ok());
 
         let oversized = LogSearch {
             mode: SearchMode::Rows {
