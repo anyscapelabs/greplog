@@ -165,7 +165,7 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
       <div className="border-b border-zinc-800 bg-zinc-950">
         <div className="flex">
           <div className="w-[38%] shrink-0" />
-          <div className="relative h-20 flex-1 overflow-hidden px-2 py-2">
+          <div className="relative h-24 flex-1 overflow-hidden px-2 py-2">
             <div className="relative h-full w-full">
               {filteredSpans.map((s) => {
                 const left = (s.start_offset_ms / totalMs) * 100
@@ -173,11 +173,11 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
                 return (
                   <div
                     key={s.span_id}
-                    className="absolute h-[5px] rounded-sm"
+                    className="absolute h-[8px] rounded-sm"
                     style={{
                       left: `${left}%`,
                       width: `${width}%`,
-                      top: `${(s.depth * 8) + 2}px`,
+                      top: `${(s.depth * 10) + 2}px`,
                       background: barColor(s.service, s.depth),
                     }}
                   />
@@ -234,12 +234,12 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
                       style={{ left: `calc(${clampedLeft}% + 4px)`, width: `calc(${clampedWidth}% - 4px)` }}
                       title={`${span.duration_ms}ms`}
                     >
-                      <div
-                        className="flex h-5 w-full items-center rounded-sm px-1 text-[10px] font-medium leading-none"
-                        style={{ background: barColor(span.service, span.depth), opacity: span.depth === 0 ? 0.95 : 0.7, color: '#fff' }}
-                      >
-                        <span className="w-full truncate">{clampedWidth > 7 ? `${span.duration_ms}ms` : ''}</span>
-                      </div>
+                    <div
+                      className="flex h-7 w-full items-center rounded-sm px-1 text-[10px] font-medium leading-none"
+                      style={{ background: barColor(span.service, span.depth), opacity: span.depth === 0 ? 0.95 : 0.7, color: '#fff' }}
+                    >
+                      <span className="w-full truncate">{clampedWidth > 5 ? `${span.duration_ms}ms` : ''}</span>
+                    </div>
                     </div>
                     {clampedWidth <= 7 && (
                       <span className="pointer-events-none absolute top-1/2 -translate-y-1/2 font-mono text-[11px] text-zinc-400" style={{ left: `calc(${clampedLeft + clampedWidth}% + 8px)` }}>
