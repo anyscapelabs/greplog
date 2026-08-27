@@ -237,8 +237,8 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
               const clampedLeft = Math.min(left, 100 - width)
               const clampedWidth = Math.min(width, 100 - clampedLeft)
               return (
-                <tr key={span.span_id} className={`h-[22px] border-b border-zinc-800 ${isSelected ? 'bg-[#a06bff]/10' : 'hover:bg-zinc-800/40'}`}>
-                  <td className="border-r border-zinc-800 px-2 py-0">
+                <tr key={span.span_id} className={`border-b border-zinc-800 ${isSelected ? 'bg-[#a06bff]/10' : 'hover:bg-zinc-800/40'}`}>
+                  <td className="border-r border-zinc-800 px-3 py-2">
                     <button
                       type="button"
                       onClick={() => (collapsible ? toggleCollapse(span.span_id) : setSelectedIdx(idx))}
@@ -253,8 +253,8 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
                       <span className="ml-1 hidden truncate text-sm text-zinc-500 xl:inline">{span.operation}</span>
                     </button>
                   </td>
-                  <td className="relative overflow-hidden px-0 py-0">
-                    <div className="absolute inset-y-0 flex items-center" style={{ left: `${clampedLeft}%`, width: `${clampedWidth}%` }}>
+                  <td className="relative overflow-hidden px-3 py-2">
+                    <div className="absolute inset-y-0 my-2 flex items-center" style={{ left: `calc(${clampedLeft}% + 12px)`, width: `calc(${clampedWidth}% - 12px)` }}>
                       <div className="h-3 w-full rounded-sm" style={{ background: barColor(span.service, span.depth), opacity: span.depth === 0 ? 0.95 : 0.7 }} />
                     </div>
                     {ticks.slice(1).map((t) => (
