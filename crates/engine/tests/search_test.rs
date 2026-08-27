@@ -18,6 +18,9 @@ fn sample(age_secs: i64, index: usize, level: &str, service: &str) -> LogRecord 
     LogRecord {
         timestamp_us: chrono::Utc::now().timestamp_micros() - age_secs * 1_000_000,
         trace_id: Some(format!("trace-{index}")),
+        span_id: None,
+        parent_span_id: None,
+        duration_ms: None,
         level: level.to_string(),
         service: service.to_string(),
         message: format!("order {index} failed for customer"),

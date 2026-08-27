@@ -21,6 +21,9 @@ fn sample(trace: &str, level: &str) -> LogRecord {
     LogRecord {
         timestamp_us: 1_723_000_000_123_456,
         trace_id: Some(trace.to_string()),
+        span_id: None,
+        parent_span_id: None,
+        duration_ms: None,
         level: level.to_string(),
         service: "payment-worker".to_string(),
         message: format!("order {trace} processed"),

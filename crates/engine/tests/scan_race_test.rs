@@ -30,6 +30,9 @@ fn record(index: usize, message: &str) -> LogRecord {
     LogRecord {
         timestamp_us: 1_700_000_000_000_000 + i64::try_from(index).expect("fit i64"),
         trace_id: None,
+        span_id: None,
+        parent_span_id: None,
+        duration_ms: None,
         level: if index.is_multiple_of(3) {
             "ERROR".to_string()
         } else {

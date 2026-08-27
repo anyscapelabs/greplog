@@ -188,6 +188,9 @@ mod tests {
         LogRecord {
             timestamp_us: 1_700_000_000_000_123,
             trace_id: Some(trace.to_string()),
+            span_id: None,
+            parent_span_id: None,
+            duration_ms: None,
             level: level.to_string(),
             service: "payment-worker".to_string(),
             message: "payment failed".to_string(),

@@ -41,6 +41,9 @@ fn make_record(job_id: usize, idx: usize) -> LogRecord {
     LogRecord {
         timestamp_us: 1_700_000_000_000_000 + i64::try_from(idx).unwrap_or(0),
         trace_id: Some(format!("job_{job_id}_{idx}")),
+        span_id: None,
+        parent_span_id: None,
+        duration_ms: None,
         level: if idx.is_multiple_of(10) {
             "ERROR".into()
         } else {

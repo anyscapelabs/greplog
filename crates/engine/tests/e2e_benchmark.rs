@@ -44,6 +44,9 @@ fn make_record(seq: usize) -> LogRecord {
     LogRecord {
         timestamp_us: BASE_TS_US + seq_i64 * 1_000,
         trace_id: Some(format!("job_{seq}")),
+        span_id: None,
+        parent_span_id: None,
+        duration_ms: None,
         level: if seq % 10 == 0 { "ERROR" } else { "INFO" }.into(),
         service: if seq % 2 == 0 {
             "payment-worker"

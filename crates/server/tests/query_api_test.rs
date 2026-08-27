@@ -24,6 +24,9 @@ fn sample(index: usize, service: &str) -> LogRecord {
     LogRecord {
         timestamp_us: 1_700_000_000_000_000 + i64::try_from(index).expect("fit i64"),
         trace_id: Some(format!("trace-{index}")),
+        span_id: None,
+        parent_span_id: None,
+        duration_ms: None,
         level: "ERROR".to_string(),
         service: service.to_string(),
         message: format!("order {index} failed"),
