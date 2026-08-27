@@ -62,8 +62,8 @@ fn memtable_produces_expected_batch_shape() {
     assert_eq!(batch.num_rows(), 5, "5 appended records must yield 5 rows");
     assert_eq!(
         batch.num_columns(),
-        6,
-        "the canonical schema declares 6 columns"
+        9,
+        "the canonical schema declares 9 columns"
     );
 }
 

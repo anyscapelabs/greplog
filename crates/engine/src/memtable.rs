@@ -8,7 +8,8 @@
 use std::sync::Arc;
 
 use arrow::array::{
-    ArrayBuilder, ArrayRef, StringBuilder, StringDictionaryBuilder, TimestampMicrosecondBuilder,
+    ArrayBuilder, ArrayRef, Int64Builder, StringBuilder, StringDictionaryBuilder,
+    TimestampMicrosecondBuilder,
 };
 use arrow::datatypes::Int16Type;
 use arrow::record_batch::RecordBatch;
@@ -37,6 +38,9 @@ pub fn normalize_level(level: &str) -> &'static str {
 pub struct MemTable {
     timestamps: TimestampMicrosecondBuilder,
     trace_ids: StringBuilder,
+    span_ids: StringBuilder,
+    parent_span_ids: StringBuilder,
+    durations: Int64Builder,
     levels: StringDictionaryBuilder<Int16Type>,
     services: StringDictionaryBuilder<Int16Type>,
     messages: StringBuilder,
@@ -51,6 +55,9 @@ impl MemTable {
         Self {
             timestamps: TimestampMicrosecondBuilder::with_capacity(capacity),
             trace_ids: StringBuilder::with_capacity(capacity, varchar_capacity),
+            span_ids: StringBuilder::with_capacity(capacity, varchar_capacity),
+            parent_span_ids: StringBuilder::with_capacity(capacity, varchar_capacity),
+            durations: Int64Builder::with_capacity(capacity),
             levels: StringDictionaryBuilder::with_capacity(
                 capacity,
                 varchar_capacity,
@@ -73,6 +80,9 @@ impl MemTable {
     pub fn append_record(&mut self, record: &LogRecord) {
         self.timestamps.append_value(record.timestamp_us);
         append_optional(&mut self.trace_ids, record.trace_id.as_deref());
+        append_optional(&mut self.span_ids, record.span_id.as_deref());
+        append_optional(&mut self.parent_span_ids, record.parent_span_id.as_deref());
+        append_optional_i64(&mut self.durations, record.duration_ms);
         self.levels.append_value(normalize_level(&record.level));
         self.services.append_value(record.service.as_str());
         self.messages.append_value(record.message.as_str());
@@ -83,6 +93,9 @@ impl MemTable {
         build_batch(
             std::mem::take(&mut self.timestamps),
             std::mem::take(&mut self.trace_ids),
+            std::mem::take(&mut self.span_ids),
+            std::mem::take(&mut self.parent_span_ids),
+            std::mem::take(&mut self.durations),
             std::mem::take(&mut self.levels),
             std::mem::take(&mut self.services),
             std::mem::take(&mut self.messages),
@@ -104,6 +117,9 @@ impl MemTable {
 fn build_batch(
     mut timestamps: TimestampMicrosecondBuilder,
     mut trace_ids: StringBuilder,
+    mut span_ids: StringBuilder,
+    mut parent_span_ids: StringBuilder,
+    mut durations: Int64Builder,
     mut levels: StringDictionaryBuilder<Int16Type>,
     mut services: StringDictionaryBuilder<Int16Type>,
     mut messages: StringBuilder,
@@ -112,6 +128,9 @@ fn build_batch(
     let columns: Vec<ArrayRef> = vec![
         Arc::new(timestamps.finish()),
         Arc::new(trace_ids.finish()),
+        Arc::new(span_ids.finish()),
+        Arc::new(parent_span_ids.finish()),
+        Arc::new(durations.finish()),
         Arc::new(levels.finish()),
         Arc::new(services.finish()),
         Arc::new(messages.finish()),
@@ -123,6 +142,13 @@ fn build_batch(
 fn append_optional(builder: &mut StringBuilder, value: Option<&str>) {
     match value {
         Some(text) => builder.append_value(text),
+        None => builder.append_null(),
+    }
+}
+
+fn append_optional_i64(builder: &mut Int64Builder, value: Option<i64>) {
+    match value {
+        Some(v) => builder.append_value(v),
         None => builder.append_null(),
     }
 }
@@ -208,7 +234,7 @@ mod tests {
         assert_eq!(table.num_rows(), 7);
 
         let batch = table.finish().expect("finish");
-        assert_eq!(batch.num_columns(), 6);
+        assert_eq!(batch.num_columns(), 9);
         for column in batch.columns() {
             assert_eq!(column.len(), 7, "every column must match the row count");
         }
@@ -223,7 +249,7 @@ mod tests {
 
         let batch = table.finish().expect("finish");
         assert_eq!(batch.num_rows(), 5);
-        assert_eq!(batch.num_columns(), 6);
+        assert_eq!(batch.num_columns(), 9);
     }
 
     #[test]
@@ -231,12 +257,18 @@ mod tests {
         let mut table = MemTable::new(8);
         let mut record = sample(1, "WARN");
         record.trace_id = None;
+        record.span_id = None;
+        record.parent_span_id = None;
+        record.duration_ms = None;
         record.raw_body = None;
         table.append_record(&record);
 
         let batch = table.finish().expect("finish");
         assert_eq!(batch.column(1).null_count(), 1, "trace_id must be null");
-        assert_eq!(batch.column(5).null_count(), 1, "raw_body must be null");
+        assert_eq!(batch.column(2).null_count(), 1, "span_id must be null");
+        assert_eq!(batch.column(3).null_count(), 1, "parent_span_id must be null");
+        assert_eq!(batch.column(4).null_count(), 1, "duration_ms must be null");
+        assert_eq!(batch.column(8).null_count(), 1, "raw_body must be null");
     }
 
     #[test]
@@ -246,7 +278,7 @@ mod tests {
 
         let batch = table.finish().expect("finish");
         assert_eq!(batch.column(1).null_count(), 0, "trace_id must be present");
-        assert_eq!(batch.column(5).null_count(), 0, "raw_body must be present");
+        assert_eq!(batch.column(8).null_count(), 0, "raw_body must be present");
     }
 
     #[test]

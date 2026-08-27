@@ -20,6 +20,9 @@ pub fn greplog_schema() -> Arc<Schema> {
             false,
         ),
         Field::new("trace_id", DataType::Utf8, true),
+        Field::new("span_id", DataType::Utf8, true),
+        Field::new("parent_span_id", DataType::Utf8, true),
+        Field::new("duration_ms", DataType::Int64, true),
         Field::new(
             "level",
             DataType::Dictionary(Box::new(DataType::Int16), Box::new(DataType::Utf8)),
