@@ -28,10 +28,10 @@ use crate::schema::greplog_schema;
 
 const UNIFIED_VIEW_SQL: &str = "\
 CREATE VIEW logs AS \
-SELECT timestamp_us, trace_id, level, service, message, raw_body, year, month, day \
+SELECT timestamp_us, trace_id, span_id, parent_span_id, duration_ms, level, service, message, raw_body, year, month, day \
 FROM parquet_logs \
 UNION ALL \
-SELECT timestamp_us, trace_id, level, CAST(service AS VARCHAR), message, raw_body, \
+SELECT timestamp_us, trace_id, span_id, parent_span_id, duration_ms, level, CAST(service AS VARCHAR), message, raw_body, \
        CAST(EXTRACT(year FROM timestamp_us) AS INT) AS year, \
        CAST(EXTRACT(month FROM timestamp_us) AS INT) AS month, \
        CAST(EXTRACT(day FROM timestamp_us) AS INT) AS day \
