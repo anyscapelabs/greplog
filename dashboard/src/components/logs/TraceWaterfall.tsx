@@ -129,27 +129,28 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
     const data: [number[], number[]] = [xs, ys]
     const opts: uPlot.Options = {
       width: el.clientWidth,
-      height: 56,
-      padding: [4, 0, 0, 0],
+      height: 80,
+      padding: [8, 0, 0, 0],
       cursor: { show: false },
       legend: { show: false },
       axes: [{ show: false }, { show: false }],
-      scales: { x: { time: false, range: [0, totalMs] } },
+      scales: { x: { time: false, range: [0, totalMs] }, y: { range: [0, Math.max(...ys, 10) * 1.1] } },
       series: [
         {},
         {
           label: 'duration',
-          fill: 'rgba(160,107,255,0.55)',
+          fill: 'rgba(160,107,255,0.85)',
           stroke: '#a06bff',
+          width: 1.5,
           points: { show: false },
-          paths: uPlot.paths.bars!({ size: [0.7, 100] }),
+          paths: uPlot.paths.bars!({ size: [0.9, 100], align: 0 }),
         },
       ],
     }
     const plot = new uPlot(opts, data, el)
     minimapPlotRef.current = plot
     const ro = new ResizeObserver(() => {
-      if (minimapPlotRef.current && el) minimapPlotRef.current.setSize({ width: el.clientWidth, height: 56 })
+      if (minimapPlotRef.current && el) minimapPlotRef.current.setSize({ width: el.clientWidth, height: 80 })
     })
     ro.observe(el)
     return () => {
@@ -206,9 +207,9 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
 
       <div className="border-b border-zinc-800 bg-zinc-950">
         <div className="flex">
-          <div className="w-[38%] shrink-0" />
-          <div className="flex-1 px-2 py-2">
-            <div ref={minimapRef} className="h-14 w-full overflow-hidden" />
+          <div className="w-[38%] shrink-0 border-r border-zinc-800" />
+          <div className="flex-1 border-l border-zinc-800 bg-zinc-900/30 px-2 py-2">
+            <div ref={minimapRef} className="h-20 w-full overflow-hidden rounded bg-zinc-900" />
           </div>
         </div>
         <div className="flex border-t border-zinc-800">
