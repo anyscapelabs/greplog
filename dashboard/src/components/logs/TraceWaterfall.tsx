@@ -36,30 +36,24 @@ const MOCK_SPANS: SpanRow[] = [
 ]
 
 const SERVICE_COLOR: Record<string, string> = {
-  'mythical-requester': '#a06bff',
-  'mythical-server': '#38bdf8',
+  'mythical-requester': 'var(--service-requester)',
+  'mythical-server': 'var(--service-server)',
 }
 
 function barColor(service: string, depth: number): string {
-  const base = SERVICE_COLOR[service] ?? '#a06bff'
+  const base = SERVICE_COLOR[service] ?? 'var(--greplog-violet)'
   if (depth === 0) return base
-  return service === 'mythical-requester' ? 'rgba(160,107,255,0.65)' : 'rgba(56,189,248,0.55)'
+  return service === 'mythical-requester' ? 'var(--greplog-violet-soft)' : 'rgba(56,189,248,0.55)'
 }
 
 function methodBadgeClass(method: string): string {
   switch (method.toUpperCase()) {
-    case 'GET':
-      return 'bg-sky-600'
-    case 'POST':
-      return 'bg-emerald-600'
-    case 'PUT':
-      return 'bg-amber-500'
-    case 'DELETE':
-      return 'bg-red-600'
-    case 'PATCH':
-      return 'bg-violet-600'
-    default:
-      return 'bg-zinc-700'
+    case 'GET': return 'bg-sky-600'
+    case 'POST': return 'bg-emerald-600'
+    case 'PUT': return 'bg-amber-500'
+    case 'DELETE': return 'bg-red-600'
+    case 'PATCH': return 'bg-violet-600'
+    default: return 'bg-zinc-700'
   }
 }
 
@@ -104,6 +98,7 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
   }, [tree, collapsed])
 
   const ticks = [0, 33.62, 67.24, 100.86, 134.47]
+  const headerMethod = 'GET'
 
   const toggleCollapse = (id: string) => {
     setCollapsed((prev) => {
@@ -123,18 +118,7 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
   }
 
   const handleExport = () => {
-    const payload = {
-      traceId,
-      totalMs,
-      spans: spans.map((s) => ({
-        span_id: s.span_id,
-        parent_span_id: s.parent_span_id,
-        service: s.service,
-        operation: s.operation,
-        start_offset_ms: s.start_offset_ms,
-        duration_ms: s.duration_ms,
-      })),
-    }
+    const payload = { traceId, totalMs, spans: spans.map((s) => ({ span_id: s.span_id, parent_span_id: s.parent_span_id, service: s.service, operation: s.operation, start_offset_ms: s.start_offset_ms, duration_ms: s.duration_ms })) }
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -148,25 +132,20 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
 
   const handlePrev = () => setSelectedIdx((i) => (i - 1 + visibleSpans.length) % visibleSpans.length)
   const handleNext = () => setSelectedIdx((i) => (i + 1) % visibleSpans.length)
-
   const hasChildren = (id: string) => (tree.get(id)?.length ?? 0) > 0
 
-  // Demo method for header badge — derived from mock root operation
-  const headerMethod = 'GET'
-  const headerService = 'owlbear'
-
   return (
-    <div className="overflow-hidden rounded border border-zinc-800 bg-zinc-950 text-sm">
-      <div className="flex items-center justify-between gap-4 border-b border-zinc-800 bg-zinc-900 px-4 py-3">
+    <div className="overflow-hidden rounded-lg border border-[var(--border-soft)] bg-[var(--surface)] text-sm shadow-sm">
+      <div className="flex items-center justify-between gap-4 rounded-t-lg border-b border-[var(--border-soft)] bg-zinc-900 px-4 py-3">
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2 truncate text-sm font-medium text-zinc-100">
             <span>mythical-requester: requester</span>
-            <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs font-normal text-zinc-300">{totalMs}ms</span>
+            <span className="font-mono text-xs font-normal text-[var(--greplog-violet)]">{totalMs}ms</span>
           </div>
           <div className="flex items-center gap-2 font-mono text-xs text-zinc-400">
             <span>2023-07-20 14:10:38.703</span>
-            <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white ${methodBadgeClass(headerMethod)}`}>{headerMethod}</span>
-            <span className="text-zinc-300">{headerService}</span>
+            <span className={`rounded px-1.5 py-1 text-[10px] font-bold tracking-wide text-white ${methodBadgeClass(headerMethod)}`}>{headerMethod}</span>
+            <span className="text-zinc-300">owlbear</span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -179,7 +158,7 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm">
+      <div className="flex items-center justify-between border-b border-[var(--border-soft)] bg-zinc-900 px-4 py-2 text-sm">
         <button type="button" onClick={() => setFilterOpen((v) => !v)} className="inline-flex items-center gap-1 text-sm text-zinc-300 hover:text-zinc-100">
           <LuFilter className="h-3 w-3" /> Span Filters
           <span className="ml-1 flex h-3 w-3 items-center justify-center rounded-full border border-zinc-600 text-[10px]">?</span>
@@ -194,18 +173,12 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
       </div>
 
       {filterOpen && (
-        <div className="border-b border-zinc-800 bg-zinc-900 px-3 py-2">
-          <input
-            autoFocus
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            placeholder="Filter by service or operation (e.g. mythical-server)"
-            className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200 placeholder:text-zinc-500 focus:border-[#a06bff] focus:outline-none"
-          />
+        <div className="border-b border-[var(--border-soft)] bg-zinc-900 px-4 py-2">
+          <input autoFocus value={filterText} onChange={(e) => setFilterText(e.target.value)} placeholder="Filter by service or operation (e.g. mythical-server)" className="w-full rounded border border-zinc-700 bg-[var(--surface-soft)] px-2 py-1 text-sm text-zinc-200 placeholder:text-zinc-500 focus:border-[var(--greplog-violet)] focus:outline-none" />
         </div>
       )}
 
-      <div className="border-b border-zinc-800 bg-zinc-950">
+      <div className="border-b border-[var(--border-soft)] bg-[var(--surface-soft)]">
         <div className="flex">
           <div className="w-[38%] shrink-0" />
           <div className="relative h-24 flex-1 overflow-hidden px-2 py-2">
@@ -213,33 +186,22 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
               {filteredSpans.map((s) => {
                 const left = (s.start_offset_ms / totalMs) * 100
                 const width = Math.max((s.duration_ms / totalMs) * 100, 0.4)
-                return (
-                  <div
-                    key={s.span_id}
-                    className="absolute h-[8px] rounded-sm"
-                    style={{
-                      left: `${left}%`,
-                      width: `${width}%`,
-                      top: `${(s.depth * 10) + 2}px`,
-                      background: barColor(s.service, s.depth),
-                    }}
-                  />
-                )
+                return <div key={s.span_id} className="absolute h-[8px] rounded-sm" style={{ left: `${left}%`, width: `${width}%`, top: `${s.depth * 10 + 2}px`, background: barColor(s.service, s.depth) }} />
               })}
             </div>
           </div>
         </div>
-        <div className="flex border-t border-zinc-800">
-          <div className="w-[38%] shrink-0 border-r border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-500">Service & Operation</div>
-          <div className="flex flex-1 divide-x divide-zinc-800/50 font-mono text-[11px] text-zinc-500">
+        <div className="flex border-t border-[var(--border-soft)]">
+          <div className="w-[38%] shrink-0 border-r border-[var(--border-soft)] bg-zinc-900 px-3 py-1 text-xs text-zinc-500">Service & Operation</div>
+          <div className="flex flex-1 divide-x divide-[var(--border-soft)] font-mono text-[11px] text-zinc-500">
             {ticks.map((t) => (
-              <div key={t} className="flex-1 bg-zinc-900 px-1 py-1 text-center">{t === 0 ? '0µs' : `${t}ms`}</div>
+              <div key={t} className="flex-1 bg-zinc-900 px-1 py-1 text-center whitespace-nowrap">{t === 0 ? '0µs' : `${t}ms`}</div>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="max-h-[720px] overflow-auto">
+      <div className="max-h-[720px] overflow-auto rounded-b-lg">
         <table className="w-full table-fixed border-collapse text-sm">
           <colgroup>
             <col style={{ width: '38%' }} />
@@ -255,34 +217,22 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
               const clampedLeft = Math.min(left, 100 - width)
               const clampedWidth = Math.min(width, 100 - clampedLeft)
               return (
-                <tr key={span.span_id} className={`border-b border-zinc-800 ${isSelected ? 'bg-[#a06bff]/10' : 'hover:bg-zinc-800/40'}`}>
-                  <td className="border-r border-zinc-800 px-3 py-1">
-                    <button
-                      type="button"
-                      onClick={() => (collapsible ? toggleCollapse(span.span_id) : setSelectedIdx(idx))}
-                      className="flex w-full items-center gap-1 text-left"
-                      style={{ paddingLeft: `${span.depth * 14}px` }}
-                    >
+                <tr key={span.span_id} className={`border-b border-[var(--border-soft)] last:border-b-0 ${isSelected ? 'border-l-2 border-l-[var(--greplog-violet)] bg-[var(--greplog-violet-selected)]' : 'hover:bg-zinc-800/40'}`}>
+                  <td className="border-r border-[var(--border-soft)] px-3 py-1">
+                    <button type="button" onClick={() => (collapsible ? toggleCollapse(span.span_id) : setSelectedIdx(idx))} className="flex w-full items-center gap-1 text-left" style={{ paddingLeft: `${span.depth * 14}px` }}>
                       <span className="flex h-4 w-4 shrink-0 items-center justify-center text-zinc-500">
                         {collapsible ? (isCollapsed ? <LuChevronRight className="h-3 w-3" /> : <LuChevronDown className="h-3 w-3" />) : <span className="h-3 w-3" />}
                       </span>
                       <span className="h-3 w-[3px] shrink-0 rounded-sm" style={{ background: barColor(span.service, span.depth) }} />
                       <span className="truncate text-sm text-zinc-300">{span.service}</span>
-                      <span className="ml-1 hidden truncate text-sm text-zinc-500 xl:inline">{span.operation}</span>
+                      <span className="ml-1 hidden truncate text-sm text-zinc-400 xl:inline">{span.operation}</span>
                     </button>
                   </td>
                   <td className="relative overflow-hidden px-1 py-0.5">
-                    <div
-                      className="absolute inset-y-0 flex items-center"
-                      style={{ left: `calc(${clampedLeft}% + 4px)`, width: `calc(${clampedWidth}% - 4px)` }}
-                      title={`${span.duration_ms}ms`}
-                    >
-                    <div
-                      className="flex h-7 w-full items-center rounded-sm px-1 text-[10px] font-medium leading-none"
-                      style={{ background: barColor(span.service, span.depth), opacity: span.depth === 0 ? 0.95 : 0.7, color: '#fff' }}
-                    >
-                      <span className="w-full truncate">{clampedWidth > 5 ? `${span.duration_ms}ms` : ''}</span>
-                    </div>
+                    <div className="absolute inset-y-0 flex items-center" style={{ left: `calc(${clampedLeft}% + 4px)`, width: `calc(${clampedWidth}% - 4px)` }} title={`${span.duration_ms}ms`}>
+                      <div className="flex h-5 w-full items-center rounded-sm px-1 text-[10px] font-medium leading-none" style={{ background: barColor(span.service, span.depth), opacity: span.depth === 0 ? 0.95 : 0.7, color: '#fff' }}>
+                        <span className="w-full truncate">{clampedWidth > 7 ? `${span.duration_ms}ms` : ''}</span>
+                      </div>
                     </div>
                     {clampedWidth <= 7 && (
                       <span className="pointer-events-none absolute top-1/2 -translate-y-1/2 font-mono text-[11px] text-zinc-400" style={{ left: `calc(${clampedLeft + clampedWidth}% + 8px)` }}>
@@ -290,7 +240,7 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
                       </span>
                     )}
                     {ticks.slice(1).map((t) => (
-                      <div key={t} className="pointer-events-none absolute inset-y-0 w-px bg-zinc-800/60" style={{ left: `${(t / totalMs) * 100}%` }} />
+                      <div key={t} className="pointer-events-none absolute inset-y-0 w-px bg-[var(--border-soft)]" style={{ left: `${(t / totalMs) * 100}%` }} />
                     ))}
                   </td>
                 </tr>
