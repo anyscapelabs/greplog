@@ -67,7 +67,18 @@ function buildTree(spans: SpanRow[]): Map<string, SpanRow[]> {
   return map
 }
 
-export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRACE_ID, totalMs = MOCK_TOTAL_MS }: { spans?: SpanRow[], traceId?: string, totalMs?: number }) {
+export default function TraceWaterfall({ 
+  spans = MOCK_SPANS, 
+  traceId = MOCK_TRACE_ID, 
+  totalMs = MOCK_TOTAL_MS,
+}: { 
+  spans?: SpanRow[], 
+  traceId?: string, 
+  totalMs?: number,
+  spanId?: string,
+  parentSpanId?: string,
+  durationMs?: number
+}) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [filterOpen, setFilterOpen] = useState(false)
   const [filterText, setFilterText] = useState('')
@@ -100,6 +111,10 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
   const ticks = [0, 33.62, 67.24, 100.86, 134.47]
   const headerMethod = 'GET'
 
+  // Use passed props or fallback to mock values
+  const displayTraceId = traceId ?? MOCK_TRACE_ID
+  const displayTotalMs = totalMs ?? MOCK_TOTAL_MS
+
   const toggleCollapse = (id: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev)
@@ -111,19 +126,19 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(traceId)
+      await navigator.clipboard.writeText(displayTraceId)
       setCopied(true)
       setTimeout(() => setCopied(false), 1200)
     } catch {}
   }
 
   const handleExport = () => {
-    const payload = { traceId, totalMs, spans: spans.map((s) => ({ span_id: s.span_id, parent_span_id: s.parent_span_id, service: s.service, operation: s.operation, start_offset_ms: s.start_offset_ms, duration_ms: s.duration_ms })) }
+    const payload = { traceId: displayTraceId, totalMs: displayTotalMs, spans: spans.map((s) => ({ span_id: s.span_id, parent_span_id: s.parent_span_id, service: s.service, operation: s.operation, start_offset_ms: s.start_offset_ms, duration_ms: s.duration_ms })) }
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${traceId}.json`
+    a.download = `${displayTraceId}.json`
     a.click()
     URL.revokeObjectURL(url)
     setExported(true)
@@ -140,7 +155,7 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2 truncate text-sm font-medium text-zinc-100">
             <span>mythical-requester: requester</span>
-            <span className="font-mono text-xs font-normal text-[var(--greplog-violet)]">{totalMs}ms</span>
+            <span className="font-mono text-xs font-normal text-[var(--greplog-violet)]">{displayTotalMs}ms</span>
           </div>
           <div className="flex items-center gap-2 font-mono text-xs text-zinc-400">
             <span>2023-07-20 14:10:38.703</span>

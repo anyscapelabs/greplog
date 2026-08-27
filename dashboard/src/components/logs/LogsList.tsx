@@ -151,6 +151,14 @@ function ExpandedPanel({
 }) {
   const [tab, setTab] = useState<'details' | 'tracing'>('details')
 
+  const detailsWithTrace = useMemo(() => ({
+    ...log.details,
+    ...(log.traceId && { trace_id: log.traceId }),
+    ...(log.spanId && { span_id: log.spanId }),
+    ...(log.parentSpanId && { parent_span_id: log.parentSpanId }),
+    ...(log.durationMs != null && { duration_ms: log.durationMs }),
+  }), [log.details, log.traceId, log.spanId, log.parentSpanId, log.durationMs])
+
   return (
     <div className="border-b border-[#262626] bg-[#111111]">
       <div className="flex items-center gap-1 border-b border-[#262626] px-2 py-1">
@@ -169,7 +177,16 @@ function ExpandedPanel({
           Tracing
         </button>
       </div>
-      {tab === 'details' ? <LogDetailsViewer data={log.details} /> : <TraceWaterfall />}
+      {tab === 'details' ? (
+        <LogDetailsViewer data={detailsWithTrace} />
+      ) : (
+        <TraceWaterfall
+          traceId={log.traceId ?? undefined}
+          spanId={log.spanId ?? undefined}
+          parentSpanId={log.parentSpanId ?? undefined}
+          durationMs={log.durationMs ?? undefined}
+        />
+      )}
     </div>
   )
 }
