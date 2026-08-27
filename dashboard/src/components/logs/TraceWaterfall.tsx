@@ -42,10 +42,11 @@ function barColor(service: string, highlight?: boolean): string {
 
 export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRACE_ID, totalMs = MOCK_TOTAL_MS }: { spans?: SpanRow[], traceId?: string, totalMs?: number }) {
   const distinctServices = new Set(spans.map((s) => s.service)).size
+  const timelineMax = Math.max(totalMs, 800)
 
   return (
-    <div className="bg-[#0a0a0a] px-4 py-3 font-mono text-xs">
-      <div className="mb-3 flex items-center justify-between text-[11px]">
+    <div className="bg-[#0a0a0a] px-4 py-3 font-mono text-sm">
+      <div className="mb-3 flex items-center justify-between text-sm">
         <span className="text-zinc-400">
           Trace <span className="font-semibold text-violet-400">{traceId}</span>
           <span className="text-zinc-500"> · {spans.length} spans across {distinctServices} services</span>
@@ -53,28 +54,30 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
         <span className="text-zinc-500">Total <span className="font-semibold text-violet-400">{totalMs}ms</span></span>
       </div>
 
-      <div className="relative mb-2 ml-[160px] h-3 text-[10px] text-zinc-600">
+      <div className="relative mb-2 ml-[160px] h-3 text-xs text-zinc-600">
         {[0, 200, 400, 600, 800].map((t) => (
-          <span key={t} className="absolute -translate-x-1/2" style={{ left: `${(t / 800) * 100}%` }}>{t}ms</span>
+          <span key={t} className="absolute -translate-x-1/2" style={{ left: `${(t / timelineMax) * 100}%` }}>{t}ms</span>
         ))}
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         {spans.map((span) => {
-          const left = (span.start_offset_ms / 800) * 100
-          const width = ((span.duration_ms ?? 0) / 800) * 100
+          const rawLeft = (span.start_offset_ms / timelineMax) * 100
+          const rawWidth = ((span.duration_ms ?? 0) / timelineMax) * 100
+          const left = Math.min(rawLeft, 100)
+          const width = Math.min(Math.max(rawWidth, 6), 100 - left)
           const color = barColor(span.service, span.service === 'payment-service')
           const isStripe = span.service === 'stripe.charge()'
           return (
             <div key={span.span_id} className="flex items-center gap-3">
               <div className="flex w-[150px] shrink-0 items-center gap-2">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
-                <span className="truncate text-zinc-400">{span.service}</span>
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+                <span className="truncate text-sm text-zinc-300">{span.service}</span>
               </div>
-              <div className="relative h-4 flex-1 rounded bg-zinc-900">
+              <div className="relative h-6 flex-1 overflow-hidden rounded bg-zinc-900">
                 <div
-                  className="absolute top-0.5 flex h-3 items-center rounded px-1 text-[10px] font-medium leading-none"
-                  style={{ left: `${left}%`, width: `${Math.max(width, 3)}%`, background: color, color: isStripe ? '#111' : '#fff' }}
+                  className="absolute top-1 flex h-4 items-center rounded px-1.5 text-xs font-medium leading-none"
+                  style={{ left: `${left}%`, width: `${width}%`, background: color, color: isStripe ? '#111' : '#fff' }}
                 >
                   <span className="truncate">{span.duration_ms}ms{isStripe ? ' - timeout' : ''}</span>
                 </div>
@@ -84,15 +87,15 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
         })}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-3 border-t border-zinc-800 pt-3 text-[11px]">
-        <span className="flex items-center gap-1.5 text-zinc-500"><span className="h-2 w-2 rounded-sm" style={{ background: '#a78bfa' }} />gateway</span>
-        <span className="flex items-center gap-1.5 text-zinc-500"><span className="h-2 w-2 rounded-sm" style={{ background: '#f59e0b' }} />order</span>
-        <span className="flex items-center gap-1.5 text-zinc-500"><span className="h-2 w-2 rounded-sm bg-red-500" />payment (bottleneck)</span>
-        <span className="flex items-center gap-1.5 text-zinc-500"><span className="h-2 w-2 rounded-sm bg-green-500" />inventory</span>
-        <span className="flex items-center gap-1.5 text-zinc-500"><span className="h-2 w-2 rounded-sm bg-blue-500" />auth</span>
+      <div className="mt-3 flex flex-wrap gap-3 border-t border-zinc-800 pt-3 text-xs">
+        <span className="flex items-center gap-1.5 text-zinc-500"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: '#a78bfa' }} />gateway</span>
+        <span className="flex items-center gap-1.5 text-zinc-500"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: '#f59e0b' }} />order</span>
+        <span className="flex items-center gap-1.5 text-zinc-500"><span className="h-2.5 w-2.5 rounded-sm bg-red-500" />payment (bottleneck)</span>
+        <span className="flex items-center gap-1.5 text-zinc-500"><span className="h-2.5 w-2.5 rounded-sm bg-green-500" />inventory</span>
+        <span className="flex items-center gap-1.5 text-zinc-500"><span className="h-2.5 w-2.5 rounded-sm bg-blue-500" />auth</span>
       </div>
 
-      <div className="mt-2 text-[11px] text-zinc-600">showing spans within the current time range — trace may be truncated · mock data</div>
+      <div className="mt-2 text-xs text-zinc-600">showing spans within the current time range — trace may be truncated · mock data</div>
     </div>
   )
 }
