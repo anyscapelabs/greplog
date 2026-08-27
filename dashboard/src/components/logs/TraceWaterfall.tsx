@@ -1,6 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import uPlot from 'uplot'
-import 'uplot/dist/uPlot.min.css'
+import { useMemo, useState } from 'react'
 import { LuChevronDown, LuChevronRight, LuCopy, LuDownload, LuFilter, LuChevronLeft, LuChevronRight as LuNext } from 'react-icons/lu'
 
 type SpanRow = {
@@ -64,8 +62,6 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
   const [filterText, setFilterText] = useState('')
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [copied, setCopied] = useState(false)
-  const minimapRef = useRef<HTMLDivElement>(null)
-  const minimapPlotRef = useRef<uPlot | null>(null)
 
   const filteredSpans = useMemo(() => {
     if (!filterText.trim()) return spans
@@ -121,45 +117,6 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
   const handlePrev = () => setSelectedIdx((i) => (i - 1 + visibleSpans.length) % visibleSpans.length)
   const handleNext = () => setSelectedIdx((i) => (i + 1) % visibleSpans.length)
 
-  useEffect(() => {
-    const el = minimapRef.current
-    if (!el) return
-    const xs = filteredSpans.map((s) => s.start_offset_ms)
-    const ys = filteredSpans.map((s) => s.duration_ms)
-    const data: [number[], number[]] = [xs, ys]
-    const opts: uPlot.Options = {
-      width: el.clientWidth,
-      height: 80,
-      padding: [8, 0, 0, 0],
-      cursor: { show: false },
-      legend: { show: false },
-      axes: [{ show: false }, { show: false }],
-      scales: { x: { time: false, range: [0, totalMs] }, y: { range: [0, Math.max(...ys, 10) * 1.1] } },
-      series: [
-        {},
-        {
-          label: 'duration',
-          fill: 'rgba(160,107,255,0.85)',
-          stroke: '#a06bff',
-          width: 1.5,
-          points: { show: false },
-          paths: uPlot.paths.bars!({ size: [0.9, 100], align: 0 }),
-        },
-      ],
-    }
-    const plot = new uPlot(opts, data, el)
-    minimapPlotRef.current = plot
-    const ro = new ResizeObserver(() => {
-      if (minimapPlotRef.current && el) minimapPlotRef.current.setSize({ width: el.clientWidth, height: 80 })
-    })
-    ro.observe(el)
-    return () => {
-      ro.disconnect()
-      plot.destroy()
-      minimapPlotRef.current = null
-    }
-  }, [filteredSpans, totalMs])
-
   const hasChildren = (id: string) => (tree.get(id)?.length ?? 0) > 0
 
   return (
@@ -207,9 +164,26 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
 
       <div className="border-b border-zinc-800 bg-zinc-950">
         <div className="flex">
-          <div className="w-[38%] shrink-0 border-r border-zinc-800" />
-          <div className="flex-1 border-l border-zinc-800 bg-zinc-900/30 px-2 py-2">
-            <div ref={minimapRef} className="h-20 w-full overflow-hidden rounded bg-zinc-900" />
+          <div className="w-[38%] shrink-0" />
+          <div className="relative h-12 flex-1 overflow-hidden px-2 py-2">
+            <div className="relative h-full w-full">
+              {filteredSpans.map((s) => {
+                const left = (s.start_offset_ms / totalMs) * 100
+                const width = Math.max((s.duration_ms / totalMs) * 100, 0.4)
+                return (
+                  <div
+                    key={s.span_id}
+                    className="absolute h-[3px] rounded-sm"
+                    style={{
+                      left: `${left}%`,
+                      width: `${width}%`,
+                      top: `${(s.depth * 6) + 2}px`,
+                      background: barColor(s.service, s.depth),
+                    }}
+                  />
+                )
+              })}
+            </div>
           </div>
         </div>
         <div className="flex border-t border-zinc-800">
