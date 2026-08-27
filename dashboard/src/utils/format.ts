@@ -1,3 +1,9 @@
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—'
+  if (ms >= 1000) return `${(ms / 1000).toFixed(2)} s`
+  return `${Math.round(ms)} ms`
+}
+
 const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const
 
 export interface ByteSize {

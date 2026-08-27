@@ -82,6 +82,9 @@ const FACET_WIRE_NAMES: Record<string, string> = {
   severity: 'level',
   level: 'level',
   service: 'service',
+  trace_id: 'trace_id',
+  span_id: 'span_id',
+  parent_span_id: 'parent_span_id',
 }
 
 function toWireFacets(facets: Record<string, string> | undefined): SearchFacets {
@@ -254,6 +257,19 @@ export const logApi = {
       search: filters.search || undefined,
       group_by: [],
       metrics: ['count', 'errors'],
+    })
+  },
+
+  fetchTrace: async (filters: QueryFilters, traceId: string): Promise<QueryRow[]> => {
+    validateFilters(filters)
+    if (!traceId.trim()) throw new Error('traceId must be non-empty')
+    return postSearch({
+      type: 'rows',
+      time_range_secs: filters.timeRangeSecs,
+      facets: { trace_id: traceId },
+      search: filters.search || undefined,
+      limit: 1000,
+      offset: 0,
     })
   },
 
