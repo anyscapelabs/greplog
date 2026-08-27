@@ -5,7 +5,10 @@ use axum::http::StatusCode;
 use axum::Json;
 use greplog_engine::error::EngineError;
 use greplog_engine::ingest::{IngestBatch, WalCommand};
-use greplog_engine::record::{is_valid_service_name, LogRecord, SERVICE_NAME_MAX_LEN};
+use greplog_engine::record::{
+    is_valid_duration_ms, is_valid_service_name, is_valid_span_id, is_valid_trace_id, LogRecord,
+    SERVICE_NAME_MAX_LEN, SPAN_ID_MAX_LEN, TRACE_ID_MAX_LEN,
+};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::error::ApiError;
@@ -26,6 +29,37 @@ fn validate_batch(payload: &[LogRecord]) -> Result<(), ApiError> {
                  a-z, A-Z, 0-9, '_', '.' or '-'",
                 record.service
             )));
+        }
+        if let Some(trace_id) = &record.trace_id {
+            if !is_valid_trace_id(trace_id) {
+                return Err(ApiError::BadRequest(format!(
+                    "invalid trace_id {:?}: use 1 to {TRACE_ID_MAX_LEN} characters of a-z, A-Z, 0-9, '_', '.' or '-'",
+                    trace_id
+                )));
+            }
+        }
+        if let Some(span_id) = &record.span_id {
+            if !is_valid_span_id(span_id) {
+                return Err(ApiError::BadRequest(format!(
+                    "invalid span_id {:?}: use 1 to {SPAN_ID_MAX_LEN} characters of a-z, A-Z, 0-9, '_', '.' or '-'",
+                    span_id
+                )));
+            }
+        }
+        if let Some(parent_span_id) = &record.parent_span_id {
+            if !is_valid_span_id(parent_span_id) {
+                return Err(ApiError::BadRequest(format!(
+                    "invalid parent_span_id {:?}: use 1 to {SPAN_ID_MAX_LEN} characters of a-z, A-Z, 0-9, '_', '.' or '-'",
+                    parent_span_id
+                )));
+            }
+        }
+        if let Some(duration_ms) = record.duration_ms {
+            if !is_valid_duration_ms(duration_ms) {
+                return Err(ApiError::BadRequest(format!(
+                    "invalid duration_ms {duration_ms}: must be between 0 and 86400000"
+                )));
+            }
         }
     }
     Ok(())
@@ -133,5 +167,68 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn invalid_trace_ids_are_rejected() {
+        let status = post_records(
+            app_with_stub_worker(),
+            serde_json::json!([{
+                "timestamp_us": 1,
+                "level": "INFO",
+                "service": "auth-api",
+                "message": "ok",
+                "trace_id": "bad/id"
+            }]),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn invalid_durations_are_rejected() {
+        let status = post_records(
+            app_with_stub_worker(),
+            serde_json::json!([{
+                "timestamp_us": 1,
+                "level": "INFO",
+                "service": "auth-api",
+                "message": "ok",
+                "duration_ms": -1
+            }]),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let status = post_records(
+            app_with_stub_worker(),
+            serde_json::json!([{
+                "timestamp_us": 1,
+                "level": "INFO",
+                "service": "auth-api",
+                "message": "ok",
+                "duration_ms": 86400001
+            }]),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn traced_rows_are_accepted() {
+        let status = post_records(
+            app_with_stub_worker(),
+            serde_json::json!([{
+                "timestamp_us": 1,
+                "level": "INFO",
+                "service": "auth-api",
+                "message": "ok",
+                "trace_id": "job_abc-123",
+                "span_id": "span_1",
+                "parent_span_id": "parent_0",
+                "duration_ms": 42
+            }]),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
     }
 }
