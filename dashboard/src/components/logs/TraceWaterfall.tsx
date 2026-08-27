@@ -1,3 +1,8 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import uPlot from 'uplot'
+import 'uplot/dist/uPlot.min.css'
+import { LuChevronDown, LuChevronRight, LuCopy, LuDownload, LuFilter, LuChevronLeft, LuChevronRight as LuNext } from 'react-icons/lu'
+
 type SpanRow = {
   span_id: string
   parent_span_id: string | null
@@ -33,90 +38,230 @@ const MOCK_SPANS: SpanRow[] = [
 ]
 
 const SERVICE_COLOR: Record<string, string> = {
-  'mythical-requester': '#0ea5e9',
-  'mythical-server': '#bae6fd',
+  'mythical-requester': '#a06bff',
+  'mythical-server': '#38bdf8',
 }
 
-function barColor(service: string): string {
-  return SERVICE_COLOR[service] ?? '#38bdf8'
+function barColor(service: string, depth: number): string {
+  const base = SERVICE_COLOR[service] ?? '#a06bff'
+  if (depth === 0) return base
+  return service === 'mythical-requester' ? 'rgba(160,107,255,0.65)' : 'rgba(56,189,248,0.55)'
 }
 
-export default function TraceWaterfall({ spans = MOCK_SPANS, totalMs = MOCK_TOTAL_MS }: { spans?: SpanRow[], traceId?: string, totalMs?: number }) {
+function buildTree(spans: SpanRow[]): Map<string, SpanRow[]> {
+  const map = new Map<string, SpanRow[]>()
+  for (const s of spans) {
+    const key = s.parent_span_id ?? '__root__'
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(s)
+  }
+  return map
+}
+
+export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRACE_ID, totalMs = MOCK_TOTAL_MS }: { spans?: SpanRow[], traceId?: string, totalMs?: number }) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [filterText, setFilterText] = useState('')
+  const [selectedIdx, setSelectedIdx] = useState(0)
+  const [copied, setCopied] = useState(false)
+  const minimapRef = useRef<HTMLDivElement>(null)
+  const minimapPlotRef = useRef<uPlot | null>(null)
+
+  const filteredSpans = useMemo(() => {
+    if (!filterText.trim()) return spans
+    const q = filterText.toLowerCase()
+    return spans.filter((s) => s.service.toLowerCase().includes(q) || s.operation.toLowerCase().includes(q))
+  }, [spans, filterText])
+
+  const tree = useMemo(() => buildTree(filteredSpans), [filteredSpans])
+
+  const visibleSpans = useMemo(() => {
+    const out: SpanRow[] = []
+    const walk = (parentId: string | null) => {
+      const key = parentId ?? '__root__'
+      const children = tree.get(key) ?? []
+      for (const child of children) {
+        out.push(child)
+        if (!collapsed.has(child.span_id)) walk(child.span_id)
+      }
+    }
+    walk(null)
+    return out
+  }, [tree, collapsed])
+
   const ticks = [0, 33.62, 67.24, 100.86, 134.47]
 
+  const toggleCollapse = (id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(traceId)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    } catch {}
+  }
+
+  const handleExport = () => {
+    const blob = new Blob([JSON.stringify(spans, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${traceId}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handlePrev = () => setSelectedIdx((i) => (i - 1 + visibleSpans.length) % visibleSpans.length)
+  const handleNext = () => setSelectedIdx((i) => (i + 1) % visibleSpans.length)
+
+  useEffect(() => {
+    const el = minimapRef.current
+    if (!el) return
+    const xs = filteredSpans.map((s) => s.start_offset_ms)
+    const ys = filteredSpans.map((s) => s.duration_ms)
+    const data: [number[], number[]] = [xs, ys]
+    const opts: uPlot.Options = {
+      width: el.clientWidth,
+      height: 48,
+      padding: [4, 0, 0, 0],
+      cursor: { show: false },
+      legend: { show: false },
+      axes: [{ show: false }, { show: false }],
+      scales: { x: { time: false, range: [0, totalMs] } },
+      series: [
+        {},
+        {
+          label: 'duration',
+          fill: 'rgba(160,107,255,0.55)',
+          stroke: '#a06bff',
+          points: { show: false },
+          paths: uPlot.paths.bars!({ size: [0.7, 100] }),
+        },
+      ],
+    }
+    const plot = new uPlot(opts, data, el)
+    minimapPlotRef.current = plot
+    const ro = new ResizeObserver(() => {
+      if (minimapPlotRef.current && el) minimapPlotRef.current.setSize({ width: el.clientWidth, height: 48 })
+    })
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      plot.destroy()
+      minimapPlotRef.current = null
+    }
+  }, [filteredSpans, totalMs])
+
+  const hasChildren = (id: string) => (tree.get(id)?.length ?? 0) > 0
+
   return (
-    <div className="overflow-hidden rounded border border-zinc-800 bg-[#0f1419] text-sm">
-      <div className="flex items-center justify-between border-b border-zinc-800 bg-[#1a232e] px-3 py-2">
+    <div className="overflow-hidden rounded border border-zinc-800 bg-zinc-950 text-sm">
+      <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-3 py-2">
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-zinc-100">mythical-requester: requester <span className="font-mono text-xs font-normal text-zinc-400">{totalMs}ms</span></div>
-          <div className="font-mono text-xs text-zinc-400">2023-07-20 14:10:38.703 <span className="ml-2 rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-medium text-white">GET</span> <span className="text-zinc-300">owlbear</span></div>
+          <div className="font-mono text-xs text-zinc-400">2023-07-20 14:10:38.703 <span className="ml-2 rounded bg-[#a06bff] px-1.5 py-0.5 text-[10px] font-medium text-white">GET</span> <span className="text-zinc-300">owlbear</span></div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <button type="button" className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-300">Trace ID</button>
-          <button type="button" className="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-300">Export</button>
+          <button type="button" onClick={handleCopy} className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-700">
+            <LuCopy className="h-3 w-3" /> {copied ? 'Copied' : 'Trace ID'}
+          </button>
+          <button type="button" onClick={handleExport} className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-700">
+            <LuDownload className="h-3 w-3" /> Export
+          </button>
         </div>
       </div>
 
-      <div className="flex items-center justify-between border-b border-zinc-800 bg-[#111a23] px-3 py-1.5 text-xs">
-        <button type="button" className="flex items-center gap-1 text-zinc-300">› Span Filters <span className="ml-1 flex h-3 w-3 items-center justify-center rounded-full border border-zinc-600 text-[10px]">?</span></button>
-        <div className="flex items-center gap-2 text-zinc-400">
-          <span className="text-zinc-300">{spans.length} spans</span>
-          <div className="flex overflow-hidden rounded border border-zinc-700 text-[11px]">
-            <button type="button" className="bg-zinc-800 px-2 py-0.5 text-zinc-300">Prev</button>
-            <button type="button" className="border-l border-zinc-700 bg-zinc-800 px-2 py-0.5 text-zinc-300">Next</button>
+      <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-3 py-1.5 text-sm">
+        <button type="button" onClick={() => setFilterOpen((v) => !v)} className="inline-flex items-center gap-1 text-sm text-zinc-300 hover:text-zinc-100">
+          <LuFilter className="h-3 w-3" /> Span Filters
+          <span className="ml-1 flex h-3 w-3 items-center justify-center rounded-full border border-zinc-600 text-[10px]">?</span>
+        </button>
+        <div className="flex items-center gap-2 text-sm text-zinc-400">
+          <span className="text-sm text-zinc-300">{visibleSpans.length} spans</span>
+          <div className="flex overflow-hidden rounded border border-zinc-700 text-xs">
+            <button type="button" onClick={handlePrev} className="inline-flex items-center gap-1 bg-zinc-800 px-2 py-1 text-zinc-200 hover:bg-zinc-700"><LuChevronLeft className="h-3 w-3" /> Prev</button>
+            <button type="button" onClick={handleNext} className="inline-flex items-center gap-1 border-l border-zinc-700 bg-zinc-800 px-2 py-1 text-zinc-200 hover:bg-zinc-700">Next <LuNext className="h-3 w-3" /></button>
           </div>
         </div>
       </div>
 
-      <div className="relative h-12 border-b border-zinc-800 bg-[#0f1419] px-3 py-2">
-        <div className="relative h-6 w-full">
+      {filterOpen && (
+        <div className="border-b border-zinc-800 bg-zinc-900 px-3 py-2">
+          <input
+            autoFocus
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="Filter by service or operation (e.g. mythical-server)"
+            className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200 placeholder:text-zinc-500 focus:border-[#a06bff] focus:outline-none"
+          />
+        </div>
+      )}
+
+      <div className="border-b border-zinc-800 bg-zinc-950 px-3 py-2">
+        <div ref={minimapRef} className="h-12 w-full overflow-hidden" />
+        <div className="relative -mt-1 ml-0 flex h-3 justify-between font-mono text-[10px] text-zinc-500">
           {ticks.map((t) => (
-            <span key={t} className="absolute top-0 -translate-x-1/2 font-mono text-[10px] text-zinc-500" style={{ left: `${(t / totalMs) * 100}%` }}>{t === 0 ? '0µs' : `${t}ms`}</span>
+            <span key={t}>{t === 0 ? '0µs' : `${t}ms`}</span>
           ))}
-          <div className="absolute inset-x-0 top-3 h-[1px] bg-zinc-800" />
-          <div className="absolute inset-x-0 top-3">
-            {spans.slice(0, 8).map((s) => {
-              const left = (s.start_offset_ms / totalMs) * 100
-              const width = Math.max((s.duration_ms / totalMs) * 100, 0.6)
-              return <div key={s.span_id} className="absolute h-[3px] rounded-sm opacity-70" style={{ left: `${left}%`, width: `${width}%`, top: `${(s.depth * 3)}px`, background: barColor(s.service) }} />
-            })}
-          </div>
         </div>
       </div>
 
-      <div className="flex">
+      <div className="flex max-h-[560px] min-h-[320px] overflow-auto">
         <div className="w-[38%] shrink-0 border-r border-zinc-800">
-          <div className="flex items-center gap-1 border-b border-zinc-800 bg-[#1a232e] px-2 py-1.5 font-mono text-xs text-zinc-400">
-            <span className="flex-1">Service & Operation</span>
+          <div className="sticky top-0 z-10 flex items-center gap-1 border-b border-zinc-800 bg-zinc-900 px-2 py-1.5 font-mono text-xs text-zinc-400">
+            <span className="flex-1 text-sm">Service & Operation</span>
             <span className="text-[10px]">› › » 0µs</span>
           </div>
-          {spans.map((span) => (
-            <div key={span.span_id} className="flex items-center gap-1 border-b border-zinc-800/50 px-2 py-[3px] hover:bg-zinc-800/40" style={{ paddingLeft: `${8 + span.depth * 14}px` }}>
-              <span className="text-[10px] text-zinc-600">{span.depth > 0 ? '›' : '∨'}</span>
-              <span className="h-3 w-[3px] shrink-0 rounded-sm" style={{ background: barColor(span.service) }} />
-              <span className="truncate font-mono text-xs text-zinc-300">{span.service}</span>
-              <span className="ml-1 hidden truncate text-[11px] text-zinc-500 xl:inline">{span.operation}</span>
-              <span className="ml-auto shrink-0 font-mono text-[11px] text-zinc-500">{span.duration_ms > 10 ? `${span.duration_ms}ms` : span.duration_ms < 1 ? `${(span.duration_ms * 1000).toFixed(0)}µs` : `${span.duration_ms}ms`}</span>
-            </div>
-          ))}
+          {visibleSpans.map((span, idx) => {
+            const collapsible = hasChildren(span.span_id)
+            const isCollapsed = collapsed.has(span.span_id)
+            const isSelected = idx === selectedIdx
+            return (
+              <button
+                key={span.span_id}
+                type="button"
+                onClick={() => (collapsible ? toggleCollapse(span.span_id) : setSelectedIdx(idx))}
+                className={`flex w-full items-center gap-1 border-b border-zinc-800/50 px-2 py-1 text-left hover:bg-zinc-800/60 ${isSelected ? 'bg-[#a06bff]/10' : ''}`}
+                style={{ paddingLeft: `${8 + span.depth * 14}px` }}
+              >
+                <span className="flex h-4 w-4 items-center justify-center text-zinc-500">
+                  {collapsible ? (isCollapsed ? <LuChevronRight className="h-3 w-3" /> : <LuChevronDown className="h-3 w-3" />) : <span className="h-3 w-3" />}
+                </span>
+                <span className="h-3 w-[3px] shrink-0 rounded-sm" style={{ background: barColor(span.service, span.depth) }} />
+                <span className="truncate text-sm text-zinc-300">{span.service}</span>
+                <span className="ml-1 hidden truncate text-sm text-zinc-500 xl:inline">{span.operation}</span>
+              </button>
+            )
+          })}
         </div>
 
         <div className="flex-1 overflow-hidden">
-          <div className="flex border-b border-zinc-800 bg-[#1a232e] font-mono text-[11px] text-zinc-500">
+          <div className="sticky top-0 z-10 flex border-b border-zinc-800 bg-zinc-900 font-mono text-xs text-zinc-500">
             {ticks.map((t) => (
-              <div key={t} className="flex-1 border-r border-zinc-800/50 px-1 py-1 text-center last:border-r-0">{t === 0 ? '0µs' : `${t}ms`}</div>
+              <div key={t} className="flex-1 border-r border-zinc-800/50 px-1 py-1 text-center text-[11px] last:border-r-0">{t === 0 ? '0µs' : `${t}ms`}</div>
             ))}
           </div>
           <div className="relative">
             {ticks.slice(1).map((t) => (
               <div key={t} className="absolute inset-y-0 w-px bg-zinc-800/60" style={{ left: `${(t / totalMs) * 100}%` }} />
             ))}
-            {spans.map((span) => {
+            {visibleSpans.map((span, idx) => {
               const left = (span.start_offset_ms / totalMs) * 100
               const width = Math.max((span.duration_ms / totalMs) * 100, 0.8)
+              const isSelected = idx === selectedIdx
               return (
-                <div key={span.span_id} className="relative flex h-[22px] items-center border-b border-zinc-800/30">
-                  <div className="absolute h-3 rounded-sm" style={{ left: `${Math.min(left, 100 - width)}%`, width: `${Math.min(width, 100 - left)}%`, background: span.service === 'mythical-requester' ? '#0ea5e9' : '#bae6fd', opacity: span.depth === 0 ? 0.95 : 0.7 }} />
+                <div key={span.span_id} className={`relative flex h-[22px] items-center border-b border-zinc-800/30 ${isSelected ? 'bg-[#a06bff]/10' : ''}`}>
+                  <div
+                    className="absolute h-3 rounded-sm"
+                    style={{ left: `${Math.min(left, 100 - width)}%`, width: `${Math.min(width, 100 - left)}%`, background: span.service === 'mythical-requester' ? '#a06bff' : '#a06bff', opacity: span.depth === 0 ? 0.95 : span.service === 'mythical-requester' ? 0.85 : 0.6 }}
+                  />
                 </div>
               )
             })}
