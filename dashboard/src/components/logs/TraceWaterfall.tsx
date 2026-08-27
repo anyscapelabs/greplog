@@ -46,6 +46,23 @@ function barColor(service: string, depth: number): string {
   return service === 'mythical-requester' ? 'rgba(160,107,255,0.65)' : 'rgba(56,189,248,0.55)'
 }
 
+function methodBadgeClass(method: string): string {
+  switch (method.toUpperCase()) {
+    case 'GET':
+      return 'bg-sky-600'
+    case 'POST':
+      return 'bg-emerald-600'
+    case 'PUT':
+      return 'bg-amber-500'
+    case 'DELETE':
+      return 'bg-red-600'
+    case 'PATCH':
+      return 'bg-violet-600'
+    default:
+      return 'bg-zinc-700'
+  }
+}
+
 function buildTree(spans: SpanRow[]): Map<string, SpanRow[]> {
   const map = new Map<string, SpanRow[]>()
   for (const s of spans) {
@@ -62,6 +79,7 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
   const [filterText, setFilterText] = useState('')
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [copied, setCopied] = useState(false)
+  const [exported, setExported] = useState(false)
 
   const filteredSpans = useMemo(() => {
     if (!filterText.trim()) return spans
@@ -105,13 +123,27 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
   }
 
   const handleExport = () => {
-    const blob = new Blob([JSON.stringify(spans, null, 2)], { type: 'application/json' })
+    const payload = {
+      traceId,
+      totalMs,
+      spans: spans.map((s) => ({
+        span_id: s.span_id,
+        parent_span_id: s.parent_span_id,
+        service: s.service,
+        operation: s.operation,
+        start_offset_ms: s.start_offset_ms,
+        duration_ms: s.duration_ms,
+      })),
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `${traceId}.json`
     a.click()
     URL.revokeObjectURL(url)
+    setExported(true)
+    setTimeout(() => setExported(false), 1200)
   }
 
   const handlePrev = () => setSelectedIdx((i) => (i - 1 + visibleSpans.length) % visibleSpans.length)
@@ -119,19 +151,30 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
 
   const hasChildren = (id: string) => (tree.get(id)?.length ?? 0) > 0
 
+  // Demo method for header badge — derived from mock root operation
+  const headerMethod = 'GET'
+  const headerService = 'owlbear'
+
   return (
     <div className="overflow-hidden rounded border border-zinc-800 bg-zinc-950 text-sm">
-      <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-3 py-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-zinc-100">mythical-requester: requester <span className="font-mono text-xs font-normal text-zinc-400">{totalMs}ms</span></div>
-          <div className="font-mono text-xs text-zinc-400">2023-07-20 14:10:38.703 <span className="ml-2 rounded bg-[#a06bff] px-1.5 py-0.5 text-[10px] font-medium text-white">GET</span> <span className="text-zinc-300">owlbear</span></div>
+      <div className="flex items-center justify-between gap-4 border-b border-zinc-800 bg-zinc-900 px-4 py-3">
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2 truncate text-sm font-medium text-zinc-100">
+            <span>mythical-requester: requester</span>
+            <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs font-normal text-zinc-300">{totalMs}ms</span>
+          </div>
+          <div className="flex items-center gap-2 font-mono text-xs text-zinc-400">
+            <span>2023-07-20 14:10:38.703</span>
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-white ${methodBadgeClass(headerMethod)}`}>{headerMethod}</span>
+            <span className="text-zinc-300">{headerService}</span>
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button type="button" onClick={handleCopy} className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-700">
-            <LuCopy className="h-3 w-3" /> {copied ? 'Copied' : 'Trace ID'}
+        <div className="flex shrink-0 items-center gap-2">
+          <button type="button" onClick={handleCopy} className="inline-flex items-center gap-1.5 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700">
+            <LuCopy className="h-3.5 w-3.5" /> {copied ? 'Copied' : 'Trace ID'}
           </button>
-          <button type="button" onClick={handleExport} className="inline-flex items-center gap-1 rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-700">
-            <LuDownload className="h-3 w-3" /> Export
+          <button type="button" onClick={handleExport} className="inline-flex items-center gap-1.5 rounded border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-700">
+            <LuDownload className="h-3.5 w-3.5" /> {exported ? 'Exported' : 'Export'}
           </button>
         </div>
       </div>
