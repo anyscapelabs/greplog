@@ -202,3 +202,25 @@ export function useStorage() {
       : undefined,
   }
 }
+
+export function useTrace(filters: QueryFilters | null, traceId: string | null) {
+  const traceQuery = useQuery({
+    queryKey: ['trace', filters, traceId],
+    placeholderData: keepPreviousData,
+    queryFn: () => {
+      if (!filters) throw new Error('Query filters are required')
+      if (!traceId) throw new Error('traceId is required')
+      return logApi.fetchTrace(filters, traceId)
+    },
+    enabled: filters !== null && traceId !== null && traceId.trim().length > 0,
+  })
+
+  return {
+    data: traceQuery.data,
+    isLoading: traceQuery.isLoading,
+    isError: traceQuery.isError,
+    error: traceQuery.error,
+    errorMessage: traceQuery.isError ? getErrorMessage(traceQuery.error) : undefined,
+    refetch: traceQuery.refetch,
+  }
+}
