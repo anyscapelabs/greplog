@@ -129,7 +129,7 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
     const data: [number[], number[]] = [xs, ys]
     const opts: uPlot.Options = {
       width: el.clientWidth,
-      height: 48,
+      height: 56,
       padding: [4, 0, 0, 0],
       cursor: { show: false },
       legend: { show: false },
@@ -149,7 +149,7 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
     const plot = new uPlot(opts, data, el)
     minimapPlotRef.current = plot
     const ro = new ResizeObserver(() => {
-      if (minimapPlotRef.current && el) minimapPlotRef.current.setSize({ width: el.clientWidth, height: 48 })
+      if (minimapPlotRef.current && el) minimapPlotRef.current.setSize({ width: el.clientWidth, height: 56 })
     })
     ro.observe(el)
     return () => {
@@ -204,69 +204,68 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
         </div>
       )}
 
-      <div className="border-b border-zinc-800 bg-zinc-950 px-3 py-2">
-        <div ref={minimapRef} className="h-12 w-full overflow-hidden" />
-        <div className="relative -mt-1 ml-0 flex h-3 justify-between font-mono text-[10px] text-zinc-500">
-          {ticks.map((t) => (
-            <span key={t}>{t === 0 ? '0µs' : `${t}ms`}</span>
-          ))}
+      <div className="border-b border-zinc-800 bg-zinc-950">
+        <div className="flex">
+          <div className="w-[38%] shrink-0" />
+          <div className="flex-1 px-2 py-2">
+            <div ref={minimapRef} className="h-14 w-full overflow-hidden" />
+          </div>
+        </div>
+        <div className="flex border-t border-zinc-800">
+          <div className="w-[38%] shrink-0 border-r border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-500">Service & Operation</div>
+          <div className="flex flex-1 divide-x divide-zinc-800/50 font-mono text-[11px] text-zinc-500">
+            {ticks.map((t) => (
+              <div key={t} className="flex-1 bg-zinc-900 px-1 py-1 text-center">{t === 0 ? '0µs' : `${t}ms`}</div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="flex max-h-[560px] min-h-[320px] overflow-auto">
-        <div className="w-[38%] shrink-0 border-r border-zinc-800">
-          <div className="sticky top-0 z-10 flex items-center gap-1 border-b border-zinc-800 bg-zinc-900 px-2 py-1.5 font-mono text-xs text-zinc-400">
-            <span className="flex-1 text-sm">Service & Operation</span>
-            <span className="text-[10px]">› › » 0µs</span>
-          </div>
-          {visibleSpans.map((span, idx) => {
-            const collapsible = hasChildren(span.span_id)
-            const isCollapsed = collapsed.has(span.span_id)
-            const isSelected = idx === selectedIdx
-            return (
-              <button
-                key={span.span_id}
-                type="button"
-                onClick={() => (collapsible ? toggleCollapse(span.span_id) : setSelectedIdx(idx))}
-                className={`flex w-full items-center gap-1 border-b border-zinc-800/50 px-2 py-1 text-left hover:bg-zinc-800/60 ${isSelected ? 'bg-[#a06bff]/10' : ''}`}
-                style={{ paddingLeft: `${8 + span.depth * 14}px` }}
-              >
-                <span className="flex h-4 w-4 items-center justify-center text-zinc-500">
-                  {collapsible ? (isCollapsed ? <LuChevronRight className="h-3 w-3" /> : <LuChevronDown className="h-3 w-3" />) : <span className="h-3 w-3" />}
-                </span>
-                <span className="h-3 w-[3px] shrink-0 rounded-sm" style={{ background: barColor(span.service, span.depth) }} />
-                <span className="truncate text-sm text-zinc-300">{span.service}</span>
-                <span className="ml-1 hidden truncate text-sm text-zinc-500 xl:inline">{span.operation}</span>
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="flex-1 overflow-hidden">
-          <div className="sticky top-0 z-10 flex border-b border-zinc-800 bg-zinc-900 font-mono text-xs text-zinc-500">
-            {ticks.map((t) => (
-              <div key={t} className="flex-1 border-r border-zinc-800/50 px-1 py-1 text-center text-[11px] last:border-r-0">{t === 0 ? '0µs' : `${t}ms`}</div>
-            ))}
-          </div>
-          <div className="relative">
-            {ticks.slice(1).map((t) => (
-              <div key={t} className="absolute inset-y-0 w-px bg-zinc-800/60" style={{ left: `${(t / totalMs) * 100}%` }} />
-            ))}
+      <div className="max-h-[640px] min-h-[360px] overflow-auto">
+        <table className="w-full table-fixed border-collapse text-sm">
+          <colgroup>
+            <col style={{ width: '38%' }} />
+            <col style={{ width: '62%' }} />
+          </colgroup>
+          <tbody>
             {visibleSpans.map((span, idx) => {
+              const collapsible = hasChildren(span.span_id)
+              const isCollapsed = collapsed.has(span.span_id)
+              const isSelected = idx === selectedIdx
               const left = (span.start_offset_ms / totalMs) * 100
               const width = Math.max((span.duration_ms / totalMs) * 100, 0.8)
-              const isSelected = idx === selectedIdx
+              const clampedLeft = Math.min(left, 100 - width)
+              const clampedWidth = Math.min(width, 100 - clampedLeft)
               return (
-                <div key={span.span_id} className={`relative flex h-[22px] items-center border-b border-zinc-800/30 ${isSelected ? 'bg-[#a06bff]/10' : ''}`}>
-                  <div
-                    className="absolute h-3 rounded-sm"
-                    style={{ left: `${Math.min(left, 100 - width)}%`, width: `${Math.min(width, 100 - left)}%`, background: span.service === 'mythical-requester' ? '#a06bff' : '#a06bff', opacity: span.depth === 0 ? 0.95 : span.service === 'mythical-requester' ? 0.85 : 0.6 }}
-                  />
-                </div>
+                <tr key={span.span_id} className={`h-[22px] border-b border-zinc-800 ${isSelected ? 'bg-[#a06bff]/10' : 'hover:bg-zinc-800/40'}`}>
+                  <td className="border-r border-zinc-800 px-2 py-0">
+                    <button
+                      type="button"
+                      onClick={() => (collapsible ? toggleCollapse(span.span_id) : setSelectedIdx(idx))}
+                      className="flex w-full items-center gap-1 text-left"
+                      style={{ paddingLeft: `${span.depth * 14}px` }}
+                    >
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center text-zinc-500">
+                        {collapsible ? (isCollapsed ? <LuChevronRight className="h-3 w-3" /> : <LuChevronDown className="h-3 w-3" />) : <span className="h-3 w-3" />}
+                      </span>
+                      <span className="h-3 w-[3px] shrink-0 rounded-sm" style={{ background: barColor(span.service, span.depth) }} />
+                      <span className="truncate text-sm text-zinc-300">{span.service}</span>
+                      <span className="ml-1 hidden truncate text-sm text-zinc-500 xl:inline">{span.operation}</span>
+                    </button>
+                  </td>
+                  <td className="relative overflow-hidden px-0 py-0">
+                    <div className="absolute inset-y-0 flex items-center" style={{ left: `${clampedLeft}%`, width: `${clampedWidth}%` }}>
+                      <div className="h-3 w-full rounded-sm" style={{ background: barColor(span.service, span.depth), opacity: span.depth === 0 ? 0.95 : 0.7 }} />
+                    </div>
+                    {ticks.slice(1).map((t) => (
+                      <div key={t} className="pointer-events-none absolute inset-y-0 w-px bg-zinc-800/60" style={{ left: `${(t / totalMs) * 100}%` }} />
+                    ))}
+                  </td>
+                </tr>
               )
             })}
-          </div>
-        </div>
+          </tbody>
+        </table>
       </div>
     </div>
   )
