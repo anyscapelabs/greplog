@@ -221,7 +221,7 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
         </div>
       </div>
 
-      <div className="max-h-[640px] min-h-[360px] overflow-auto">
+      <div className="max-h-[640px] overflow-auto">
         <table className="w-full table-fixed border-collapse text-sm">
           <colgroup>
             <col style={{ width: '38%' }} />
