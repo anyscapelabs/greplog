@@ -10,6 +10,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+use serde::Deserialize;
+
 use crate::error::EngineError;
 use crate::record::LogRecord;
 
@@ -83,15 +85,17 @@ impl WalWriter {
         };
         let mut reader = BufReader::new(file);
         let mut out = Vec::new();
+        let mut legacy_mode: Option<bool> = None;
         loop {
-            match bincode::deserialize_from::<_, LogRecord>(&mut reader) {
-                Ok(record) => out.push(record),
-                Err(e) => {
-                    if is_end_of_log(&e) {
-                        break;
+            match try_read_record(&mut reader, legacy_mode) {
+                Ok((Some(record), is_legacy)) => {
+                    if legacy_mode.is_none() {
+                        legacy_mode = Some(is_legacy);
                     }
-                    return Err(EngineError::BincodeError(e));
+                    out.push(record);
                 }
+                Ok((None, _)) => break,
+                Err(e) => return Err(e),
             }
         }
         Ok(out)
@@ -131,15 +135,17 @@ pub fn record_count(path: &Path) -> Result<usize, EngineError> {
     };
     let mut reader = BufReader::new(file);
     let mut count = 0usize;
+    let mut legacy_mode: Option<bool> = None;
     loop {
-        match bincode::deserialize_from::<_, LogRecord>(&mut reader) {
-            Ok(_) => count += 1,
-            Err(e) => {
-                if is_end_of_log(&e) {
-                    break;
+        match try_read_record(&mut reader, legacy_mode) {
+            Ok((Some(_), is_legacy)) => {
+                if legacy_mode.is_none() {
+                    legacy_mode = Some(is_legacy);
                 }
-                return Err(EngineError::BincodeError(e));
+                count += 1;
             }
+            Ok((None, _)) => break,
+            Err(e) => return Err(e),
         }
     }
     Ok(count)
@@ -154,18 +160,79 @@ pub fn replay_all(wal_path: &Path) -> Result<Vec<LogRecord>, EngineError> {
     Ok(out)
 }
 
-/// True when the bincode error signals the clean end of a log (truncated
-/// trailing record), false for mid-file corruption.
-///
-/// Only the `Io(UnexpectedEof)` variant counts. Matching error *strings*
-/// would misread a serde format change as end-of-log and silently drop
-/// everything after it.
 fn is_end_of_log(error: &bincode::ErrorKind) -> bool {
     matches!(
         error,
-        bincode::ErrorKind::Io(io_error)
-            if io_error.kind() == std::io::ErrorKind::UnexpectedEof
+        bincode::ErrorKind::Io(e) if e.kind() == std::io::ErrorKind::UnexpectedEof
     )
+}
+
+#[derive(Deserialize)]
+struct LegacyLogRecord {
+    timestamp_us: i64,
+    trace_id: Option<String>,
+    level: String,
+    service: String,
+    message: String,
+    raw_body: Option<String>,
+}
+
+impl From<LegacyLogRecord> for LogRecord {
+    fn from(v: LegacyLogRecord) -> Self {
+        Self {
+            timestamp_us: v.timestamp_us,
+            trace_id: v.trace_id,
+            span_id: None,
+            parent_span_id: None,
+            duration_ms: None,
+            level: v.level,
+            service: v.service,
+            message: v.message,
+            raw_body: v.raw_body,
+        }
+    }
+}
+
+fn try_read_record(
+    reader: &mut BufReader<File>,
+    legacy_mode: Option<bool>,
+) -> Result<(Option<LogRecord>, bool), EngineError> {
+    use std::io::{Seek, SeekFrom};
+    let pos = reader.stream_position().map_err(EngineError::IoError)?;
+    let try_new_first = legacy_mode.unwrap_or(false) == false;
+    if try_new_first {
+        match bincode::deserialize_from::<_, LogRecord>(&mut *reader) {
+            Ok(record) => return Ok((Some(record), false)),
+            Err(e) if is_end_of_log(&e) => return Ok((None, false)),
+            Err(e) if legacy_mode.is_none() && !is_encoding_error(&e) => {
+                reader.seek(SeekFrom::Start(pos)).map_err(EngineError::IoError)?;
+                match bincode::deserialize_from::<_, LegacyLogRecord>(&mut *reader) {
+                    Ok(legacy) => return Ok((Some(legacy.into()), true)),
+                    Err(e) if is_end_of_log(&e) => return Ok((None, true)),
+                    Err(_) => {
+                        reader.seek(SeekFrom::Start(pos)).map_err(EngineError::IoError)?;
+                        match bincode::deserialize_from::<_, LogRecord>(&mut *reader) {
+                            Ok(r) => return Ok((Some(r), false)),
+                            Err(e) if is_end_of_log(&e) => return Ok((None, false)),
+                            Err(e) => return Err(EngineError::BincodeError(e)),
+                        }
+                    }
+                }
+            }
+            Err(e) => return Err(EngineError::BincodeError(e)),
+        }
+    } else {
+        match bincode::deserialize_from::<_, LegacyLogRecord>(&mut *reader) {
+            Ok(legacy) => return Ok((Some(legacy.into()), true)),
+            Err(e) if is_end_of_log(&e) => return Ok((None, true)),
+            Err(e) => return Err(EngineError::BincodeError(e)),
+        }
+    }
+}
+
+fn is_encoding_error(error: &bincode::ErrorKind) -> bool {
+    let msg = error.to_string();
+    msg.contains("invalid") || msg.contains("Utf8") || msg.contains("utf8")
 }
 
 fn parse_sealed_seq(name: &str) -> Option<u64> {
@@ -368,5 +435,45 @@ mod tests {
 
         let listed = sealed_segments(&active).expect("list sealed");
         assert_eq!(listed.len(), 2, "only sealed-<n> wal names are segments");
+    }
+
+    #[test]
+    fn legacy_wal_replays_with_new_fields_as_none() {
+        use std::io::Write;
+        use super::WalWriter;
+        use serde::Serialize;
+        #[derive(Serialize)]
+        struct OldRecord {
+            timestamp_us: i64,
+            trace_id: Option<String>,
+            level: String,
+            service: String,
+            message: String,
+            raw_body: Option<String>,
+        }
+        let dir = tempdir().expect("create temp dir");
+        let path = dir.path().join("current.wal");
+        {
+            let file = std::fs::File::create(&path).expect("create wal");
+            let mut writer = std::io::BufWriter::new(file);
+            let old = OldRecord {
+                timestamp_us: 1_700_000_000_000_123,
+                trace_id: Some("legacy".into()),
+                level: "INFO".into(),
+                service: "auth-api".into(),
+                message: "hello".into(),
+                raw_body: None,
+            };
+            bincode::serialize_into(&mut writer, &old).expect("serialize legacy");
+            writer.flush().expect("flush");
+        }
+        let recovered = WalWriter::replay_wal(&path).expect("legacy must replay");
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(recovered[0].trace_id.as_deref(), Some("legacy"));
+        // new tracing columns default to None, not error
+        assert_eq!(recovered[0].span_id, None);
+        assert_eq!(recovered[0].parent_span_id, None);
+        assert_eq!(recovered[0].duration_ms, None);
+        assert_eq!(record_count(&path).expect("count legacy"), 1);
     }
 }
