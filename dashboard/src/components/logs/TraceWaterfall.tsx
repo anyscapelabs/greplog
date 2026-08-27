@@ -254,9 +254,23 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
                     </button>
                   </td>
                   <td className="relative overflow-hidden px-1 py-0.5">
-                    <div className="absolute inset-y-0 flex items-center" style={{ left: `calc(${clampedLeft}% + 4px)`, width: `calc(${clampedWidth}% - 4px)` }}>
-                      <div className="h-4 w-full rounded-sm" style={{ background: barColor(span.service, span.depth), opacity: span.depth === 0 ? 0.95 : 0.7 }} />
+                    <div
+                      className="absolute inset-y-0 flex items-center"
+                      style={{ left: `calc(${clampedLeft}% + 4px)`, width: `calc(${clampedWidth}% - 4px)` }}
+                      title={`${span.duration_ms}ms`}
+                    >
+                      <div
+                        className="flex h-4 w-full items-center rounded-sm px-1 text-[10px] font-medium leading-none"
+                        style={{ background: barColor(span.service, span.depth), opacity: span.depth === 0 ? 0.95 : 0.7, color: '#fff' }}
+                      >
+                        <span className="w-full truncate">{clampedWidth > 7 ? `${span.duration_ms}ms` : ''}</span>
+                      </div>
                     </div>
+                    {clampedWidth <= 7 && (
+                      <span className="pointer-events-none absolute top-1/2 -translate-y-1/2 font-mono text-[11px] text-zinc-400" style={{ left: `calc(${clampedLeft + clampedWidth}% + 8px)` }}>
+                        {span.duration_ms}ms
+                      </span>
+                    )}
                     {ticks.slice(1).map((t) => (
                       <div key={t} className="pointer-events-none absolute inset-y-0 w-px bg-zinc-800/60" style={{ left: `${(t / totalMs) * 100}%` }} />
                     ))}
