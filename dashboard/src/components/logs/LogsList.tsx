@@ -164,9 +164,9 @@ function ExpandedPanel({
         <button
           type="button"
           onClick={() => setTab('tracing')}
-          className={`rounded px-2 py-1 text-sm font-medium ${tab === 'tracing' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}
+          className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-sm font-medium ${tab === 'tracing' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'}`}
         >
-          Tracing
+          Tracing <span className="rounded bg-[#2a2a2a] px-1.5 py-0.5 text-[10px] font-medium leading-none text-zinc-300">6 spans</span>
         </button>
       </div>
       {tab === 'details' ? <LogDetailsViewer data={log.details} /> : <TraceWaterfall />}
