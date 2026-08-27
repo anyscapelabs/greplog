@@ -253,9 +253,9 @@ export default function TraceWaterfall({ spans = MOCK_SPANS, traceId = MOCK_TRAC
                       <span className="ml-1 hidden truncate text-sm text-zinc-500 xl:inline">{span.operation}</span>
                     </button>
                   </td>
-                  <td className="relative overflow-hidden px-3 py-1">
-                    <div className="absolute inset-y-0 my-1 flex items-center" style={{ left: `calc(${clampedLeft}% + 12px)`, width: `calc(${clampedWidth}% - 12px)` }}>
-                      <div className="h-3 w-full rounded-sm" style={{ background: barColor(span.service, span.depth), opacity: span.depth === 0 ? 0.95 : 0.7 }} />
+                  <td className="relative overflow-hidden px-1 py-0.5">
+                    <div className="absolute inset-y-0 flex items-center" style={{ left: `calc(${clampedLeft}% + 4px)`, width: `calc(${clampedWidth}% - 4px)` }}>
+                      <div className="h-4 w-full rounded-sm" style={{ background: barColor(span.service, span.depth), opacity: span.depth === 0 ? 0.95 : 0.7 }} />
                     </div>
                     {ticks.slice(1).map((t) => (
                       <div key={t} className="pointer-events-none absolute inset-y-0 w-px bg-zinc-800/60" style={{ left: `${(t / totalMs) * 100}%` }} />
